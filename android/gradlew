@@ -1,4 +1,3 @@
-#!/bin/sh
 
 #
 # Standard Gradle wrapper launcher script. Requires gradle-wrapper.jar to be
@@ -14,7 +13,7 @@
 # from inside the android/ directory — this regenerates both the jar and
 # these scripts to match.
 ##############################################################################
-DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
+DEFAULT_JVM_OPTS="-Xmx64m -Xms64m"
 APP_HOME=$(cd "$(dirname "$0")" && pwd -P) || exit
 APP_NAME="Gradle"
 APP_BASE_NAME=$(basename "$0")
