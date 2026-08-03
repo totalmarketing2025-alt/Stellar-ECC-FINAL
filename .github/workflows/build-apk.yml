@@ -1,53 +1,43 @@
-name: Build APK
+name: Build Flutter APK
 
-# Runs entirely on GitHub's servers — triggered just by pushing code, which
-# can be done from a phone (see TESTING.md "Phone-only install" section).
-# No local Flutter/Android SDK install needed on your own device.
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch: {} # also allows a manual "Run workflow" button in the Actions tab
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Set up Java
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: 17
 
-      - name: Set up Flutter
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
-          channel: 'stable'
+          flutter-version: "3.24.0"
+          channel: stable
 
-      - name: Regenerate Gradle wrapper
-        # gradle-wrapper.jar is a binary artifact that can't be produced
-        # without network access to services.gradle.org — instead of
-        # shipping it in the repo, we regenerate it here using the Gradle
-        # that's already preinstalled on GitHub's hosted runners. This
-        # produces a correct, matching gradlew/gradlew.bat/wrapper.jar/
-        # wrapper.properties set every build, which is actually more
-        # robust than a checked-in jar that could drift out of sync.
+      - name: Create local.properties
         run: |
-          cd android
-          gradle wrapper --gradle-version 8.7
-          cd ..
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
-      - name: Install dependencies
+      - name: Get dependencies
         run: flutter pub get
 
-      - name: Build debug APK
-        run: flutter build apk --debug
+      - name: Build APK
+        run: flutter build apk --release
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: stellar-ecc-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
-          retention-days: 14
+          name: stellar-ecc-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
