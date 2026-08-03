@@ -14,9 +14,7 @@
 # from inside the android/ directory — this regenerates both the jar and
 # these scripts to match.
 ##############################################################################
-
-DEFAULT_JVM_OPTS='"-DEFAULT_JVM_OPTS='"-Xmx4G" "-Xms512m"'Xmx64m" "-Xms64m"'
-
+DEFAULT_JVM_OPTS='"-Xmx4G" "-Xms512m"'
 APP_HOME=$(cd "$(dirname "$0")" && pwd -P) || exit
 APP_NAME="Gradle"
 APP_BASE_NAME=$(basename "$0")
