@@ -33,6 +33,13 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Fix flutter_jailbreak_detection namespace
+        run: |
+          FILE=$(find ~/.pub-cache -path "*flutter_jailbreak_detection*/android/build.gradle" | head -1)
+          if [ -n "$FILE" ]; then
+            sed -i '/android {/a\    namespace "com.flutter.jailbreak_detection"' "$FILE"
+          fi
+
       - name: Build APK
         run: flutter build apk --release
 
