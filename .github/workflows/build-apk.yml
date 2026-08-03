@@ -24,17 +24,28 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.24.0"
+          channel: stable
 
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Fix flutter_jailbreak_detection namespace
+      - name: Fix flutter jailbreak detection
         run: |
           FILE=$(find ~/.pub-cache -path "*flutter_jailbreak_detection-1.10.0/android/build.gradle" | head -1)
-          echo $FILE
           if [ -n "$FILE" ]; then
             sed -i '/android {/a\    namespace "com.flutter_jailbreak_detection"' "$FILE"
           fi
 
+      - name: Fix record android plugin
+        run: |
+          RECORD=$(find ~/.pub-cache -path "*record_android-1.5.2/android/build.gradle" | head -1)
+          if [ -n "$RECORD" ]; then
+            sed -i '/android {/a\    namespace "com.llfbandit.record"' "$RECORD"
+            sed -i 's/flutter.compileSdkVersion/36/g' "$RECORD"
+          fi
+
       - name: Build APK
-        run: flutter build apk --
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses:
