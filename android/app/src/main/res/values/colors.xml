@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="stellar_bg_primary">#FF05060A</color>
+    <color name="stellar_bg_surface">#FF0E1016</color>
+    <color name="stellar_accent_blue">#FF4A7CFF</color>
+    <color name="stellar_accent_purple">#FF8B5CF6</color>
+</resources>

@@ -1,0 +1,10 @@
+# Copy this file to android/key.properties (which is gitignored) and fill
+# in your own release keystore details before building a signed release AAB.
+# Generate a keystore with:
+#   keytool -genkey -v -keystore ~/stellar-ecc-release.jks -keyalg RSA \
+#     -keysize 2048 -validity 10000 -alias stellar_ecc
+
+storePassword=REPLACE_ME
+keyPassword=REPLACE_ME
+keyAlias=stellar_ecc
+storeFile=/absolute/path/to/stellar-ecc-release.jks

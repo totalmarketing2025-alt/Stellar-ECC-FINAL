@@ -1,0 +1,53 @@
+name: Build APK
+
+# Runs entirely on GitHub's servers — triggered just by pushing code, which
+# can be done from a phone (see TESTING.md "Phone-only install" section).
+# No local Flutter/Android SDK install needed on your own device.
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {} # also allows a manual "Run workflow" button in the Actions tab
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+
+      - name: Regenerate Gradle wrapper
+        # gradle-wrapper.jar is a binary artifact that can't be produced
+        # without network access to services.gradle.org — instead of
+        # shipping it in the repo, we regenerate it here using the Gradle
+        # that's already preinstalled on GitHub's hosted runners. This
+        # produces a correct, matching gradlew/gradlew.bat/wrapper.jar/
+        # wrapper.properties set every build, which is actually more
+        # robust than a checked-in jar that could drift out of sync.
+        run: |
+          cd android
+          gradle wrapper --gradle-version 8.7
+          cd ..
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-ecc-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 14

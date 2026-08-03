@@ -1,0 +1,30 @@
+{
+  "//": "This file MUST be replaced with the real google-services.json exported from your own Firebase project console (Project Settings > Your apps > Android app > google-services.json). The structure below is correct and matches what Firebase generates, but the values are non-functional placeholders — FCM push will not work until you swap this file. Do not commit your real file's client secrets to a public repo without checking your Firebase project's API key restrictions.",
+  "project_info": {
+    "project_number": "000000000000",
+    "project_id": "REPLACE_WITH_YOUR_PROJECT_ID",
+    "storage_bucket": "REPLACE_WITH_YOUR_PROJECT_ID.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+        "android_client_info": {
+          "package_name": "ecc.stellar.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "REPLACE_WITH_YOUR_ANDROID_API_KEY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

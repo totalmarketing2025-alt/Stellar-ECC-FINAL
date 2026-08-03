@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Deliberately NO com.apple.developer.icloud-container-identifiers and
+	     NO com.apple.developer.ubiquity-kvstore-identifier entries here —
+	     the app must never opt any of its storage into iCloud sync, per
+	     the "no cloud backups" requirement (Phase 12 checklist). -->
+
+	<key>aps-environment</key>
+	<string>development</string>
+
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)ecc.stellar.app</string>
+	</array>
+</dict>
+</plist>

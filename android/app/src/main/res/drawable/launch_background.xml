@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solid Deep Space background for the native splash, before the Flutter
+     engine attaches and the animated splash (Phase 5) takes over. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/stellar_bg_primary" />
+</layer-list>

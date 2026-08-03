@@ -1,0 +1,79 @@
+name: stellar_ecc
+description: Stellar ECC — privacy-first, ephemeral, end-to-end encrypted messenger.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: ">=3.19.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+  # State management
+  flutter_riverpod: ^2.5.1
+
+  # Routing
+  go_router: ^14.2.0
+
+  # Cryptography — Signal Protocol (X3DH + Double Ratchet + Sender Keys),
+  # audited protocol design, Dart port of libsignal's protocol logic.
+  libsignal_protocol_dart: ^0.4.0
+  cryptography: ^2.7.0
+  pointycastle: ^3.9.1
+  crypto: ^3.0.6
+
+  # Local encrypted storage — raw sqlite3 bindings (hand-written SQL,
+  # no code-generation step required) with SQLCipher native libs swapped
+  # in for at-rest encryption.
+  sqlite3: ^2.4.6
+  sqlcipher_flutter_libs: ^0.6.4
+  path_provider: ^2.1.3
+  path: ^1.9.0
+
+  # Secure key storage (Keystore / Secure Enclave-backed)
+  flutter_secure_storage: ^9.2.2
+
+  # Networking
+  web_socket_channel: ^3.0.1
+  http: ^1.2.2
+
+  # Calls
+  flutter_webrtc: ^0.11.6
+
+  # Attachments
+  image_picker: ^1.1.2
+  file_picker: ^8.1.2
+  record: ^5.1.2
+
+  # Biometrics / App lock
+  local_auth: ^2.3.0
+
+  # Safety-number / contact verification QR codes
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^6.0.2
+
+  # Push notifications
+  firebase_messaging: ^15.1.3
+  firebase_core: ^3.6.0
+
+  # Root / jailbreak detection
+  flutter_jailbreak_detection: ^1.10.0
+
+  # Utilities
+  uuid: ^4.5.1
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  mockito: ^5.4.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/anim/
