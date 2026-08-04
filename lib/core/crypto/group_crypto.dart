@@ -32,9 +32,14 @@ class GroupCrypto {
   ) async {
     final builder = GroupSessionBuilder(senderKeyStore);
 
+    final distributionMessage =
+        SenderKeyDistributionMessageWrapper(
+          distributionMessageBytes,
+        );
+
     await builder.process(
       groupSenderKeyName,
-      distributionMessageBytes,
+      distributionMessage,
     );
   }
 
