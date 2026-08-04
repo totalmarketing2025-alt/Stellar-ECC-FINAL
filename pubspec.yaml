@@ -46,8 +46,7 @@ dependencies:
   # Attachments
   image_picker: ^1.1.2
   file_picker: ^8.1.2
-  record: ^5.1.2
-
+record: ^6.0.0
   # Biometrics / App lock
   local_auth: ^2.3.0
 
@@ -60,7 +59,6 @@ dependencies:
   firebase_core: ^3.6.0
 
   # Root / jailbreak detection
-  flutter_jailbreak_detection: ^1.10.0
 
   # Utilities
   uuid: ^4.5.1
