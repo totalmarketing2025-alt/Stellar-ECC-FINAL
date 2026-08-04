@@ -1,5 +1,3 @@
-
-
 name: Flutter APK Build
 
 on:
@@ -25,28 +23,15 @@ jobs:
       - name: Flutter setup
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.24.0
-          channel: stable
+          flutter-version: "3.24.0"
 
       - name: Flutter doctor
         run: flutter doctor -v
 
       - name: Get dependencies
-        run: flutter pub get
-
-      - name: Fix flutter_jailbreak_detection
         run: |
-          FILE=$(find ~/.pub-cache -path "*flutter_jailbreak_detection*/android/build.gradle" | head -1)
-          if [ -n "$FILE" ]; then
-            sed -i '/android {/a\    namespace "com.flutter_jailbreak_detection"' "$FILE"
-          fi
-
-      - name: Fix record_android
-        run: |
-          RECORD=$(find ~/.pub-cache -path "*record_android*/android/build.gradle" | head -1)
-          if [ -n "$RECORD" ]; then
-            sed -i '/android {/a\    namespace "com.llfbandit.record"' "$RECORD"
-          fi
+          flutter clean
+          flutter pub get
 
       - name: Build APK
         run: flutter build apk --release
@@ -54,5 +39,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: flutter-apk
+          name: stellar-ecc-apk
           path: build/app/outputs/flutter-apk/app-release.apk
