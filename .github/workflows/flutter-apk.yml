@@ -23,7 +23,7 @@ jobs:
 
       - name: Inspect libsignal wrapper
         run: |
-          grep -n "SenderKeyDistributionMessageWrapper(" ~/.pub-cache/hosted/pub.dev/libsignal_protocol_dart-0.7.1/lib/src/protocol/sender_key_distribution_message_wrapper.dart -A15
+          sed -n '1,80p' ~/.pub-cache/hosted/pub.dev/libsignal_protocol_dart-0.7.1/lib/src/protocol/sender_key_distribution_message_wrapper.dart
 
       - name: Build APK
         run: flutter build apk --release
