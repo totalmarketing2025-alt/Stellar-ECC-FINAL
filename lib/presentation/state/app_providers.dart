@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/storage/providers.dart';
@@ -46,9 +47,46 @@ final mediaAttachmentServiceProvider = Provider<MediaAttachmentService>((ref) {
   );
 });
 
-/// Set once the user completes onboarding / logs in; screens that need the
-/// local nickname read this rather than hardcoding it.
-final localNicknameProvider = StateProvider<String?>((ref) => null);
+/// Persistent local Stellar nickname.
+///
+/// The nickname is stored in PlatformKeyStore so it survives app restarts.
+/// The in-memory Riverpod state is kept in sync through [load] and [setNickname].
+class LocalNicknameController extends StateNotifier<String?> {
+  LocalNicknameController(this._keyStore) : super(null);
+
+  final PlatformKeyStore _keyStore;
+
+  static const _storageKey = 'stellar.local_nickname';
+
+  Future<void> load() async {
+    final value = await _keyStore.readSecret(_storageKey);
+    state = value == null ? null : String.fromCharCodes(value);
+  }
+
+  Future<void> setNickname(String nickname) async {
+    final value = nickname.trim();
+    if (value.isEmpty) {
+      throw ArgumentError('Nickname cannot be empty');
+    }
+
+    await _keyStore.writeSecret(
+      _storageKey,
+      Uint8List.fromList(value.codeUnits),
+    );
+
+    state = value;
+  }
+
+  Future<void> clear() async {
+    await _keyStore.deleteSecret(_storageKey);
+    state = null;
+  }
+}
+
+final localNicknameProvider =
+    StateNotifierProvider<LocalNicknameController, String?>((ref) {
+  return LocalNicknameController(ref.watch(platformKeyStoreProvider));
+});
 
 final chatRepositoryProvider = Provider<ChatRepository>((ref) {
   final nickname = ref.watch(localNicknameProvider);

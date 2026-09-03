@@ -75,7 +75,7 @@ class _ChooseNicknameScreenState extends ConsumerState<ChooseNicknameScreen> {
     // against POST /v1/register (Phase 4/9 directory API) before committing.
     await Future.delayed(const Duration(milliseconds: 600));
 
-    ref.read(localNicknameProvider.notifier).state = nickname;
+    await ref.read(localNicknameProvider.notifier).setNickname(nickname);
     setState(() => _checking = false);
 
     if (mounted) context.go('/onboarding/recovery');

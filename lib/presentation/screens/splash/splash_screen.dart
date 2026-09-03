@@ -34,6 +34,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     final identityStore = ref.read(identityKeyStoreProvider);
     await identityStore.initializeIfAbsent();
 
+    await ref.read(localNicknameProvider.notifier).load();
     final nickname = ref.read(localNicknameProvider);
     await Future.delayed(const Duration(milliseconds: 700)); // let the animation finish
 
