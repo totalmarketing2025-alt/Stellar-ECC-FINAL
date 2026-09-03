@@ -33,7 +33,7 @@ class GroupCrypto {
     final builder = GroupSessionBuilder(senderKeyStore);
 
     final distributionMessage =
-        SenderKeyDistributionMessageWrapper(
+        SenderKeyDistributionMessageWrapper.fromSerialized(
           distributionMessageBytes,
         );
 
