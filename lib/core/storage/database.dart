@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:sqlite3/open.dart';
+import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 import '../security/platform_key_store.dart';
@@ -26,6 +28,7 @@ class StellarDatabase {
   late final MediaBlobDao mediaBlobDao = MediaBlobDao(_db);
 
   static Future<StellarDatabase> open() async {
+    open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
     final dir = await getApplicationSupportDirectory();
     final dbPath = p.join(dir.path, 'stellar_ephemeral.sqlite');
 
@@ -34,6 +37,16 @@ class StellarDatabase {
     final hexKey = _bytesToHex(rawKey);
 
     final db = sqlite3.open(dbPath);
+
+    final cipherVersion = db.select('PRAGMA cipher_version;');
+
+    if (cipherVersion.isEmpty) {
+      db.dispose();
+      throw StateError(
+        'SQLCipher is not available. '
+        'Refusing to open the database without encryption.',
+      );
+    }
     // SQLCipher key pragma must be the first statement executed on the
     // connection, before any schema access.
     db.execute("PRAGMA key = \"x'$hexKey'\";");
