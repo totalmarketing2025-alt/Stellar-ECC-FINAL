@@ -123,13 +123,12 @@ class ChatRepository {
     final envelope = Envelope.decode(rawEnvelope);
     final senderAddress = SignalProtocolAddress(senderNickname, 1);
 
-    final CiphertextMessage signalMessage;
+    late final CiphertextMessage signalMessage;
 
-    try {
-      signalMessage = PreKeySignalMessage.fromSerialized(
-        envelope.ciphertext,
-      );
-    } catch (_) {
+    if (envelope.ciphertext.isNotEmpty &&
+        (envelope.ciphertext[0] & 0x07) == CiphertextMessage.prekeyType) {
+      signalMessage = PreKeySignalMessage(envelope.ciphertext);
+    } else {
       signalMessage = SignalMessage.fromSerialized(
         envelope.ciphertext,
       );
