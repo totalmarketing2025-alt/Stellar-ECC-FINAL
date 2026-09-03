@@ -171,7 +171,12 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
 
     final repo = ref.read(chatRepositoryProvider);
     final chatId = 'direct_$nickname';
-    await repo.createDirectChat(chatId: chatId, displayName: nickname);
+    await repo.createDirectChat(
+      chatId: chatId,
+      displayName: nickname,
+      peerName: nickname,
+      peerDeviceId: 1,
+    );
     ref.invalidate(chatListProvider);
     if (mounted) context.push('/chat/$chatId');
   }

@@ -169,12 +169,16 @@ class ChatRepository {
     required String chatId,
     required String displayName,
     int defaultTtlSeconds = TtlPreset.oneHour,
+    String? peerName,
+    int? peerDeviceId,
   }) {
     return db.chatDao.insert(
       chatId: chatId,
       chatType: 'direct',
       displayName: displayName,
       defaultTtlSec: defaultTtlSeconds,
+      peerName: peerName,
+      peerDeviceId: peerDeviceId,
     );
   }
 }

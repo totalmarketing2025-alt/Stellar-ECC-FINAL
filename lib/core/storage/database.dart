@@ -334,11 +334,22 @@ class ChatDao {
     required String chatType,
     required String displayName,
     required int defaultTtlSec,
+    String? peerName,
+    int? peerDeviceId,
   }) async {
     _db.execute(
-      'INSERT INTO chat (chat_id, chat_type, display_name, default_ttl_sec, created_at) '
-      'VALUES (?, ?, ?, ?, ?)',
-      [chatId, chatType, displayName, defaultTtlSec, DateTime.now().millisecondsSinceEpoch ~/ 1000],
+      'INSERT INTO chat '
+      '(chat_id, chat_type, display_name, default_ttl_sec, created_at, peer_name, peer_device_id) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [
+        chatId,
+        chatType,
+        displayName,
+        defaultTtlSec,
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        peerName,
+        peerDeviceId,
+      ],
     );
   }
 

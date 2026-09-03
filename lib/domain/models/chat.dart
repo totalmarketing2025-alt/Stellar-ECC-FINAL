@@ -12,6 +12,8 @@ class Chat {
     this.unreadCount = 0,
     this.oldestVisibleExpiry,
     this.memberIds = const [],
+    this.peerName,
+    this.peerDeviceId,
   });
 
   final String chatId;
@@ -24,6 +26,8 @@ class Chat {
   final int unreadCount;
   final DateTime? oldestVisibleExpiry;
   final List<String> memberIds;
+  final String? peerName;
+  final int? peerDeviceId;
 
   factory Chat.fromRow(Map<String, Object?> row) {
     return Chat(
@@ -32,6 +36,8 @@ class Chat {
       displayName: row['display_name'] as String,
       defaultTtlSeconds: row['default_ttl_sec'] as int,
       createdAt: DateTime.fromMillisecondsSinceEpoch((row['created_at'] as int) * 1000),
+      peerName: row['peer_name'] as String?,
+      peerDeviceId: row['peer_device_id'] as int?,
     );
   }
 
