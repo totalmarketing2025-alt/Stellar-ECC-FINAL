@@ -67,9 +67,13 @@ class StellarDatabase {
         chat_type       TEXT NOT NULL,
         display_name    TEXT NOT NULL,
         default_ttl_sec INTEGER NOT NULL DEFAULT 3600,
-        created_at      INTEGER NOT NULL
+        created_at      INTEGER NOT NULL,
+        peer_name       TEXT,
+        peer_device_id  INTEGER
       );
     ''');
+
+    _ensureChatPeerColumns(db);
 
     db.execute('''
       CREATE TABLE IF NOT EXISTS message (
@@ -152,6 +156,19 @@ class StellarDatabase {
         PRIMARY KEY (group_id, sender, device_id)
       );
     ''');
+  }
+
+  static void _ensureChatPeerColumns(Database db) {
+    final columns = db.select('PRAGMA table_info(chat)');
+    final names = columns.map((row) => row['name'] as String).toSet();
+
+    if (!names.contains('peer_name')) {
+      db.execute('ALTER TABLE chat ADD COLUMN peer_name TEXT;');
+    }
+
+    if (!names.contains('peer_device_id')) {
+      db.execute('ALTER TABLE chat ADD COLUMN peer_device_id INTEGER;');
+    }
   }
 
   static String _bytesToHex(Uint8List bytes) =>
