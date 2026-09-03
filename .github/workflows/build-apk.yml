@@ -1,4 +1,3 @@
-
 name: Flutter APK Build
 
 on:
@@ -19,12 +18,12 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
 
-      - name: Flutter setup
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.24.0"
+          flutter-version: '3.24.0'
           channel: stable
           cache: true
 
