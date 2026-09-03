@@ -103,7 +103,7 @@ class ChatRepository {
     final token = Uint8List.fromList(utf8.encode(_uuid.v4()).take(16).toList());
     final envelope = Envelope(
       deliveryToken: token,
-      recipientRoute: recipientNickname, // resolved server-side to an opaque route in production
+      recipientRoute: peerName, // resolved server-side to an opaque route in production
       ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
     );
 
