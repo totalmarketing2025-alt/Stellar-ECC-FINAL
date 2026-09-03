@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:sqlite3/open.dart';
+import 'package:sqlite3/open.dart' as sqlite3_open;
 import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart';
 import 'package:sqlite3/sqlite3.dart';
 
@@ -28,7 +28,7 @@ class StellarDatabase {
   late final MediaBlobDao mediaBlobDao = MediaBlobDao(_db);
 
   static Future<StellarDatabase> open() async {
-    open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
+    sqlite3_open.open.overrideFor(sqlite3_open.OperatingSystem.android, openCipherOnAndroid);
     final dir = await getApplicationSupportDirectory();
     final dbPath = p.join(dir.path, 'stellar_ephemeral.sqlite');
 
