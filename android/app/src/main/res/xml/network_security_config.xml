@@ -1,20 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  Certificate pinning for the relay/directory hosts (Phase 11 §6). The
-  pin-set below includes both the CURRENT and NEXT certificate's SPKI
-  hash — a rotation plan, not just a single pin — so a planned cert
-  rotation doesn't require a forced app update to keep connectivity.
-  Replace both SHA-256 pins with your real deployment's certificate
-  pins before shipping; placeholder hashes below will hard-fail TLS
-  connections until replaced, by design (fail closed, not open).
--->
 <network-security-config>
-    <domain-config>
-        <domain includeSubdomains="true">relay.stellarecc.example</domain>
-        <domain includeSubdomains="true">directory.stellarecc.example</domain>
-        <pin-set expiration="2027-01-01">
-            <pin digest="SHA-256">REPLACE_WITH_CURRENT_CERT_SPKI_PIN=</pin>
-            <pin digest="SHA-256">REPLACE_WITH_NEXT_CERT_SPKI_PIN=</pin>
-        </pin-set>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="false" />
 </network-security-config>
