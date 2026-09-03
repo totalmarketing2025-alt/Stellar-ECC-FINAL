@@ -123,8 +123,22 @@ class ChatRepository {
     final envelope = Envelope.decode(rawEnvelope);
     final senderAddress = SignalProtocolAddress(senderNickname, 1);
 
-    final signalMessage = SignalMessage.fromSerialized(envelope.ciphertext);
-    final plaintextBytes = await sessionManager.decryptReceived(senderAddress, signalMessage);
+    final CiphertextMessage signalMessage;
+
+    try {
+      signalMessage = PreKeySignalMessage.fromSerialized(
+        envelope.ciphertext,
+      );
+    } catch (_) {
+      signalMessage = SignalMessage.fromSerialized(
+        envelope.ciphertext,
+      );
+    }
+
+    final plaintextBytes = await sessionManager.decryptReceived(
+      senderAddress,
+      signalMessage,
+    );
     final plaintext = utf8.decode(plaintextBytes);
 
     final messageId = _uuid.v4();
