@@ -56,13 +56,20 @@ class ChatRepository {
   /// device out of band in a full implementation; see docs note below).
   Future<Message> sendDirectMessage({
     required String chatId,
-    required String recipientNickname,
     required String plaintext,
     required int ttlSeconds,
     String? replyToId,
     Uint8List? attachmentBytes,
     String? attachmentMimeType,
   }) async {
+    final chatRow = await db.chatDao.byId(chatId);
+    final peerName = chatRow?['peer_name'] as String?;
+    final peerDeviceId = chatRow?['peer_device_id'] as int?;
+
+    if (peerName == null || peerName.isEmpty || peerDeviceId == null) {
+      throw StateError('Direct chat peer mapping is missing for $chatId');
+    }
+
     final messageId = _uuid.v4();
 
     // 1. Persist locally immediately (optimistic UI), status = sending.
@@ -85,7 +92,7 @@ class ChatRepository {
     }
 
     // 2. Encrypt via the Double Ratchet session with the recipient.
-    final address = SignalProtocolAddress(recipientNickname, 1);
+    final address = SignalProtocolAddress(peerName, peerDeviceId);
     final plaintextBytes = Uint8List.fromList(utf8.encode(plaintext));
     final ciphertextMessage = await sessionManager.encryptForSend(address, plaintextBytes);
 

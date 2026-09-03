@@ -157,13 +157,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       orElse: () => null,
     );
     final ttl = _perMessageTtlOverride >= 0 ? _perMessageTtlOverride : (chat?.defaultTtlSeconds ?? TtlPreset.oneHour);
-    final recipientNickname = widget.chatId.startsWith('direct_')
-        ? widget.chatId.substring('direct_'.length)
-        : widget.chatId;
 
     await ref.read(chatRepositoryProvider).sendDirectMessage(
           chatId: widget.chatId,
-          recipientNickname: recipientNickname,
           plaintext: '📎 Attachment',
           ttlSeconds: ttl,
           attachmentBytes: bytes,
@@ -205,12 +201,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final ttl = _perMessageTtlOverride >= 0 ? _perMessageTtlOverride : (chat?.defaultTtlSeconds ?? TtlPreset.oneHour);
 
     // chatId convention from ChatListScreen._promptNewDirectChat is
-    // "direct_<nickname>" — recipient resolution kept simple here; a
-    // production build would store the recipient nickname as a first-class
-    // column rather than deriving it from the chat id.
-    final recipientNickname = widget.chatId.startsWith('direct_')
-        ? widget.chatId.substring('direct_'.length)
-        : widget.chatId;
 
     _composerController.clear();
     final replyId = _replyingTo?.messageId;
@@ -218,7 +208,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     await ref.read(chatRepositoryProvider).sendDirectMessage(
           chatId: widget.chatId,
-          recipientNickname: recipientNickname,
           plaintext: text,
           ttlSeconds: ttl,
           replyToId: replyId,

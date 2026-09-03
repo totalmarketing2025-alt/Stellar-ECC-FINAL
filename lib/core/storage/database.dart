@@ -357,6 +357,14 @@ class ChatDao {
     return _db.select('SELECT * FROM chat ORDER BY created_at DESC');
   }
 
+  Future<Map<String, Object?>?> byId(String chatId) async {
+    final rows = _db.select(
+      'SELECT * FROM chat WHERE chat_id = ? LIMIT 1',
+      [chatId],
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
   Future<void> updateDefaultTtl(String chatId, int ttlSec) async {
     _db.execute('UPDATE chat SET default_ttl_sec = ? WHERE chat_id = ?', [ttlSec, chatId]);
   }
