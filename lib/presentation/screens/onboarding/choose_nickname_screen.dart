@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
 import '../../state/app_providers.dart';
+import '../../../core/network/directory_client.dart';
 
 class ChooseNicknameScreen extends ConsumerStatefulWidget {
   const ChooseNicknameScreen({super.key});
@@ -65,19 +66,75 @@ class _ChooseNicknameScreenState extends ConsumerState<ChooseNicknameScreen> {
 
   Future<void> _submit() async {
     final nickname = _controller.text.trim();
-    if (nickname.isEmpty || nickname.length < 3) {
-      setState(() => _error = 'Nickname must be at least 3 characters');
+
+    if (nickname.isEmpty) {
       return;
     }
+
     setState(() => _checking = true);
 
-    // In production this calls DirectoryClient.checkAvailability(nickname)
-    // against POST /v1/register (Phase 4/9 directory API) before committing.
-    await Future.delayed(const Duration(milliseconds: 600));
+    try {
+      final directory = ref.read(directoryClientProvider);
 
-    await ref.read(localNicknameProvider.notifier).setNickname(nickname);
-    setState(() => _checking = false);
+      final available =
+          await directory.checkAvailability(nickname);
 
-    if (mounted) context.go('/onboarding/recovery');
-  }
+      if (!available) {
+        if (!mounted) return;
+
+        setState(() => _checking = false);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This nickname is already taken.'),
+          ),
+        );
+
+        return;
+      }
+
+      final sessionManager =
+          ref.read(sessionManagerProvider);
+
+      final bundle =
+          await sessionManager.buildLocalDirectoryBundle();
+
+      await directory.register(
+        nickname: nickname,
+        preKeyBundle: bundle,
+      );
+
+      await ref
+          .read(localNicknameProvider.notifier)
+          .setNickname(nickname);
+
+      if (!mounted) return;
+
+      setState(() => _checking = false);
+      context.go('/onboarding/recovery');
+    } on DirectoryException catch (e) {
+      if (!mounted) return;
+
+      setState(() => _checking = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Directory error (${e.statusCode}): ${e.message}',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() => _checking = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Registration failed: $e'),
+        ),
+      );
+    }
+
+}
 }

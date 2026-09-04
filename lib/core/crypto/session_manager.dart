@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import 'signal_stores.dart';
+import 'signal_bundle_serializer.dart';
 import 'directory_signal_adapter.dart';
 import '../network/directory_client.dart';
 
@@ -68,6 +69,21 @@ class SessionManager {
     await establishSession(
       remoteAddress,
       bundle,
+    );
+  }
+
+  /// Builds the public Signal prekey bundle that may be
+  /// published to the Directory server.
+  ///
+  /// Private identity/prekey material never leaves the local stores.
+  Future<Map<String, dynamic>> buildLocalDirectoryBundle() async {
+    const serializer = SignalBundleSerializer();
+
+    return serializer.buildBundle(
+      identityStore: identityStore,
+      preKeyStore: preKeyStore,
+      signedPreKeyStore: signedPreKeyStore,
+      deviceId: 1,
     );
   }
 

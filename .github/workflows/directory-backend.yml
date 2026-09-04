@@ -1,0 +1,138 @@
+name: Directory Backend Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  directory-test:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend/directory
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/directory/package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Start Directory server
+        run: |
+          node server.js > directory.log 2>&1 &
+          echo $! > directory.pid
+
+      - name: Wait for server
+        run: |
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:8080/health; then
+              echo
+              echo "Directory server is ready."
+              exit 0
+            fi
+
+            sleep 1
+          done
+
+          echo "Directory server failed to start."
+          cat directory.log
+          exit 1
+
+      - name: Test nickname availability
+        run: |
+          response=$(curl -fsS \
+            http://127.0.0.1:8080/v1/nickname/test_user)
+
+          echo "$response"
+
+          echo "$response" | grep -q '"available":true'
+
+      - name: Test registration
+        run: |
+          response=$(curl -fsS \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d '{
+              "nickname":"test_user",
+              "bundle":{
+                "registrationId":123456,
+                "deviceId":1,
+                "identityKey":"AQIDBA==",
+                "signedPreKey":{
+                  "keyId":0,
+                  "publicKey":"BQYHCA==",
+                  "signature":"CQoLDA=="
+                },
+                "preKey":{
+                  "keyId":0,
+                  "publicKey":"DQ4PEA=="
+                }
+              }
+            }' \
+            http://127.0.0.1:8080/v1/register)
+
+          echo "$response"
+
+          echo "$response" | grep -q '"registered":true'
+
+      - name: Test lookup
+        run: |
+          response=$(curl -fsS \
+            http://127.0.0.1:8080/v1/users/test_user)
+
+          echo "$response"
+
+          echo "$response" | grep -q '"nickname":"test_user"'
+          echo "$response" | grep -q '"registrationId":123456'
+          echo "$response" | grep -q '"deviceId":1'
+
+      - name: Test duplicate nickname
+        run: |
+          status=$(curl -s -o /tmp/duplicate.json \
+            -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d '{
+              "nickname":"test_user",
+              "bundle":{
+                "registrationId":123456,
+                "deviceId":1,
+                "identityKey":"AQIDBA==",
+                "signedPreKey":{
+                  "keyId":0,
+                  "publicKey":"BQYHCA==",
+                  "signature":"CQoLDA=="
+                },
+                "preKey":{
+                  "keyId":0,
+                  "publicKey":"DQ4PEA=="
+                }
+              }
+            }' \
+            http://127.0.0.1:8080/v1/register)
+
+          echo "HTTP status: $status"
+          cat /tmp/duplicate.json
+
+          test "$status" = "409"
+          grep -q '"error":"nickname_taken"' /tmp/duplicate.json
+
+      - name: Stop Directory server
+        if: always()
+        run: |
+          if [ -f directory.pid ]; then
+            kill "$(cat directory.pid)" || true
+          fi
