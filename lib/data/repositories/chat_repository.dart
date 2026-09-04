@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/storage/database.dart';
 import '../../core/crypto/session_manager.dart';
 import '../../core/network/relay_client.dart';
+import '../../core/network/directory_client.dart';
 import '../../core/network/envelope.dart';
 import '../../core/media/media_attachment_service.dart';
 import '../../domain/models/message.dart';
@@ -21,6 +22,7 @@ class ChatRepository {
     required this.db,
     required this.sessionManager,
     required this.relayClient,
+    required this.directoryClient,
     required this.localNickname,
     this.mediaService,
   });
@@ -28,6 +30,7 @@ class ChatRepository {
   final StellarDatabase db;
   final SessionManager sessionManager;
   final RelayClient relayClient;
+  final DirectoryClient directoryClient;
   final String localNickname;
   final MediaAttachmentService? mediaService;
   final _uuid = const Uuid();
@@ -42,6 +45,54 @@ class ChatRepository {
     return rows.map(Message.fromRow).toList();
   }
 
+  Future<String?> findDirectChatId({
+    required String peerName,
+    required int peerDeviceId,
+  }) async {
+    final chats = await db.chatDao.all();
+
+    for (final chat in chats) {
+      if (chat['chat_type'] == 'direct' &&
+          chat['peer_name'] == peerName &&
+          chat['peer_device_id'] == peerDeviceId) {
+        return chat['chat_id'] as String;
+      }
+    }
+
+    return null;
+  }
+
+  Future<List<({String chatId, String peerName, int peerDeviceId})>>
+      _knownDirectPeersWithSessions() async {
+    final chats = await db.chatDao.all();
+    final result = <({String chatId, String peerName, int peerDeviceId})>[];
+
+    for (final chat in chats) {
+      if (chat['chat_type'] != 'direct') continue;
+
+      final chatId = chat['chat_id'] as String;
+      final peerName = chat['peer_name'] as String?;
+      final peerDeviceId = chat['peer_device_id'] as int?;
+
+      if (peerName == null ||
+          peerName.isEmpty ||
+          peerDeviceId == null) {
+        continue;
+      }
+
+      final address = SignalProtocolAddress(peerName, peerDeviceId);
+      if (await sessionManager.hasSession(address)) {
+        result.add((
+          chatId: chatId,
+          peerName: peerName,
+          peerDeviceId: peerDeviceId,
+        ));
+      }
+    }
+
+    return result;
+  }
+
   /// Encrypts, persists locally (plaintext, ephemeral, TTL-bound), and
   /// transmits `plaintext` to the recipient of `chatId`. For direct chats
   /// this is a single pairwise Double Ratchet encryption; groups route
@@ -54,6 +105,28 @@ class ChatRepository {
   /// attachment bytes never touch the network layer unencrypted, and
   /// never touch the relay at all in this MVP (media stays device-to-
   /// device out of band in a full implementation; see docs note below).
+  Future<void> _ensureDirectSession({
+    required String peerName,
+    required int peerDeviceId,
+  }) async {
+    final address = SignalProtocolAddress(
+      peerName,
+      peerDeviceId,
+    );
+
+    if (await sessionManager.hasSession(address)) {
+      return;
+    }
+
+    final remoteBundle =
+        await directoryClient.lookupBundle(peerName);
+
+    await sessionManager.establishSessionFromDirectory(
+      remoteAddress: address,
+      remoteBundle: remoteBundle,
+    );
+  }
+
   Future<Message> sendDirectMessage({
     required String chatId,
     required String plaintext,
@@ -92,6 +165,11 @@ class ChatRepository {
     }
 
     // 2. Encrypt via the Double Ratchet session with the recipient.
+    await _ensureDirectSession(
+      peerName: peerName,
+      peerDeviceId: peerDeviceId,
+    );
+
     final address = SignalProtocolAddress(peerName, peerDeviceId);
     final plaintextBytes = Uint8List.fromList(utf8.encode(plaintext));
     final ciphertextMessage = await sessionManager.encryptForSend(address, plaintextBytes);
@@ -124,32 +202,62 @@ class ChatRepository {
   /// calling this).
   Future<Message> receiveEnvelope({
     required Uint8List rawEnvelope,
-    required String chatId,
-    required String senderNickname,
   }) async {
     final envelope = Envelope.decode(rawEnvelope);
-    final senderAddress = SignalProtocolAddress(senderNickname, 1);
 
-    late final CiphertextMessage signalMessage;
+    final peers = await _knownDirectPeersWithSessions();
+    if (peers.isEmpty) {
+      throw StateError('No known direct peer session can receive this envelope');
+    }
 
-    if (envelope.ciphertext.isNotEmpty &&
-        (envelope.ciphertext[0] & 0x07) == CiphertextMessage.prekeyType) {
-      signalMessage = PreKeySignalMessage(envelope.ciphertext);
-    } else {
-      signalMessage = SignalMessage.fromSerialized(
-        envelope.ciphertext,
+    late final String chatId;
+    late final String senderNickname;
+    late final Uint8List plaintextBytes;
+
+    Object? lastError;
+
+    for (final peer in peers) {
+      final address = SignalProtocolAddress(
+        peer.peerName,
+        peer.peerDeviceId,
+      );
+
+      try {
+        final signalMessage = (envelope.ciphertext.isNotEmpty &&
+                (envelope.ciphertext[0] & 0x07) ==
+                    CiphertextMessage.prekeyType)
+            ? PreKeySignalMessage(envelope.ciphertext)
+            : SignalMessage.fromSerialized(envelope.ciphertext);
+
+        final decrypted = await sessionManager.decryptReceived(
+          address,
+          signalMessage,
+        );
+
+        chatId = peer.chatId;
+        senderNickname = peer.peerName;
+        plaintextBytes = decrypted;
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (lastError != null) {
+      throw StateError(
+        'Unable to decrypt envelope with any known direct peer session: $lastError',
       );
     }
 
-    final plaintextBytes = await sessionManager.decryptReceived(
-      senderAddress,
-      signalMessage,
-    );
     final plaintext = utf8.decode(plaintextBytes);
-
     final messageId = _uuid.v4();
-    final chatRows = await db.chatDao.all();
-    final chatRow = chatRows.firstWhere((c) => c['chat_id'] == chatId);
+
+    final chatRow = await db.chatDao.byId(chatId);
+    if (chatRow == null) {
+      throw StateError('Direct chat not found for $senderNickname');
+    }
+
     final ttl = chatRow['default_ttl_sec'] as int;
 
     await db.messageDao.insert(
@@ -161,7 +269,9 @@ class ChatRepository {
     );
 
     final rows = await db.messageDao.forChat(chatId);
-    return rows.map(Message.fromRow).firstWhere((m) => m.messageId == messageId);
+    return rows
+        .map(Message.fromRow)
+        .firstWhere((m) => m.messageId == messageId);
   }
 
   Future<void> deleteChatNow(String chatId) => db.chatDao.delete(chatId);

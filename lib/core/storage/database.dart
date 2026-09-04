@@ -208,6 +208,13 @@ class PreKeyDao {
     return rows.isEmpty ? null : rows.first['record'] as Uint8List;
   }
 
+  Future<Uint8List?> getFirst() async {
+    final rows = _db.select(
+      'SELECT record FROM pre_key ORDER BY id LIMIT 1',
+    );
+    return rows.isEmpty ? null : rows.first['record'] as Uint8List;
+  }
+
   Future<void> put(int id, Uint8List record) async {
     _db.execute(
       'INSERT INTO pre_key (id, record) VALUES (?, ?) '
@@ -219,6 +226,11 @@ class PreKeyDao {
   Future<bool> contains(int id) async {
     final rows = _db.select('SELECT 1 FROM pre_key WHERE id = ?', [id]);
     return rows.isNotEmpty;
+  }
+
+  Future<int> count() async {
+    final rows = _db.select('SELECT COUNT(*) AS count FROM pre_key');
+    return (rows.first['count'] as int?) ?? 0;
   }
 
   Future<void> remove(int id) async {

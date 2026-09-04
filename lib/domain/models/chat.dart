@@ -58,6 +58,8 @@ class Chat {
       unreadCount: unreadCount ?? this.unreadCount,
       oldestVisibleExpiry: oldestVisibleExpiry ?? this.oldestVisibleExpiry,
       memberIds: memberIds,
+      peerName: peerName,
+      peerDeviceId: peerDeviceId,
     );
   }
 }

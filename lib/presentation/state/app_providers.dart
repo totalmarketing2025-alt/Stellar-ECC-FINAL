@@ -7,12 +7,14 @@ import '../../core/crypto/signal_stores.dart';
 import '../../core/crypto/session_manager.dart';
 import '../../core/crypto/group_crypto.dart';
 import '../../core/network/relay_client.dart';
+import '../../core/network/directory_client.dart';
 import '../../core/media/media_attachment_service.dart';
 import '../../data/repositories/chat_repository.dart';
 import '../../domain/models/chat.dart';
 import '../../domain/models/message.dart';
 
 const _relayUrl = 'wss://relay.stellarecc.example/v1/connect';
+const _directoryUrl = 'https://directory.stellarecc.example';
 
 final platformKeyStoreProvider = Provider<PlatformKeyStore>((ref) => PlatformKeyStore());
 
@@ -27,6 +29,12 @@ final sessionManagerProvider = Provider<SessionManager>((ref) {
     preKeyStore: StellarPreKeyStore(db),
     signedPreKeyStore: StellarSignedPreKeyStore(db),
     sessionStore: StellarSessionStore(db),
+  );
+});
+
+final directoryClientProvider = Provider<DirectoryClient>((ref) {
+  return DirectoryClient(
+    baseUrl: _directoryUrl,
   );
 });
 
@@ -97,6 +105,7 @@ final chatRepositoryProvider = Provider<ChatRepository>((ref) {
     db: ref.watch(databaseProvider),
     sessionManager: ref.watch(sessionManagerProvider),
     relayClient: ref.watch(relayClientProvider),
+    directoryClient: ref.watch(directoryClientProvider),
     localNickname: nickname,
     mediaService: ref.watch(mediaAttachmentServiceProvider),
   );

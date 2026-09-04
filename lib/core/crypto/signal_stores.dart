@@ -23,16 +23,48 @@ class StellarIdentityKeyStore implements IdentityKeyStore {
 
   Future<void> initializeIfAbsent() async {
     final existing = await _keyStore.readSecret(_identityKeyAlias);
-    if (existing != null) return;
 
-    final generated = generateIdentityKeyPair();
-    await _keyStore.writeSecret(_identityKeyAlias, generated.serialize());
+    if (existing == null) {
+      final generated = generateIdentityKeyPair();
 
-    final regId = generateRegistrationId(false);
-    await _keyStore.writeSecret(
-      _registrationIdAlias,
-      Uint8List.fromList(_intTo4Bytes(regId)),
-    );
+      await _keyStore.writeSecret(
+        _identityKeyAlias,
+        generated.serialize(),
+      );
+
+      final regId = generateRegistrationId(false);
+
+      await _keyStore.writeSecret(
+        _registrationIdAlias,
+        Uint8List.fromList(_intTo4Bytes(regId)),
+      );
+    }
+
+    await initializeSignalPreKeys();
+  }
+
+  Future<void> initializeSignalPreKeys() async {
+    final identityKeyPair = await getIdentityKeyPair();
+
+    final preKeyCount = await _db.preKeyDao.count();
+    if (preKeyCount == 0) {
+      final preKeys = generatePreKeys(0, 110);
+      for (final preKey in preKeys) {
+        await _db.preKeyDao.put(preKey.id, preKey.serialize());
+      }
+    }
+
+    final hasSignedPreKey =
+        await _db.signedPreKeyDao.contains(0);
+
+    if (!hasSignedPreKey) {
+      final signedPreKey =
+          generateSignedPreKey(identityKeyPair, 0);
+      await _db.signedPreKeyDao.put(
+        signedPreKey.id,
+        signedPreKey.serialize(),
+      );
+    }
   }
 
   @override
@@ -124,6 +156,12 @@ class StellarPreKeyStore implements PreKeyStore {
   Future<PreKeyRecord> loadPreKey(int preKeyId) async {
     final raw = await _db.preKeyDao.get(preKeyId);
     if (raw == null) throw InvalidKeyIdException('No such prekey: $preKeyId');
+    return PreKeyRecord.fromBuffer(raw);
+  }
+
+  Future<PreKeyRecord?> loadFirstPreKey() async {
+    final raw = await _db.preKeyDao.getFirst();
+    if (raw == null) return null;
     return PreKeyRecord.fromBuffer(raw);
   }
 

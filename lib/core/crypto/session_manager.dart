@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import 'signal_stores.dart';
+import 'directory_signal_adapter.dart';
+import '../network/directory_client.dart';
 
 /// Thin orchestration over libsignal's SessionBuilder/SessionCipher/
 /// GroupCipher — this class does not implement any cryptographic primitive
@@ -22,8 +24,53 @@ class SessionManager {
   final StellarSignedPreKeyStore signedPreKeyStore;
   final StellarSessionStore sessionStore;
 
+  Future<PreKeyBundle> buildLocalPreKeyBundle() async {
+    const deviceId = 1;
+
+    final registrationId =
+        await identityStore.getLocalRegistrationId();
+
+    final identityKeyPair =
+        await identityStore.getIdentityKeyPair();
+
+    final preKey =
+        await preKeyStore.loadFirstPreKey();
+
+    if (preKey == null) {
+      throw StateError('No one-time prekey available');
+    }
+
+    const signedPreKeyId = 0;
+    final signedPreKey =
+        await signedPreKeyStore.loadSignedPreKey(signedPreKeyId);
+
+    return PreKeyBundle(
+      registrationId,
+      deviceId,
+      preKey.id,
+      preKey.getKeyPair().publicKey,
+      signedPreKey.id,
+      signedPreKey.getKeyPair().publicKey,
+      signedPreKey.signature,
+      identityKeyPair.getPublicKey(),
+    );
+  }
+
   /// Establishes a new session with a remote party via X3DH, given a
   /// prekey bundle fetched from the directory server.
+  Future<void> establishSessionFromDirectory({
+    required SignalProtocolAddress remoteAddress,
+    required DirectoryUserBundle remoteBundle,
+  }) async {
+    final bundle =
+        const DirectorySignalAdapter().toPreKeyBundle(remoteBundle);
+
+    await establishSession(
+      remoteAddress,
+      bundle,
+    );
+  }
+
   Future<void> establishSession(
     SignalProtocolAddress remoteAddress,
     PreKeyBundle bundle,
