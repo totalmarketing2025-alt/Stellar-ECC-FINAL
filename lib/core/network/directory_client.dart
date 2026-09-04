@@ -31,7 +31,8 @@ class DirectoryClient {
       );
     }
 
-    final body = _decodeJson(response.body);
+    final bodyText = await _readBody(response);
+    final body = _decodeJson(bodyText);
     return body['available'] == true;
   }
 
