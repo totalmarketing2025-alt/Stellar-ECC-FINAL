@@ -40,23 +40,66 @@ wss.on('connection', (socket, request) => {
       ? Buffer.from(data)
       : Buffer.from(data.toString());
 
-    // Envelope format:
-    // first line: recipient route
-    // remaining bytes: opaque ciphertext/envelope.
+    // Stellar Envelope v1 binary format:
+    // u16 version
+    // u32 relay TTL
+    // u16 delivery-token length + token
+    // u16 recipient-route length + route
+    // u32 ciphertext length + ciphertext
     //
-    // The relay does not inspect the cryptographic payload.
+    // The relay reads only the routing metadata.
+    // The ciphertext remains opaque.
 
-    const separator = raw.indexOf(0x0a);
+    if (raw.length < 8) {
+      return;
+    }
 
-    if (separator <= 0) {
+    let offset = 0;
+
+    const version = raw.readUInt16BE(offset);
+    offset += 2;
+
+    const relayTtlSeconds = raw.readUInt32BE(offset);
+    offset += 4;
+
+    const tokenLength = raw.readUInt16BE(offset);
+    offset += 2;
+
+    if (offset + tokenLength + 2 > raw.length) {
+      return;
+    }
+
+    offset += tokenLength;
+
+    const routeLength = raw.readUInt16BE(offset);
+    offset += 2;
+
+    if (routeLength <= 0 ||
+        offset + routeLength + 4 > raw.length) {
       return;
     }
 
     const recipient = raw
-      .subarray(0, separator)
+      .subarray(offset, offset + routeLength)
       .toString('utf8');
 
-    const payload = raw.subarray(separator + 1);
+    offset += routeLength;
+
+    const ciphertextLength = raw.readUInt32BE(offset);
+    offset += 4;
+
+    if (offset + ciphertextLength > raw.length) {
+      return;
+    }
+
+    const payload = raw.subarray(
+      offset,
+      offset + ciphertextLength,
+    );
+
+    if (version !== 1 || relayTtlSeconds <= 0) {
+      return;
+    }
 
     const target = clients.get(recipient);
 
