@@ -1,0 +1,118 @@
+name: Relay Test
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  relay-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Relay dependencies
+        working-directory: backend/relay
+        run: npm install
+
+      - name: Start Relay
+        working-directory: backend/relay
+        run: |
+          node server.js > /tmp/stellar-relay.log 2>&1 &
+          echo $! > /tmp/stellar-relay.pid
+
+      - name: Wait for Relay
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/stellar-relay.log
+          exit 1
+
+      - name: Install websocket client
+        working-directory: backend/relay
+        run: npm install ws
+
+      - name: Test A to Relay to B
+        working-directory: backend/relay
+        run: |
+          node --input-type=module <<'NODE'
+          import WebSocket from 'ws';
+
+          const wait = (ms) =>
+            new Promise((resolve) => setTimeout(resolve, ms));
+
+          const connect = (peer) =>
+            new Promise((resolve, reject) => {
+              const ws = new WebSocket(
+                `ws://127.0.0.1:8787/v1/connect?peer=${peer}`,
+              );
+
+              ws.once('open', () => resolve(ws));
+              ws.once('error', reject);
+            });
+
+          const alice = await connect('alice');
+          const bob = await connect('bob');
+
+          const received = new Promise((resolve, reject) => {
+            const timer = setTimeout(
+              () => reject(new Error('Timed out waiting for relay')),
+              5000,
+            );
+
+            bob.once('message', (data) => {
+              clearTimeout(timer);
+              resolve(JSON.parse(data.toString()));
+            });
+          });
+
+          const envelope = {
+            envelopeVersion: 1,
+            deliveryToken: 'test-token-001',
+            recipientRoute: 'bob',
+            ciphertext: 'OPAQUE_SIGNAL_CIPHERTEXT',
+            relayTtlSeconds: 300,
+          };
+
+          alice.send(JSON.stringify(envelope));
+
+          const result = await received;
+
+          if (result.ciphertext !== envelope.ciphertext) {
+            throw new Error('Ciphertext was modified by relay');
+          }
+
+          if (result.deliveryToken !== envelope.deliveryToken) {
+            throw new Error('Delivery token was modified');
+          }
+
+          console.log('========================================');
+          console.log('STELLAR RELAY TEST PASSED');
+          console.log('Alice -> Relay -> Bob');
+          console.log('Opaque ciphertext preserved');
+          console.log('========================================');
+
+          alice.close();
+          bob.close();
+
+          await wait(100);
+          NODE
+
+      - name: Stop Relay
+        if: always()
+        run: |
+          if [ -f /tmp/stellar-relay.pid ]; then
+            kill $(cat /tmp/stellar-relay.pid) || true
+          fi
