@@ -19,7 +19,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install Relay dependencies
+      - name: Install dependencies
         working-directory: backend/relay
         run: npm install
 
@@ -37,21 +37,15 @@ jobs:
             fi
             sleep 1
           done
+
           cat /tmp/stellar-relay.log
           exit 1
 
-      - name: Install websocket client
-        working-directory: backend/relay
-        run: npm install ws
-
-      - name: Test A to Relay to B
+      - name: Test binary envelope relay
         working-directory: backend/relay
         run: |
           node --input-type=module <<'NODE'
           import WebSocket from 'ws';
-
-          const wait = (ms) =>
-            new Promise((resolve) => setTimeout(resolve, ms));
 
           const connect = (peer) =>
             new Promise((resolve, reject) => {
@@ -66,48 +60,67 @@ jobs:
           const alice = await connect('alice');
           const bob = await connect('bob');
 
-          const received = new Promise((resolve, reject) => {
-            const timer = setTimeout(
-              () => reject(new Error('Timed out waiting for relay')),
-              5000,
-            );
+          const payload = Buffer.from(
+            'STELLAR_ENCRYPTED_SIGNAL_PAYLOAD',
+            'utf8',
+          );
 
-            bob.once('message', (data) => {
-              clearTimeout(timer);
-              resolve(JSON.parse(data.toString()));
-            });
-          });
+          const received = new Promise(
+            (resolve, reject) => {
+              const timer = setTimeout(
+                () => {
+                  reject(
+                    new Error(
+                      'Timed out waiting for relay',
+                    ),
+                  );
+                },
+                5000,
+              );
 
-          const envelope = {
-            envelopeVersion: 1,
-            deliveryToken: 'test-token-001',
-            recipientRoute: 'bob',
-            ciphertext: 'OPAQUE_SIGNAL_CIPHERTEXT',
-            relayTtlSeconds: 300,
-          };
+              bob.once(
+                'message',
+                (data) => {
+                  clearTimeout(timer);
+                  resolve(Buffer.from(data));
+                },
+              );
+            },
+          );
 
-          alice.send(JSON.stringify(envelope));
+          const envelope = Buffer.concat([
+            Buffer.from('bob\n', 'utf8'),
+            payload,
+          ]);
+
+          alice.send(envelope);
 
           const result = await received;
 
-          if (result.ciphertext !== envelope.ciphertext) {
-            throw new Error('Ciphertext was modified by relay');
+          if (!result.equals(payload)) {
+            throw new Error(
+              'Relay modified the opaque payload',
+            );
           }
 
-          if (result.deliveryToken !== envelope.deliveryToken) {
-            throw new Error('Delivery token was modified');
-          }
-
-          console.log('========================================');
-          console.log('STELLAR RELAY TEST PASSED');
-          console.log('Alice -> Relay -> Bob');
-          console.log('Opaque ciphertext preserved');
-          console.log('========================================');
+          console.log(
+            '========================================',
+          );
+          console.log(
+            'STELLAR BINARY RELAY TEST PASSED',
+          );
+          console.log(
+            'Alice -> Relay -> Bob',
+          );
+          console.log(
+            'Opaque Signal payload preserved',
+          );
+          console.log(
+            '========================================',
+          );
 
           alice.close();
           bob.close();
-
-          await wait(100);
           NODE
 
       - name: Stop Relay

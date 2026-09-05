@@ -12,6 +12,7 @@ app.get('/health', (_req, res) => {
 });
 
 const server = http.createServer(app);
+
 const wss = new WebSocketServer({
   server,
   path: '/v1/connect',
@@ -34,20 +35,28 @@ wss.on('connection', (socket, request) => {
 
   clients.set(peer, socket);
 
-  socket.on('message', (raw) => {
-    let envelope;
+  socket.on('message', (data, isBinary) => {
+    const raw = isBinary
+      ? Buffer.from(data)
+      : Buffer.from(data.toString());
 
-    try {
-      envelope = JSON.parse(raw.toString());
-    } catch (_) {
+    // Envelope format:
+    // first line: recipient route
+    // remaining bytes: opaque ciphertext/envelope.
+    //
+    // The relay does not inspect the cryptographic payload.
+
+    const separator = raw.indexOf(0x0a);
+
+    if (separator <= 0) {
       return;
     }
 
-    const recipient = envelope.recipientRoute;
+    const recipient = raw
+      .subarray(0, separator)
+      .toString('utf8');
 
-    if (typeof recipient !== 'string') {
-      return;
-    }
+    const payload = raw.subarray(separator + 1);
 
     const target = clients.get(recipient);
 
@@ -55,9 +64,7 @@ wss.on('connection', (socket, request) => {
       return;
     }
 
-    // Relay transports the opaque envelope unchanged.
-    // It does not inspect or decrypt ciphertext.
-    target.send(JSON.stringify(envelope));
+    target.send(payload);
   });
 
   socket.on('close', () => {
@@ -67,8 +74,16 @@ wss.on('connection', (socket, request) => {
   });
 });
 
-const port = Number(process.env.PORT || 8787);
+const port = Number(
+  process.env.PORT || 8787,
+);
 
-server.listen(port, '127.0.0.1', () => {
-  console.log(`Stellar Relay listening on ${port}`);
-});
+server.listen(
+  port,
+  '127.0.0.1',
+  () => {
+    console.log(
+      `Stellar Relay listening on ${port}`,
+    );
+  },
+);
