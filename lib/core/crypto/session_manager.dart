@@ -6,6 +6,7 @@ import 'signal_stores.dart';
 import 'signal_bundle_serializer.dart';
 import 'directory_signal_adapter.dart';
 import '../network/directory_client.dart';
+import '../network/directory_user_bundle.dart';
 
 /// Thin orchestration over libsignal's SessionBuilder/SessionCipher/
 /// GroupCipher — this class does not implement any cryptographic primitive
