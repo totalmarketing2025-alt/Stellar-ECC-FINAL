@@ -45,8 +45,10 @@ class PushHandler {
   }
 
   Future<void> _handleWake(String bearerToken) async {
+    // Relay routing requires the local peer id, not the bearer token.
+    // The persistent relay connection is managed by the normal chat/session lifecycle.
     if (!relayClient.isConnected) {
-      await relayClient.connect(bearerToken);
+      return;
     }
     // Reconnecting is sufficient — RelayClient.connect() triggers the
     // server's flushQueuedEnvelopes() path (Phase 9 §9.1), which is where
