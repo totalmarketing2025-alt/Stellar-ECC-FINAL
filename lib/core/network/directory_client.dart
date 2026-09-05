@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'directory_user_bundle.dart';
+
 class DirectoryClient {
   DirectoryClient({
     required String baseUrl,

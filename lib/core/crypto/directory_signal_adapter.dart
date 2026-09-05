@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import '../network/directory_client.dart';
+import '../network/directory_user_bundle.dart';
 
 /// Converts the public material returned by Directory into libsignal's
 /// PreKeyBundle.
