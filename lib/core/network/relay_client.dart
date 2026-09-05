@@ -65,9 +65,7 @@ class RelayClient {
             (_incomingController ??=
                     StreamController<Uint8List>.broadcast())
                 .add(
-              Uint8List.fromList(
-                data.codeUnits,
-              ),
+              Uint8List.fromList(data.codeUnits),
             );
           }
         },
