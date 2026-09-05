@@ -87,6 +87,11 @@ class DirectoryClient {
     return json;
   }
 
+  Future<DirectoryUserBundle> lookupBundle(String nickname) async {
+    final json = await lookup(nickname);
+    return DirectoryUserBundle.fromJson(json);
+  }
+
   Future<HttpClientResponse> _request(
     String method,
     String path, {
