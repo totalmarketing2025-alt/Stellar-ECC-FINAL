@@ -1,3 +1,43 @@
+function readU16(bytes, offset) {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    .getUint16(offset, false);
+}
+
+function readU32(bytes, offset) {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    .getUint32(offset, false);
+}
+
+function decodeRecipientRoute(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let offset = 0;
+
+  if (bytes.length < 8) {
+    throw new Error("Invalid envelope");
+  }
+
+  offset += 2; // version
+  offset += 4; // ttl
+
+  const tokenLen = readU16(bytes, offset);
+  offset += 2 + tokenLen;
+
+  if (offset + 2 > bytes.length) {
+    throw new Error("Invalid envelope");
+  }
+
+  const routeLen = readU16(bytes, offset);
+  offset += 2;
+
+  if (offset + routeLen > bytes.length) {
+    throw new Error("Invalid envelope");
+  }
+
+  return new TextDecoder().decode(
+    bytes.slice(offset, offset + routeLen),
+  );
+}
+
 export class RelayRoom {
   constructor(ctx, env) {
     this.ctx = ctx;
@@ -6,17 +46,16 @@ export class RelayRoom {
 
   async fetch(request) {
     if (request.headers.get("Upgrade") !== "websocket") {
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          service: "stellar-relay",
-        }),
-        {
-          headers: {
-            "content-type": "application/json",
-          },
-        },
-      );
+      return Response.json({
+        ok: true,
+        service: "stellar-relay",
+      });
+    }
+
+    const peer = new URL(request.url).searchParams.get("peer");
+
+    if (!peer) {
+      return new Response("Missing peer", { status: 400 });
     }
 
     const pair = new WebSocketPair();
@@ -25,6 +64,10 @@ export class RelayRoom {
 
     this.ctx.acceptWebSocket(server);
 
+    server.serializeAttachment({
+      peer: peer.trim().toLowerCase(),
+    });
+
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -32,15 +75,40 @@ export class RelayRoom {
   }
 
   async webSocketMessage(ws, message) {
-    const peers = this.ctx.getWebSockets();
+    let recipient;
 
-    for (const peer of peers) {
-      if (peer !== ws) {
-        try {
+    try {
+      const data =
+        typeof message === "string"
+          ? new TextEncoder().encode(message)
+          : message instanceof ArrayBuffer
+            ? message
+            : message.buffer;
+
+      recipient = decodeRecipientRoute(data)
+        .trim()
+        .toLowerCase();
+    } catch (_) {
+      return;
+    }
+
+    for (const peer of this.ctx.getWebSockets()) {
+      if (peer === ws) {
+        continue;
+      }
+
+      try {
+        const attachment = peer.deserializeAttachment();
+
+        if (
+          attachment &&
+          attachment.peer === recipient
+        ) {
           peer.send(message);
-        } catch (_) {
-          // Ignore disconnected peers.
+          return;
         }
+      } catch (_) {
+        // Ignore disconnected peers.
       }
     }
   }
@@ -75,9 +143,8 @@ export default {
       });
     }
 
-    const room = url.searchParams.get("peer") || "default";
-
-    const id = env.RELAY.idFromName(room);
+    // All connected users share one relay room.
+    const id = env.RELAY.idFromName("global");
     const stub = env.RELAY.get(id);
 
     return stub.fetch(request);
