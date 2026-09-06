@@ -1,5 +1,11 @@
 {
   "name": "stellar-cloudflare-relay",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.129.0"
+  }
 }
