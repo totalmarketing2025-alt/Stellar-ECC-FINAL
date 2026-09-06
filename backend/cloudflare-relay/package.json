@@ -1,0 +1,5 @@
+{
+  "name": "stellar-cloudflare-relay",
+  "private": true,
+  "type": "module"
+}
