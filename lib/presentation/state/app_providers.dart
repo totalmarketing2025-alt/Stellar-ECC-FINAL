@@ -60,15 +60,19 @@ final mediaAttachmentServiceProvider = Provider<MediaAttachmentService>((ref) {
 /// The nickname is stored in PlatformKeyStore so it survives app restarts.
 /// The in-memory Riverpod state is kept in sync through [load] and [setNickname].
 class LocalNicknameController extends StateNotifier<String?> {
-  LocalNicknameController(this._keyStore) : super(null);
+  LocalNicknameController(this._keyStore, this._relayClient) : super(null);
 
   final PlatformKeyStore _keyStore;
+  final RelayClient _relayClient;
 
   static const _storageKey = 'stellar.local_nickname';
 
   Future<void> load() async {
     final value = await _keyStore.readSecret(_storageKey);
     state = value == null ? null : String.fromCharCodes(value);
+    if (state != null && state!.isNotEmpty) {
+      await _relayClient.connect(peer: state!);
+    }
   }
 
   Future<void> setNickname(String nickname) async {
@@ -83,17 +87,22 @@ class LocalNicknameController extends StateNotifier<String?> {
     );
 
     state = value;
+    await _relayClient.connect(peer: value);
   }
 
   Future<void> clear() async {
     await _keyStore.deleteSecret(_storageKey);
     state = null;
+    await _relayClient.disconnect();
   }
 }
 
 final localNicknameProvider =
     StateNotifierProvider<LocalNicknameController, String?>((ref) {
-  return LocalNicknameController(ref.watch(platformKeyStoreProvider));
+  return LocalNicknameController(
+    ref.watch(platformKeyStoreProvider),
+    ref.watch(relayClientProvider),
+  );
 });
 
 final chatRepositoryProvider = Provider<ChatRepository>((ref) {
