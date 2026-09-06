@@ -14,7 +14,7 @@ import '../../domain/models/chat.dart';
 import '../../domain/models/message.dart';
 
 const _relayUrl = 'wss://stellar-ecc-final.totalmarketing2025.workers.dev/v1/connect';
-const _directoryUrl = 'https://directory.stellarecc.example';
+const _directoryUrl = 'https://stellar-ecc-directory.totalmarketing2025.workers.dev';
 
 final platformKeyStoreProvider = Provider<PlatformKeyStore>((ref) => PlatformKeyStore());
 
