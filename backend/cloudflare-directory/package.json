@@ -1,0 +1,5 @@
+{
+  "name": "stellar-cloudflare-directory",
+  "private": true,
+  "type": "module"
+}
