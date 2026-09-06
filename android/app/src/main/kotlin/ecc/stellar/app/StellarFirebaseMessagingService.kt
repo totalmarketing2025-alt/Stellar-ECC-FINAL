@@ -1,30 +1,84 @@
 package ecc.stellar.app
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Intent
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
 /**
- * Per Phase 4 §4 / Phase 9 §9.3: the push payload sent by our relay's push
- * bridge is data-only, with no alert/title/body and no sender or chat
- * identifier. This service's only job is to wake the process; the actual
- * "you have a new message" UI is rendered locally, after the app has
- * reconnected to the relay and fetched the (still end-to-end encrypted)
- * envelope over the WebSocket — never from anything in the push payload
- * itself.
+ * Privacy-safe FCM handler.
+ *
+ * Push notifications never expose sender, nickname, chat id, message text,
+ * or any other message metadata. The notification shown to the user is
+ * always the same generic "You have a new message" notification.
  */
 class StellarFirebaseMessagingService : FirebaseMessagingService() {
 
+    companion object {
+        private const val CHANNEL_ID = "stellar_messages"
+        private const val CHANNEL_NAME = "Messages"
+        private const val NOTIFICATION_ID = 1001
+    }
+
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
-        // Intentionally does not read remoteMessage.notification or any
-        // content field — wakes the Flutter engine's background work via
-        // the plugin's registered background handler, which reconnects to
-        // the relay and lets the existing WebSocket flow take over.
+
+        // Never read notification title/body or message content.
+        // The push is only a wake signal. Show a generic local notification.
+        showGenericNotification()
+    }
+
+    private fun showGenericNotification() {
+        val notificationManager =
+            getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Privacy-safe Stellar message notifications"
+            }
+
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+
+        val pendingIntent = launchIntent?.let {
+            PendingIntent.getActivity(
+                this,
+                0,
+                it,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(applicationInfo.icon)
+            .setContentTitle("Stellar ECC")
+            .setContentText("Имате нова порака")
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .apply {
+                if (pendingIntent != null) {
+                    setContentIntent(pendingIntent)
+                }
+            }
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        // Forwarded to the directory server as route_id -> token only,
-        // never linked to nickname/identity server-side (Phase 4 §4).
+        // Token handling remains privacy-minimized.
+        // No nickname, sender, chat, or message content is attached here.
     }
 }

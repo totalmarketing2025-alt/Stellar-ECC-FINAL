@@ -15,7 +15,7 @@ class PushHandler {
 
   Future<void> initialize({required String bearerToken}) async {
     final settings = await messaging.requestPermission(
-      alert: false, // silent/data-only pushes only — no OS alert banner needed
+      alert: true, // permission for the generic local notification; no message data is exposed
       badge: true,
       sound: false,
     );
