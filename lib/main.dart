@@ -11,6 +11,7 @@ import 'core/storage/providers.dart';
 import 'core/storage/expiry_sweeper.dart';
 import 'core/network/push_handler.dart';
 import 'presentation/state/app_providers.dart';
+import 'presentation/state/relay_listener.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 Future<void> main() async {
@@ -57,6 +58,10 @@ Future<void> main() async {
   final container = ProviderContainer(
     overrides: [databaseProvider.overrideWithValue(database)],
   );
+
+  // Keep the relay listener alive so incoming encrypted envelopes
+  // reach ChatRepository and are persisted/decrypted.
+  container.read(relayListenerProvider);
 
   if (firebaseAvailable) {
     try {
