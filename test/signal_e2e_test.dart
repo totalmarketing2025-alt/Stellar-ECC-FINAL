@@ -11,6 +11,7 @@ void main() {
   test(
     'Stellar Signal E2E: Alice encrypts and Bob decrypts via Directory bundle',
     () async {
+      try {
       // ------------------------------------------------------------
       // ALICE
       // ------------------------------------------------------------
@@ -235,6 +236,12 @@ void main() {
       print('Bob -> decrypted plaintext');
       print('========================================');
       print('');
+      } catch (e, stack) {
+        print('SIGNAL E2E ERROR: $e');
+        print('SIGNAL E2E STACK TRACE:');
+        print(stack);
+        rethrow;
+      }
     },
   );
 }
