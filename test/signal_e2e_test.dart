@@ -13,7 +13,8 @@ void main() {
     () async {
       try {
       // ------------------------------------------------------------
-      // ALICE
+      print('SIGNAL PHASE 1: ALICE');
+// ALICE
       // ------------------------------------------------------------
 
       final aliceIdentity = generateIdentityKeyPair();
@@ -31,7 +32,8 @@ void main() {
           const SignalProtocolAddress('bob', 1);
 
       // ------------------------------------------------------------
-      // BOB
+      print('SIGNAL PHASE 2: BOB');
+// BOB
       // ------------------------------------------------------------
 
       final bobIdentity = generateIdentityKeyPair();
@@ -60,7 +62,8 @@ void main() {
       );
 
       // ------------------------------------------------------------
-      // DIRECTORY BUNDLE
+      print('SIGNAL PHASE 3: DIRECTORY BUNDLE');
+// DIRECTORY BUNDLE
       // Simulates exactly what Directory returns to Alice.
       // ------------------------------------------------------------
 
@@ -85,6 +88,7 @@ void main() {
       );
 
       // ------------------------------------------------------------
+      print('SIGNAL PHASE 4: ADAPTER');
       // DIRECTORY -> LIBSIGNAL ADAPTER
       // ------------------------------------------------------------
 
@@ -104,7 +108,8 @@ void main() {
       );
 
       // ------------------------------------------------------------
-      // X3DH SESSION ESTABLISHMENT
+      print('SIGNAL PHASE 5: X3DH');
+// X3DH SESSION ESTABLISHMENT
       // ------------------------------------------------------------
 
       final aliceSessionBuilder = SessionBuilder(
@@ -125,7 +130,8 @@ void main() {
       );
 
       // ------------------------------------------------------------
-      // ALICE -> BOB ENCRYPTION
+      print('SIGNAL PHASE 6: ENCRYPT');
+// ALICE -> BOB ENCRYPTION
       // ------------------------------------------------------------
 
       const plaintext = 'Hello Bob — Stellar E2E works!';
@@ -160,7 +166,8 @@ void main() {
       );
 
       // ------------------------------------------------------------
-      // BOB DECRYPTION
+      print('SIGNAL PHASE 7: BOB DECRYPT');
+// BOB DECRYPTION
       // ------------------------------------------------------------
 
       final bobCipher =
@@ -190,7 +197,8 @@ void main() {
       expect(result, plaintext);
 
       // ------------------------------------------------------------
-      // SECOND MESSAGE — DOUBLE RATCHET CONTINUATION
+      print('SIGNAL PHASE 8: DOUBLE RATCHET');
+// SECOND MESSAGE — DOUBLE RATCHET CONTINUATION
       // ------------------------------------------------------------
       const secondPlaintext = 'Second message — Double Ratchet continues!';
 
@@ -237,10 +245,7 @@ void main() {
       print('========================================');
       print('');
       } catch (e, stack) {
-        print('SIGNAL E2E ERROR: $e');
-        print('SIGNAL E2E STACK TRACE:');
-        print(stack);
-        rethrow;
+        fail('SIGNAL E2E FAILURE: $e\n$stack');
       }
     },
   );
