@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import 'signal_stores.dart';
 

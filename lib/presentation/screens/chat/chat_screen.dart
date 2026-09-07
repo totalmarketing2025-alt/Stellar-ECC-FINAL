@@ -10,7 +10,6 @@ import '../../../domain/models/message.dart';
 import '../../../domain/models/chat.dart';
 import '../../state/app_providers.dart';
 import '../../widgets/stellar_avatar.dart';
-import '../../widgets/expiry_ring.dart';
 import '../../widgets/message_bubble.dart';
 import '../../widgets/ttl_picker_sheet.dart';
 import '../../widgets/attachment_picker_sheet.dart';
