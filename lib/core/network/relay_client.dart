@@ -78,8 +78,10 @@ class RelayClient {
       },
     );
 
+    WebSocketChannel? channel;
+
     try {
-      final channel = WebSocketChannel.connect(uri);
+      channel = WebSocketChannel.connect(uri);
 
       _channel = channel;
       _ready = false;
