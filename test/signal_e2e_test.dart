@@ -204,13 +204,13 @@ void main() {
 
       const bobReply = 'Bob reply — session acknowledged!';
 
-      final bobCipher =
+      final bobReplyCipher =
           SessionCipher.fromStore(
         bobStore,
         aliceAddress,
       );
 
-      final bobReplyCiphertext = await bobCipher.encrypt(
+      final bobReplyCiphertext = await bobReplyCipher.encrypt(
         Uint8List.fromList(
           utf8.encode(bobReply),
         ),
@@ -233,14 +233,14 @@ void main() {
       final receivedBobReply =
           SignalMessage.fromSerialized(transmittedBobReply);
 
-      final aliceCipher =
+      final aliceReplyCipher =
           SessionCipher.fromStore(
         aliceStore,
         bobAddress,
       );
 
       final decryptedBobReply =
-          await aliceCipher.decryptFromSignal(
+          await aliceReplyCipher.decryptFromSignal(
         receivedBobReply,
       );
 
