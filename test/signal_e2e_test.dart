@@ -4,8 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
-import '../lib/core/crypto/directory_signal_adapter.dart';
-import '../lib/core/network/directory_user_bundle.dart';
+import 'package:stellar_ecc/core/crypto/directory_signal_adapter.dart';
+import 'package:stellar_ecc/core/network/directory_user_bundle.dart';
 
 void main() {
   test(
@@ -208,26 +208,13 @@ void main() {
 
       final transmittedSecond = secondCiphertext.serialize();
 
-      final receivedSecond = SignalMessage(
-        transmittedSecond,
-      );
+      final receivedSecond =
+          SignalMessage.fromSerialized(transmittedSecond);
 
-      Uint8List? decryptedSecond;
+      final decryptedSecond =
+          await bobCipher.decryptFromSignal(receivedSecond);
 
-      await bobCipher.decryptFromSignal(
-        receivedSecond,
-        (plaintext) {
-          decryptedSecond = plaintext;
-        },
-      );
-
-      if (decryptedSecond == null) {
-        throw StateError(
-          'Bob did not produce decrypted second plaintext',
-        );
-      }
-
-      final secondResult = utf8.decode(decryptedSecond!);
+      final secondResult = utf8.decode(decryptedSecond);
 
       expect(secondResult, secondPlaintext);
 
