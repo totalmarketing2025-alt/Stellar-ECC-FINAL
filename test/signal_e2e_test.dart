@@ -189,6 +189,49 @@ void main() {
       expect(result, plaintext);
 
       // ------------------------------------------------------------
+      // SECOND MESSAGE — DOUBLE RATCHET CONTINUATION
+      // ------------------------------------------------------------
+      const secondPlaintext = 'Second message — Double Ratchet continues!';
+
+      final secondCiphertext = await aliceCipher.encrypt(
+        Uint8List.fromList(
+          utf8.encode(secondPlaintext),
+        ),
+      );
+
+      // After the initial PreKey message, subsequent messages use
+      // the normal SignalMessage type on the established session.
+      expect(
+        secondCiphertext.getType(),
+        CiphertextMessage.whisperType,
+      );
+
+      final transmittedSecond = secondCiphertext.serialize();
+
+      final receivedSecond = SignalMessage(
+        transmittedSecond,
+      );
+
+      Uint8List? decryptedSecond;
+
+      await bobCipher.decryptFromSignal(
+        receivedSecond,
+        (plaintext) {
+          decryptedSecond = plaintext;
+        },
+      );
+
+      if (decryptedSecond == null) {
+        throw StateError(
+          'Bob did not produce decrypted second plaintext',
+        );
+      }
+
+      final secondResult = utf8.decode(decryptedSecond!);
+
+      expect(secondResult, secondPlaintext);
+
+      // ------------------------------------------------------------
       // FINAL ASSERTIONS
       // ------------------------------------------------------------
 
