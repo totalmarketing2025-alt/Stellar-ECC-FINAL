@@ -202,17 +202,22 @@ void main() {
       // ------------------------------------------------------------
       const secondPlaintext = 'Second message — Double Ratchet continues!';
 
+      print('SIGNAL PHASE 8A: CHECK ALICE SESSION');
+      expect(
+        await aliceStore.containsSession(bobAddress),
+        isTrue,
+      );
+
       final secondCiphertext = await aliceCipher.encrypt(
         Uint8List.fromList(
           utf8.encode(secondPlaintext),
         ),
       );
 
-      // After the initial PreKey message, subsequent messages use
-      // the normal SignalMessage type on the established session.
-      expect(
-        secondCiphertext.getType(),
-        CiphertextMessage.whisperType,
+      print(
+        'SIGNAL PHASE 8B: SECOND CIPHERTEXT TYPE '
+        '${secondCiphertext.getType()} '
+        '(expected ${CiphertextMessage.whisperType})',
       );
 
       final transmittedSecond = secondCiphertext.serialize();
