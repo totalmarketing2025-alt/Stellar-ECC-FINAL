@@ -101,10 +101,8 @@ class DirectoryClient {
     String path, {
     Map<String, dynamic>? body,
   }) async {
-    final client = HttpClient();
-
     try {
-      final request = await client.openUrl(
+      final request = await _client.openUrl(
         method,
         Uri.parse('$baseUrl$path'),
       );
@@ -129,6 +127,10 @@ class DirectoryClient {
     } catch (_) {
       rethrow;
     }
+  }
+
+  void dispose() {
+    _client.close(force: true);
   }
 
   Future<String> _readBody(HttpClientResponse response) async {

@@ -33,9 +33,13 @@ final sessionManagerProvider = Provider<SessionManager>((ref) {
 });
 
 final directoryClientProvider = Provider<DirectoryClient>((ref) {
-  return DirectoryClient(
+  final client = DirectoryClient(
     baseUrl: _directoryUrl,
   );
+
+  ref.onDispose(client.dispose);
+
+  return client;
 });
 
 final relayClientProvider = Provider<RelayClient>((ref) => RelayClient(relayUrl: _relayUrl));
