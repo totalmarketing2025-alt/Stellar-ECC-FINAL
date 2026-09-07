@@ -2,5 +2,21 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "stellar-ecc-directory",
   "main": "src/index.js",
-  "compatibility_date": "2026-09-06"
+  "compatibility_date": "2026-09-06",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DIRECTORY",
+        "class_name": "DirectoryStore"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "DirectoryStore"
+      ]
+    }
+  ]
 }

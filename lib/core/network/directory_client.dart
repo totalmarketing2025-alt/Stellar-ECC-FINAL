@@ -12,6 +12,10 @@ class DirectoryClient {
   final String baseUrl;
   final String? bearerToken;
 
+  final HttpClient _client = HttpClient()
+    ..connectionTimeout = const Duration(seconds: 10)
+    ..idleTimeout = const Duration(seconds: 30);
+
   Future<bool> checkAvailability(String nickname) async {
     final response = await _request(
       'GET',
@@ -118,10 +122,11 @@ class DirectoryClient {
         request.write(jsonEncode(body));
       }
 
-      final response = await request.close();
+      final response = await request
+          .close()
+          .timeout(const Duration(seconds: 15));
       return response;
     } catch (_) {
-      client.close(force: true);
       rethrow;
     }
   }

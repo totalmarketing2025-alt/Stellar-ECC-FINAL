@@ -63,7 +63,7 @@ class ChatRepository {
   }
 
   Future<List<({String chatId, String peerName, int peerDeviceId})>>
-      _knownDirectPeersWithSessions() async {
+      _knownDirectPeers() async {
     final chats = await db.chatDao.all();
     final result = <({String chatId, String peerName, int peerDeviceId})>[];
 
@@ -80,14 +80,11 @@ class ChatRepository {
         continue;
       }
 
-      final address = SignalProtocolAddress(peerName, peerDeviceId);
-      if (await sessionManager.hasSession(address)) {
-        result.add((
-          chatId: chatId,
-          peerName: peerName,
-          peerDeviceId: peerDeviceId,
-        ));
-      }
+      result.add((
+        chatId: chatId,
+        peerName: peerName,
+        peerDeviceId: peerDeviceId,
+      ));
     }
 
     return result;
@@ -155,43 +152,43 @@ class ChatRepository {
       replyToId: replyToId,
     );
 
-    if (attachmentBytes != null && attachmentMimeType != null && mediaService != null) {
-      await mediaService!.storeAttachment(
-        rawBytes: attachmentBytes,
-        messageId: messageId,
-        mimeType: attachmentMimeType,
-        ttlSeconds: ttlSeconds,
-      );
-    }
-
-    // 2. Encrypt via the Double Ratchet session with the recipient.
-    await _ensureDirectSession(
-      peerName: peerName,
-      peerDeviceId: peerDeviceId,
-    );
-
-    final address = SignalProtocolAddress(peerName, peerDeviceId);
-    final plaintextBytes = Uint8List.fromList(utf8.encode(plaintext));
-    final ciphertextMessage = await sessionManager.encryptForSend(address, plaintextBytes);
-
-    // 3. Wrap in the relay envelope. The delivery token is a fresh random
-    // id per send — never the sender's static identity (sealed sender,
-    // Phase 4 §2) — the relay only learns a rotating token and the
-    // recipient's route.
-    final token = Uint8List.fromList(utf8.encode(_uuid.v4()).take(16).toList());
-    final envelope = Envelope(
-      deliveryToken: token,
-      recipientRoute: peerName, // resolved server-side to an opaque route in production
-      ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
-    );
-
     try {
+      if (attachmentBytes != null && attachmentMimeType != null && mediaService != null) {
+        await mediaService!.storeAttachment(
+          rawBytes: attachmentBytes,
+          messageId: messageId,
+          mimeType: attachmentMimeType,
+          ttlSeconds: ttlSeconds,
+        );
+      }
+
+      // 2. Encrypt via the Double Ratchet session with the recipient.
+      await _ensureDirectSession(
+        peerName: peerName,
+        peerDeviceId: peerDeviceId,
+      );
+
+      final address = SignalProtocolAddress(peerName, peerDeviceId);
+      final plaintextBytes = Uint8List.fromList(utf8.encode(plaintext));
+      final ciphertextMessage = await sessionManager.encryptForSend(address, plaintextBytes);
+
+      // 3. Wrap in the relay envelope. The delivery token is a fresh random
+      // id per send — never the sender's static identity (sealed sender,
+      // Phase 4 §2) — the relay only learns a rotating token and the
+      // recipient's route.
+      final token = Uint8List.fromList(utf8.encode(_uuid.v4()).take(16).toList());
+      final envelope = Envelope(
+        deliveryToken: token,
+        recipientRoute: peerName, // resolved server-side to an opaque route in production
+        ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
+      );
+      // 4. Send the opaque encrypted envelope through the relay.
       await relayClient.send(envelope.encode());
       await db.messageDao.updateStatus(messageId, 'sent');
+
     } catch (_) {
       await db.messageDao.updateStatus(messageId, 'failed');
     }
-
     final rows = await db.messageDao.forChat(chatId);
     return rows.map(Message.fromRow).firstWhere((m) => m.messageId == messageId);
   }
@@ -205,7 +202,7 @@ class ChatRepository {
   }) async {
     final envelope = Envelope.decode(rawEnvelope);
 
-    final peers = await _knownDirectPeersWithSessions();
+    final peers = await _knownDirectPeers();
     if (peers.isEmpty) {
       throw StateError('No known direct peer session can receive this envelope');
     }
@@ -267,6 +264,9 @@ class ChatRepository {
       plaintext: plaintext,
       ttlSeconds: ttl,
     );
+
+    // This message was received and successfully decrypted locally.
+    await db.messageDao.updateStatus(messageId, 'delivered');
 
     final rows = await db.messageDao.forChat(chatId);
     return rows

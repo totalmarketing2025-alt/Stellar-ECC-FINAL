@@ -30,16 +30,47 @@ class RelayClient {
               StreamController<Uint8List>.broadcast())
           .stream;
 
-  bool get isConnected => _channel != null;
+  bool get isConnected => _channel != null && _ready == true;
+  bool? _ready;
+  Timer? _reconnectTimer;
+  Future<void>? _connectFuture;
 
   Future<void> connect({
     required String peer,
   }) async {
-    _manuallyDisconnected = false;
+    if (_manuallyDisconnected) {
+      _manuallyDisconnected = false;
+    }
+
     _lastPeer = peer;
 
-    final base = Uri.parse(relayUrl);
+    final existing = _connectFuture;
+    if (existing != null) {
+      await existing;
+      return;
+    }
 
+    final future = _connectInternal(peer);
+    _connectFuture = future;
+
+    try {
+      await future;
+    } finally {
+      if (identical(_connectFuture, future)) {
+        _connectFuture = null;
+      }
+    }
+  }
+
+  Future<void> _connectInternal(String peer) async {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+
+    if (_channel != null && _ready == true) {
+      return;
+    }
+
+    final base = Uri.parse(relayUrl);
     final uri = base.replace(
       queryParameters: {
         ...base.queryParameters,
@@ -51,35 +82,59 @@ class RelayClient {
       final channel = WebSocketChannel.connect(uri);
 
       _channel = channel;
+      _ready = false;
+
+      await channel.ready;
+
+      if (!identical(_channel, channel) || _manuallyDisconnected) {
+        await channel.sink.close(ws_status.normalClosure);
+        return;
+      }
+
+      _ready = true;
       _backoffMs = 500;
 
       channel.stream.listen(
         (data) {
+          if (!identical(_channel, channel)) {
+            return;
+          }
+
           if (data is List<int>) {
             (_incomingController ??=
                     StreamController<Uint8List>.broadcast())
-                .add(
-              Uint8List.fromList(data),
-            );
+                .add(Uint8List.fromList(data));
           } else if (data is String) {
             (_incomingController ??=
                     StreamController<Uint8List>.broadcast())
-                .add(
-              Uint8List.fromList(data.codeUnits),
-            );
+                .add(Uint8List.fromList(data.codeUnits));
           }
         },
-        onDone: _handleDisconnect,
-        onError: (_) => _handleDisconnect(),
+        onDone: () {
+          if (identical(_channel, channel)) {
+            _handleDisconnect();
+          }
+        },
+        onError: (_) {
+          if (identical(_channel, channel)) {
+            _handleDisconnect();
+          }
+        },
         cancelOnError: true,
       );
     } catch (_) {
+      if (identical(_channel, channel)) {
+        _channel = null;
+        _ready = false;
+      }
       _scheduleReconnect();
+      rethrow;
     }
   }
 
   void _handleDisconnect() {
     _channel = null;
+    _ready = false;
 
     if (!_manuallyDisconnected) {
       _scheduleReconnect();
@@ -89,24 +144,33 @@ class RelayClient {
   void _scheduleReconnect() {
     final peer = _lastPeer;
 
-    if (peer == null) {
+    if (peer == null || _manuallyDisconnected) {
       return;
     }
 
-    Timer(
-      Duration(milliseconds: _backoffMs),
-      () {
+    if (_reconnectTimer?.isActive == true) {
+      return;
+    }
+
+    final delay = _backoffMs;
+
+    _reconnectTimer = Timer(
+      Duration(milliseconds: delay),
+      () async {
+        _reconnectTimer = null;
+
         if (_manuallyDisconnected) {
           return;
         }
 
         _backoffMs =
-            (_backoffMs * 2).clamp(
-          500,
-          _maxBackoffMs,
-        );
+            (_backoffMs * 2).clamp(500, _maxBackoffMs);
 
-        connect(peer: peer);
+        try {
+          await connect(peer: peer);
+        } catch (_) {
+          // connect() already scheduled the next reconnect.
+        }
       },
     );
   }
@@ -114,9 +178,9 @@ class RelayClient {
   Future<void> send(Uint8List envelopeBytes) async {
     final channel = _channel;
 
-    if (channel == null) {
+    if (channel == null || _ready != true) {
       throw StateError(
-        'Relay is not connected',
+        'Relay is not connected and ready',
       );
     }
 
@@ -125,11 +189,15 @@ class RelayClient {
 
   Future<void> disconnect() async {
     _manuallyDisconnected = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
 
-    await _channel?.sink.close(
+    final channel = _channel;
+    _channel = null;
+    _ready = false;
+
+    await channel?.sink.close(
       ws_status.normalClosure,
     );
-
-    _channel = null;
   }
 }
