@@ -198,39 +198,103 @@ void main() {
 
       // ------------------------------------------------------------
       print('SIGNAL PHASE 8: DOUBLE RATCHET');
-// SECOND MESSAGE — DOUBLE RATCHET CONTINUATION
-      // ------------------------------------------------------------
-      const secondPlaintext = 'Second message — Double Ratchet continues!';
+      // Bob replies first. This acknowledges the PreKey session from
+      // the protocol perspective and lets Alice continue with a normal
+      // SignalMessage.
 
-      print('SIGNAL PHASE 8A: CHECK ALICE SESSION');
-      expect(
-        await aliceStore.containsSession(bobAddress),
-        isTrue,
+      const bobReply = 'Bob reply — session acknowledged!';
+
+      final bobCipher =
+          SessionCipher.fromStore(
+        bobStore,
+        aliceAddress,
       );
 
-      final secondCiphertext = await aliceCipher.encrypt(
+      final bobReplyCiphertext = await bobCipher.encrypt(
+        Uint8List.fromList(
+          utf8.encode(bobReply),
+        ),
+      );
+
+      print(
+        'SIGNAL PHASE 8A: BOB REPLY TYPE '
+        '${bobReplyCiphertext.getType()} '
+        '(expected ${CiphertextMessage.whisperType})',
+      );
+
+      expect(
+        bobReplyCiphertext.getType(),
+        CiphertextMessage.whisperType,
+      );
+
+      final transmittedBobReply =
+          bobReplyCiphertext.serialize();
+
+      final receivedBobReply =
+          SignalMessage.fromSerialized(transmittedBobReply);
+
+      final aliceCipher =
+          SessionCipher.fromStore(
+        aliceStore,
+        bobAddress,
+      );
+
+      final decryptedBobReply =
+          await aliceCipher.decryptFromSignal(
+        receivedBobReply,
+      );
+
+      expect(
+        utf8.decode(decryptedBobReply),
+        bobReply,
+      );
+
+      print('SIGNAL PHASE 8B: ALICE RECEIVED BOB REPLY');
+
+      // Alice can now continue the Double Ratchet with a normal
+      // SignalMessage.
+
+      const secondPlaintext =
+          'Second message — Double Ratchet continues!';
+
+      final secondCiphertext =
+          await aliceCipher.encrypt(
         Uint8List.fromList(
           utf8.encode(secondPlaintext),
         ),
       );
 
       print(
-        'SIGNAL PHASE 8B: SECOND CIPHERTEXT TYPE '
+        'SIGNAL PHASE 8C: SECOND CIPHERTEXT TYPE '
         '${secondCiphertext.getType()} '
         '(expected ${CiphertextMessage.whisperType})',
       );
 
-      final transmittedSecond = secondCiphertext.serialize();
+      expect(
+        secondCiphertext.getType(),
+        CiphertextMessage.whisperType,
+      );
+
+      final transmittedSecond =
+          secondCiphertext.serialize();
 
       final receivedSecond =
-          SignalMessage.fromSerialized(transmittedSecond);
+          SignalMessage.fromSerialized(
+        transmittedSecond,
+      );
 
       final decryptedSecond =
-          await bobCipher.decryptFromSignal(receivedSecond);
+          await bobCipher.decryptFromSignal(
+        receivedSecond,
+      );
 
-      final secondResult = utf8.decode(decryptedSecond);
+      final secondResult =
+          utf8.decode(decryptedSecond);
 
-      expect(secondResult, secondPlaintext);
+      expect(
+        secondResult,
+        secondPlaintext,
+      );
 
       // ------------------------------------------------------------
       // FINAL ASSERTIONS
