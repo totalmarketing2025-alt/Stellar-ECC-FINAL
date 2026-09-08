@@ -129,9 +129,9 @@ jobs:
 
           const result = await received;
 
-          if (!result.equals(payload)) {
+          if (!result.equals(envelope)) {
             throw new Error(
-              'Relay modified the opaque payload',
+              'Relay modified the complete envelope',
             );
           }
 
@@ -145,7 +145,7 @@ jobs:
             'Alice -> Relay -> Bob',
           );
           console.log(
-            'Opaque Signal payload preserved',
+            'Complete Stellar Envelope preserved',
           );
           console.log(
             '========================================',
