@@ -26,7 +26,7 @@ wss.on('connection', (socket, request) => {
     `http://${request.headers.host}`,
   );
 
-  const peer = url.searchParams.get('peer');
+  const peer = url.searchParams.get('peer')?.trim().toLowerCase();
 
   if (!peer) {
     socket.close(1008, 'peer required');
@@ -81,7 +81,9 @@ wss.on('connection', (socket, request) => {
 
     const recipient = raw
       .subarray(offset, offset + routeLength)
-      .toString('utf8');
+      .toString('utf8')
+      .trim()
+      .toLowerCase();
 
     offset += routeLength;
 
@@ -91,11 +93,6 @@ wss.on('connection', (socket, request) => {
     if (offset + ciphertextLength > raw.length) {
       return;
     }
-
-    const payload = raw.subarray(
-      offset,
-      offset + ciphertextLength,
-    );
 
     if (version !== 1 || relayTtlSeconds <= 0) {
       return;
@@ -107,7 +104,8 @@ wss.on('connection', (socket, request) => {
       return;
     }
 
-    target.send(payload);
+    // Forward the COMPLETE Stellar Envelope unchanged.
+    target.send(raw);
   });
 
   socket.on('close', () => {
