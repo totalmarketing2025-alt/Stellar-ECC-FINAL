@@ -7,6 +7,7 @@ import '../presentation/screens/onboarding/identity_creation_screen.dart';
 import '../presentation/screens/onboarding/choose_nickname_screen.dart';
 import '../presentation/screens/onboarding/recovery_setup_screen.dart';
 import '../presentation/screens/onboarding/app_lock_setup_screen.dart';
+import '../presentation/screens/onboarding/pin_unlock_screen.dart';
 import '../presentation/screens/chat_list/chat_list_screen.dart';
 import '../presentation/screens/chat/chat_screen.dart';
 import '../presentation/screens/calls/voice_call_screen.dart';
@@ -27,6 +28,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/onboarding/nickname', builder: (c, s) => const ChooseNicknameScreen()),
       GoRoute(path: '/onboarding/recovery', builder: (c, s) => const RecoverySetupScreen()),
       GoRoute(path: '/onboarding/app-lock', builder: (c, s) => const AppLockSetupScreen()),
+      GoRoute(path: '/unlock', builder: (c, s) => const PinUnlockScreen()),
       GoRoute(path: '/chats', builder: (c, s) => const ChatListScreen()),
       GoRoute(
         path: '/chat/:chatId',

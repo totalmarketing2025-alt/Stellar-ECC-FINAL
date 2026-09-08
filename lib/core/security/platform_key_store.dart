@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -25,6 +26,52 @@ class PlatformKeyStore {
   final Random _secureRandom = Random.secure();
 
   static const _dbKeyAlias = 'stellar_ecc.db_master_key';
+
+  static const _pinHashAlias = 'stellar_ecc.app_pin_hash';
+  static const _pinSaltAlias = 'stellar_ecc.app_pin_salt';
+
+  Future<bool> hasPin() async {
+    return await _storage.read(key: _pinHashAlias) != null;
+  }
+
+  Future<void> setPin(String pin) async {
+    final salt = _generateRandomKey(16);
+    final hash = sha256.convert(
+      [...salt, ...utf8.encode(pin)],
+    ).bytes;
+
+    await _storage.write(
+      key: _pinSaltAlias,
+      value: base64Encode(salt),
+    );
+    await _storage.write(
+      key: _pinHashAlias,
+      value: base64Encode(hash),
+    );
+  }
+
+  Future<bool> verifyPin(String pin) async {
+    final saltRaw = await _storage.read(key: _pinSaltAlias);
+    final hashRaw = await _storage.read(key: _pinHashAlias);
+
+    if (saltRaw == null || hashRaw == null) return false;
+
+    final salt = base64Decode(saltRaw);
+    final expected = base64Decode(hashRaw);
+    final actual = sha256.convert(
+      [...salt, ...utf8.encode(pin)],
+    ).bytes;
+
+    if (actual.length != expected.length) return false;
+
+    var difference = 0;
+    for (var i = 0; i < actual.length; i++) {
+      difference |= actual[i] ^ expected[i];
+    }
+
+    return difference == 0;
+  }
+
 
   Future<Uint8List> getOrCreateDatabaseKey() async {
     final existing = await _storage.read(key: _dbKeyAlias);

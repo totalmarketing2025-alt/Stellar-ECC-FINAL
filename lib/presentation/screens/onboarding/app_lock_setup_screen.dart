@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:local_auth/local_auth.dart';
 
 import '../../../core/theme/stellar_theme.dart';
 import '../../state/app_providers.dart';
@@ -14,69 +13,128 @@ class AppLockSetupScreen extends ConsumerStatefulWidget {
 }
 
 class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
-  final _localAuth = LocalAuthentication();
-  String? _status;
+  final _pinController = TextEditingController();
+  final _confirmController = TextEditingController();
 
-  Future<void> _enableBiometrics() async {
-    final canCheck = await _localAuth.canCheckBiometrics;
-    if (!canCheck) {
-      setState(() => _status = 'Biometrics not available on this device — set a PIN instead.');
+  String? _error;
+  bool _saving = false;
+
+  Future<void> _savePin() async {
+    final pin = _pinController.text;
+    final confirm = _confirmController.text;
+
+    if (pin.length < 4 || pin.length > 6) {
+      setState(() => _error = 'PIN must contain 4 to 6 digits.');
       return;
     }
-    final ok = await _localAuth.authenticate(
-      localizedReason: 'Confirm biometric unlock for Stellar ECC',
-      options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true),
-    );
-    if (ok) {
-      ref.read(isUnlockedProvider.notifier).state = true;
-      if (mounted) context.go('/chats');
-    } else {
-      setState(() => _status = 'Authentication was not completed.');
+
+    if (!RegExp(r'^\d+$').hasMatch(pin)) {
+      setState(() => _error = 'PIN must contain digits only.');
+      return;
     }
+
+    if (pin != confirm) {
+      setState(() => _error = 'PINs do not match.');
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+
+    final keyStore = ref.read(platformKeyStoreProvider);
+    await keyStore.setPin(pin);
+
+    if (!mounted) return;
+
+    ref.read(isUnlockedProvider.notifier).state = true;
+    context.go('/chats');
+  }
+
+  @override
+  void dispose() {
+    _pinController.dispose();
+    _confirmController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: StellarColors.bgPrimary,
-      appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.fingerprint, color: StellarColors.accentBlue, size: 40),
-            const SizedBox(height: 16),
-            const Text('Protect your messages', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 12),
-            const Text(
-              'Require Face ID / Touch ID / fingerprint (or a PIN) to open Stellar ECC.',
-              style: TextStyle(color: StellarColors.textSecondary),
-            ),
-            if (_status != null) ...[
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.lock_outline,
+                color: StellarColors.accentBlue,
+                size: 40,
+              ),
               const SizedBox(height: 16),
-              Text(_status!, style: const TextStyle(color: StellarColors.danger)),
+              const Text(
+                'Set your PIN',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'A PIN is required every time Stellar ECC is opened.',
+                style: TextStyle(
+                  color: StellarColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 28),
+              TextField(
+                controller: _pinController,
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                decoration: const InputDecoration(
+                  labelText: 'PIN',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _confirmController,
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                onSubmitted: (_) => _savePin(),
+                decoration: const InputDecoration(
+                  labelText: 'Confirm PIN',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _error!,
+                  style: const TextStyle(
+                    color: StellarColors.danger,
+                  ),
+                ),
+              ],
+              const Spacer(),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _saving ? null : _savePin,
+                  child: Text(_saving ? 'Saving...' : 'Set PIN'),
+                ),
+              ),
             ],
-            const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _enableBiometrics,
-                child: const Text('Enable biometric lock'),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () {
-                  ref.read(isUnlockedProvider.notifier).state = true;
-                  context.go('/chats');
-                },
-                child: const Text('Set a PIN instead'),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

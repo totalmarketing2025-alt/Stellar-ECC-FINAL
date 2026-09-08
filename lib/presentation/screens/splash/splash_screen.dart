@@ -43,7 +43,13 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     if (nickname == null) {
       context.go('/onboarding/welcome');
     } else {
-      context.go('/chats');
+      final hasPin = await ref.read(platformKeyStoreProvider).hasPin();
+
+      if (hasPin) {
+        context.go('/unlock');
+      } else {
+        context.go('/onboarding/app-lock');
+      }
     }
   }
 
