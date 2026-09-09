@@ -138,8 +138,15 @@ void main() {
 
         expect(bobEnvelope.recipientRoute, 'bob');
 
+        final receivedCiphertext = bobEnvelope.ciphertext;
+        expect(
+          receivedCiphertext,
+          orderedEquals(aliceCiphertext.serialize()),
+          reason: 'Relay/Envelope modified the Signal ciphertext',
+        );
+
         final PreKeySignalMessage bobSignal =
-            PreKeySignalMessage(bobEnvelope.ciphertext);
+            PreKeySignalMessage(receivedCiphertext);
 
         Uint8List? bobPlaintext;
         print('CHAT STEP: BOB DECRYPT START');
