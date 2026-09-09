@@ -138,23 +138,16 @@ void main() {
 
         expect(bobEnvelope.recipientRoute, 'bob');
 
-        final bobSignal =
-            (bobEnvelope.ciphertext[0] & 0x07) ==
-                    CiphertextMessage.prekeyType
-                ? PreKeySignalMessage(bobEnvelope.ciphertext)
-                : SignalMessage.fromSerialized(
-                    bobEnvelope.ciphertext,
-                  );
+        final PreKeySignalMessage bobSignal =
+            PreKeySignalMessage(bobEnvelope.ciphertext);
 
         Uint8List? bobPlaintext;
-
         await bobCipher.decryptWithCallback(
           bobSignal,
           (plaintext) {
             bobPlaintext = plaintext;
           },
         );
-
         expect(utf8.decode(bobPlaintext!), aliceText);
 
         print('CHAT 5: BOB -> ALICE');
@@ -185,18 +178,13 @@ void main() {
 
         expect(aliceEnvelope.recipientRoute, 'alice');
 
-        Uint8List? alicePlaintext;
-
-        await aliceCipher.decryptWithCallback(
+        final alicePlaintext =
+            await aliceCipher.decryptFromSignal(
           SignalMessage.fromSerialized(
             aliceEnvelope.ciphertext,
           ),
-          (plaintext) {
-            alicePlaintext = plaintext;
-          },
         );
-
-        expect(utf8.decode(alicePlaintext!), bobText);
+        expect(utf8.decode(alicePlaintext), bobText);
 
         print('CHAT 6: ALICE -> BOB AGAIN');
 
@@ -224,18 +212,13 @@ void main() {
         final secondEnvelope =
             Envelope.decode(await secondBobFuture);
 
-        Uint8List? secondPlaintext;
-
-        await bobCipher.decryptWithCallback(
+        final secondPlaintext =
+            await bobCipher.decryptFromSignal(
           SignalMessage.fromSerialized(
             secondEnvelope.ciphertext,
           ),
-          (plaintext) {
-            secondPlaintext = plaintext;
-          },
         );
-
-        expect(utf8.decode(secondPlaintext!), secondText);
+        expect(utf8.decode(secondPlaintext), secondText);
 
         print('CHAT RESULT: ALICE <-> BOB SUCCESS');
       } finally {
