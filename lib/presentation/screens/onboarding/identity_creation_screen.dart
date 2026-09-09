@@ -30,7 +30,6 @@ class _IdentityCreationScreenState
     _started = true;
 
     try {
-      final sessionManager = ref.read(sessionManagerProvider);
 
       await ref.read(identityKeyStoreProvider).initializeIfAbsent();
 

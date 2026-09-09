@@ -93,9 +93,9 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
             color: Colors.black.withOpacity(0.58),
           ),
           SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Icon(
@@ -170,7 +170,8 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
                 ),
               ),
             ],
-          ),
+              ),
+            ),
           ),
         ],
       ),
