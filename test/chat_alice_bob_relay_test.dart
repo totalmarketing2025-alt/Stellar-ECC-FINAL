@@ -41,7 +41,7 @@ StreamController<Uint8List> _controllerFor(
   return _streamControllers.putIfAbsent(
     channel,
     () {
-      final controller = StreamController<Uint8List>();
+      final controller = StreamController<Uint8List>.broadcast();
       channel.stream.listen(
         (data) {
           controller.add(
