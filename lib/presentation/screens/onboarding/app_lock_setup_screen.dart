@@ -77,12 +77,22 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: StellarColors.bgPrimary,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
-      body: SafeArea(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            'assets/images/stellar_background.jpg',
+            fit: BoxFit.cover,
+          ),
+          Container(
+            color: Colors.black.withOpacity(0.58),
+          ),
+          SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -161,7 +171,8 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
               ),
             ],
           ),
-        ),
+          ),
+        ],
       ),
     );
   }
