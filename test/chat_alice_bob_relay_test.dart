@@ -63,7 +63,7 @@ void main() {
           bobRegistrationId,
         );
 
-        final bobPreKeys = generatePreKeys(0, 10);
+        final bobPreKeys = generatePreKeys(0, 110);
         for (final key in bobPreKeys) {
           await bobStore.storePreKey(key.id, key);
         }
