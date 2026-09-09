@@ -221,6 +221,11 @@ void main() {
         expect(utf8.decode(secondPlaintext), secondText);
 
         print('CHAT RESULT: ALICE <-> BOB SUCCESS');
+      } catch (error, stack) {
+        print('CHAT ERROR: $error');
+        print('CHAT STACK TRACE:');
+        print(stack);
+        rethrow;
       } finally {
         await alice.sink.close();
         await bob.sink.close();
