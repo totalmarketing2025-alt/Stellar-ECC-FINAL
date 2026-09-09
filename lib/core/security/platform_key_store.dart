@@ -29,6 +29,7 @@ class PlatformKeyStore {
 
   static const _pinHashAlias = 'stellar_ecc.app_pin_hash';
   static const _pinSaltAlias = 'stellar_ecc.app_pin_salt';
+  static const _pinFailedAttemptsAlias = 'stellar_ecc.pin_failed_attempts';
 
   Future<bool> hasPin() async {
     return await _storage.read(key: _pinHashAlias) != null;
@@ -48,6 +49,24 @@ class PlatformKeyStore {
       key: _pinHashAlias,
       value: base64Encode(hash),
     );
+  }
+
+  Future<int> getPinFailedAttempts() async {
+    final raw = await _storage.read(key: _pinFailedAttemptsAlias);
+    return int.tryParse(raw ?? '0') ?? 0;
+  }
+
+  Future<int> incrementPinFailedAttempts() async {
+    final attempts = await getPinFailedAttempts() + 1;
+    await _storage.write(
+      key: _pinFailedAttemptsAlias,
+      value: attempts.toString(),
+    );
+    return attempts;
+  }
+
+  Future<void> resetPinFailedAttempts() async {
+    await _storage.delete(key: _pinFailedAttemptsAlias);
   }
 
   Future<bool> verifyPin(String pin) async {

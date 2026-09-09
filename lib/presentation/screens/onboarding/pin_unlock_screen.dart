@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
 import '../../state/app_providers.dart';
+import '../../state/security_providers.dart';
 
 class PinUnlockScreen extends ConsumerStatefulWidget {
   const PinUnlockScreen({super.key});
@@ -36,12 +37,36 @@ class _PinUnlockScreenState extends ConsumerState<PinUnlockScreen> {
     if (!mounted) return;
 
     if (valid) {
+      await keyStore.resetPinFailedAttempts();
       ref.read(isUnlockedProvider.notifier).state = true;
       context.go('/chats');
     } else {
+      final attempts =
+          await keyStore.incrementPinFailedAttempts();
+
+      if (attempts >= 4) {
+        setState(() {
+          _checking = false;
+          _error =
+              'Too many incorrect PIN attempts. Stellar is being reset.';
+        });
+
+        _pinController.clear();
+
+        try {
+          await ref.read(panicLockControllerProvider).wipeAndLock();
+        } finally {
+          if (mounted) {
+            context.go('/onboarding/welcome');
+          }
+        }
+        return;
+      }
+
       setState(() {
         _checking = false;
-        _error = 'Incorrect PIN.';
+        _error =
+            'Incorrect PIN. Attempts remaining: ${4 - attempts}.';
       });
       _pinController.clear();
     }
