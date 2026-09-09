@@ -142,13 +142,15 @@ void main() {
             PreKeySignalMessage(bobEnvelope.ciphertext);
 
         Uint8List? bobPlaintext;
+        print('CHAT STEP: BOB DECRYPT START');
         await bobCipher.decryptWithCallback(
           bobSignal,
           (plaintext) {
             bobPlaintext = plaintext;
           },
         );
-        expect(utf8.decode(bobPlaintext!), aliceText);
+        expect(bobPlaintext, isNotNull, reason: 'CHAT STEP FAILED: Bob decrypt returned null');
+        expect(utf8.decode(bobPlaintext!), aliceText, reason: 'CHAT STEP FAILED: Bob plaintext mismatch');
 
         print('CHAT 5: BOB -> ALICE');
 
@@ -178,13 +180,14 @@ void main() {
 
         expect(aliceEnvelope.recipientRoute, 'alice');
 
+        print('CHAT STEP: ALICE DECRYPT REPLY START');
         final alicePlaintext =
             await aliceCipher.decryptFromSignal(
           SignalMessage.fromSerialized(
             aliceEnvelope.ciphertext,
           ),
         );
-        expect(utf8.decode(alicePlaintext), bobText);
+        expect(utf8.decode(alicePlaintext), bobText, reason: 'CHAT STEP FAILED: Alice plaintext mismatch');
 
         print('CHAT 6: ALICE -> BOB AGAIN');
 
@@ -212,6 +215,7 @@ void main() {
         final secondEnvelope =
             Envelope.decode(await secondBobFuture);
 
+        print('CHAT STEP: BOB DECRYPT SECOND START');
         final secondPlaintext =
             await bobCipher.decryptFromSignal(
           SignalMessage.fromSerialized(
