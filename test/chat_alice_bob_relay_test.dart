@@ -31,11 +31,35 @@ Envelope makeEnvelope({
   );
 }
 
+final _streamControllers =
+    <WebSocketChannel, StreamController<Uint8List>>{};
+
+StreamController<Uint8List> _controllerFor(
+  WebSocketChannel channel,
+) {
+  return _streamControllers.putIfAbsent(
+    channel,
+    () {
+      final controller = StreamController<Uint8List>();
+      channel.stream.listen(
+        (data) {
+          controller.add(
+            data is List<int>
+                ? Uint8List.fromList(data)
+                : Uint8List.fromList((data as String).codeUnits),
+          );
+        },
+        onError: controller.addError,
+        onDone: controller.close,
+      );
+      return controller;
+    },
+  );
+}
+
 Future<Uint8List> receive(WebSocketChannel channel) {
-  return channel.stream
-      .map<Uint8List>((data) => data is List<int>
-          ? Uint8List.fromList(data)
-          : Uint8List.fromList((data as String).codeUnits))
+  return _controllerFor(channel)
+      .stream
       .first
       .timeout(const Duration(seconds: 8));
 }
