@@ -31,7 +31,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             fit: BoxFit.cover,
           ),
           Container(
-            color: Colors.black.withValues(alpha: 0.58),
+            color: Colors.black.withOpacity(0.58),
           ),
           SafeArea(
             child: Column(
