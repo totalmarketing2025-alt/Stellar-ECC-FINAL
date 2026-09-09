@@ -186,8 +186,11 @@ class ChatRepository {
       await relayClient.send(envelope.encode());
       await db.messageDao.updateStatus(messageId, 'sent');
 
-    } catch (_) {
+    } catch (e, st) {
       await db.messageDao.updateStatus(messageId, 'failed');
+      print('SEND_DIRECT_MESSAGE_ERROR: $e');
+      print('SEND_DIRECT_MESSAGE_STACK: $st');
+      rethrow;
     }
     final rows = await db.messageDao.forChat(chatId);
     return rows.map(Message.fromRow).firstWhere((m) => m.messageId == messageId);
