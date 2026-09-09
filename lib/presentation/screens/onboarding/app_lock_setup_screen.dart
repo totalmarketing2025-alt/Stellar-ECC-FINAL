@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
 import '../../state/app_providers.dart';
+import '../../state/app_lock_controller.dart';
 
 class AppLockSetupScreen extends ConsumerStatefulWidget {
   const AppLockSetupScreen({super.key});
@@ -18,6 +19,20 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
 
   String? _error;
   bool _saving = false;
+
+  Future<void> _enableBiometrics() async {
+    final controller = ref.read(appLockControllerProvider);
+    final enabled = await controller.enableBiometricLock();
+
+    if (!mounted) return;
+
+    if (enabled) {
+      ref.read(isUnlockedProvider.notifier).state = true;
+      context.go('/chats');
+    } else {
+      setState(() => _error = 'Biometric authentication was not enabled.');
+    }
+  }
 
   Future<void> _savePin() async {
     final pin = _pinController.text;
@@ -131,6 +146,17 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
                 child: ElevatedButton(
                   onPressed: _saving ? null : _savePin,
                   child: Text(_saving ? 'Saving...' : 'Set PIN'),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _saving ? null : _enableBiometrics,
+                  icon: const Icon(Icons.fingerprint),
+                  label: const Text('Enable biometric lock'),
                 ),
               ),
             ],

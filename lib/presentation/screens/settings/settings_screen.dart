@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/stellar_theme.dart';
 import '../../state/app_providers.dart';
 import '../../state/security_providers.dart';
+import '../../state/app_lock_controller.dart';
 import '../../widgets/ttl_picker_sheet.dart';
 import '../../../domain/models/chat.dart';
 
@@ -98,7 +99,46 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             activeColor: StellarColors.accentBlue,
             title: const Text('Biometric / PIN lock'),
             value: biometricLockEnabled,
-            onChanged: (v) => ref.read(biometricLockEnabledProvider.notifier).state = v,
+            onChanged: (v) async {
+              final controller = ref.read(appLockControllerProvider);
+
+              if (v) {
+                final enabled = await controller.enableBiometricLock();
+
+                if (!mounted) return;
+
+                if (enabled) {
+                  ref.read(biometricLockEnabledProvider.notifier).state = true;
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Biometric authentication was not enabled.'),
+                    ),
+                  );
+                }
+              } else {
+                final authenticated = await controller.authenticate();
+
+                if (!mounted) return;
+
+                if (!authenticated) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Biometric authentication required to disable the lock.',
+                      ),
+                    ),
+                  );
+                  return;
+                }
+
+                await controller.disableBiometricLock();
+
+                if (!mounted) return;
+
+                ref.read(biometricLockEnabledProvider.notifier).state = false;
+              }
+            },
           ),
 
           _SectionHeader('Notifications'),

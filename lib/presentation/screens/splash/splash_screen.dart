@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
 import '../../state/app_providers.dart';
+import '../../state/app_lock_controller.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -28,29 +29,55 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   }
 
   Future<void> _resolveDestination() async {
-    // Restore session state (identity present? nickname registered? app
-    // lock required?) while the splash animation plays, so there is no
-    // separate loading spinner after this screen.
     final identityStore = ref.read(identityKeyStoreProvider);
     await identityStore.initializeIfAbsent();
 
     await ref.read(localNicknameProvider.notifier).load();
     final nickname = ref.read(localNicknameProvider);
-    await Future.delayed(const Duration(milliseconds: 700)); // let the animation finish
+
+    await Future.delayed(const Duration(milliseconds: 700));
 
     if (!mounted) return;
 
     if (nickname == null) {
       context.go('/onboarding/welcome');
-    } else {
-      final hasPin = await ref.read(platformKeyStoreProvider).hasPin();
+      return;
+    }
 
+    final keyStore = ref.read(platformKeyStoreProvider);
+    final hasPin = await keyStore.hasPin();
+
+    final lockController = ref.read(appLockControllerProvider);
+    await lockController.loadEnabledState();
+
+    final biometricEnabled =
+        await lockController.isBiometricLockEnabled();
+
+    if (biometricEnabled) {
+      final authenticated = await lockController.authenticate();
+
+      if (!mounted) return;
+
+      if (authenticated) {
+        context.go('/chats');
+        return;
+      }
+
+      // Biometric was cancelled/failed. Preserve the existing PIN
+      // fallback instead of unlocking the app automatically.
       if (hasPin) {
         context.go('/unlock');
-      } else {
-        context.go('/onboarding/app-lock');
       }
+      return;
     }
+
+    if (hasPin) {
+      context.go('/unlock');
+      return;
+    }
+
+    ref.read(isUnlockedProvider.notifier).state = true;
+    context.go('/chats');
   }
 
   @override

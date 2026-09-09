@@ -8,7 +8,8 @@ import '../../domain/models/device.dart';
 /// (SettingsScreen currently keeps its own local widget state; a fuller
 /// build would hoist those into providers here too so there's one source
 /// of truth instead of two places tracking "is biometric lock on").
-final biometricLockEnabledProvider = StateProvider<bool>((ref) => true);
+final biometricLockEnabledProvider =
+    StateProvider<bool>((ref) => false);
 final screenshotBlockEnabledProvider = StateProvider<bool>((ref) => true);
 final screenPrivacyModeEnabledProvider = StateProvider<bool>((ref) => true);
 final cloudBackupEnabledProvider = StateProvider<bool>((ref) => false); // off by design, Phase 12
