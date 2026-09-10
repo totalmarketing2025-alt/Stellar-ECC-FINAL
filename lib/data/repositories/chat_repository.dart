@@ -167,6 +167,9 @@ class ChatRepository {
       await _ensureDirectSession(
         peerName: peerName,
         peerDeviceId: peerDeviceId,
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw StateError('SEND TIMEOUT: DIRECT SESSION'),
       );
       print('SEND_STEP_2_AFTER_SESSION');
 
