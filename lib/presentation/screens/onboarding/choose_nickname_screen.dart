@@ -3,98 +3,78 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
-import '../../state/app_providers.dart';
 import '../../../core/network/directory_client.dart';
+import '../../state/app_providers.dart';
 
 class ChooseNicknameScreen extends ConsumerStatefulWidget {
   const ChooseNicknameScreen({super.key});
 
   @override
-  ConsumerState<ChooseNicknameScreen> createState() => _ChooseNicknameScreenState();
+  ConsumerState<ChooseNicknameScreen> createState() =>
+      _ChooseNicknameScreenState();
 }
 
-class _ChooseNicknameScreenState extends ConsumerState<ChooseNicknameScreen> {
+class _ChooseNicknameScreenState
+    extends ConsumerState<ChooseNicknameScreen> {
   final _controller = TextEditingController();
+
   String? _error;
   bool _checking = false;
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: StellarColors.bgPrimary,
-      appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Choose your @nickname', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            const Text(
-              'This is the only handle contacts use to find you — no phone number or email needed.',
-              style: TextStyle(color: StellarColors.textSecondary),
-            ),
-            const SizedBox(height: 24),
-            TextField(
-              controller: _controller,
-              autofocus: true,
-              decoration: InputDecoration(
-                prefixText: '@',
-                hintText: 'nickname',
-                errorText: _error,
-              ),
-              onChanged: (_) => setState(() => _error = null),
-            ),
-            const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _checking ? null : _submit,
-                child: _checking
-                    ? const SizedBox(
-                        width: 20, height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Text('Continue'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   Future<void> _submit() async {
     final nickname = _controller.text.trim();
 
     if (nickname.isEmpty) {
+      setState(() => _error = 'Please enter a nickname.');
       return;
     }
 
-    setState(() => _checking = true);
+    if (nickname.length < 3) {
+      setState(() => _error = 'Nickname must contain at least 3 characters.');
+      return;
+    }
+
+    if (nickname.length > 32) {
+      setState(() => _error = 'Nickname must contain at most 32 characters.');
+      return;
+    }
+
+    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(nickname)) {
+      setState(
+        () => _error =
+            'Nickname can contain only letters, numbers and underscores.',
+      );
+      return;
+    }
+
+    setState(() {
+      _checking = true;
+      _error = null;
+    });
 
     try {
       final directory = ref.read(directoryClientProvider);
 
-      final available =
-          await directory.checkAvailability(nickname);
+      final available = await directory.checkAvailability(nickname);
 
       if (!available) {
         if (!mounted) return;
 
-        setState(() => _checking = false);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('This nickname is already taken.'),
-          ),
-        );
+        setState(() {
+          _checking = false;
+          _error = 'This nickname is already taken.';
+        });
 
         return;
       }
 
-      final sessionManager =
-          ref.read(sessionManagerProvider);
+      final sessionManager = ref.read(sessionManagerProvider);
 
       final bundle =
           await sessionManager.buildLocalDirectoryBundle();
@@ -135,6 +115,84 @@ class _ChooseNicknameScreenState extends ConsumerState<ChooseNicknameScreen> {
         ),
       );
     }
+  }
 
-}
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: StellarColors.bgPrimary,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.alternate_email,
+                color: StellarColors.accentPurple,
+                size: 40,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Choose your @nickname',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'This is the only handle contacts use to find you — no phone number or email needed.',
+                style: TextStyle(
+                  color: StellarColors.textSecondary,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 24),
+              TextField(
+                controller: _controller,
+                autofocus: true,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) {
+                  if (!_checking) _submit();
+                },
+                decoration: InputDecoration(
+                  prefixText: '@',
+                  hintText: 'nickname',
+                  errorText: _error,
+                  border: const OutlineInputBorder(),
+                ),
+                onChanged: (_) {
+                  if (_error != null) {
+                    setState(() => _error = null);
+                  }
+                },
+              ),
+              const Spacer(),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _checking ? null : _submit,
+                  child: _checking
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Continue'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

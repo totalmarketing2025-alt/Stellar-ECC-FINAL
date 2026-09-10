@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
 import '../../state/app_providers.dart';
+import '../../state/app_lock_controller.dart';
 
 class AppLockSetupScreen extends ConsumerStatefulWidget {
   const AppLockSetupScreen({super.key});
@@ -18,6 +19,20 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
 
   String? _error;
   bool _saving = false;
+
+  Future<void> _enableBiometrics() async {
+    final controller = ref.read(appLockControllerProvider);
+    final enabled = await controller.enableBiometricLock();
+
+    if (!mounted) return;
+
+    if (enabled) {
+      ref.read(isUnlockedProvider.notifier).state = true;
+      context.go('/chats');
+    } else {
+      setState(() => _error = 'Biometric authentication was not enabled.');
+    }
+  }
 
   Future<void> _savePin() async {
     final pin = _pinController.text;
@@ -62,15 +77,25 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: StellarColors.bgPrimary,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            'assets/images/stellar_background.jpg',
+            fit: BoxFit.cover,
+          ),
+          Container(
+            color: Colors.black.withOpacity(0.58),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Icon(
@@ -133,9 +158,22 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
                   child: Text(_saving ? 'Saving...' : 'Set PIN'),
                 ),
               ),
+
+              const SizedBox(height: 12),
+
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _saving ? null : _enableBiometrics,
+                  icon: const Icon(Icons.fingerprint),
+                  label: const Text('Enable biometric lock'),
+                ),
+              ),
             ],
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

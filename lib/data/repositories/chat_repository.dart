@@ -45,6 +45,11 @@ class ChatRepository {
     return rows.map(Message.fromRow).toList();
   }
 
+  Future<void> deleteMessage(String messageId) async {
+    await db.messageDao.secureDelete(messageId);
+  }
+
+
   Future<String?> findDirectChatId({
     required String peerName,
     required int peerDeviceId,
@@ -163,14 +168,21 @@ class ChatRepository {
       }
 
       // 2. Encrypt via the Double Ratchet session with the recipient.
+      print('SEND_STEP_1_BEFORE_SESSION');
       await _ensureDirectSession(
         peerName: peerName,
         peerDeviceId: peerDeviceId,
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw StateError('SEND TIMEOUT: DIRECT SESSION'),
       );
+      print('SEND_STEP_2_AFTER_SESSION');
 
       final address = SignalProtocolAddress(peerName, peerDeviceId);
       final plaintextBytes = Uint8List.fromList(utf8.encode(plaintext));
+      print('SEND_STEP_3_BEFORE_ENCRYPT');
       final ciphertextMessage = await sessionManager.encryptForSend(address, plaintextBytes);
+      print('SEND_STEP_4_AFTER_ENCRYPT');
 
       // 3. Wrap in the relay envelope. The delivery token is a fresh random
       // id per send — never the sender's static identity (sealed sender,
@@ -183,13 +195,22 @@ class ChatRepository {
         ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
       );
       // 4. Send the opaque encrypted envelope through the relay.
+      print('SEND_STEP_5_BEFORE_RELAY');
       await relayClient.send(envelope.encode());
+      print('SEND_STEP_6_AFTER_RELAY');
       await db.messageDao.updateStatus(messageId, 'sent');
+      final debugRows = await db.messageDao.forChat(chatId);
+      final debugMsg = debugRows.where((m) => m['message_id'] == messageId).firstOrNull;
+      print('STATUS_DEBUG: messageId=$messageId status=${debugMsg?['status']}');
 
-    } catch (_) {
+    } catch (e, st) {
       await db.messageDao.updateStatus(messageId, 'failed');
+      print('SEND_DIRECT_MESSAGE_ERROR: $e');
+      print('SEND_DIRECT_MESSAGE_STACK: $st');
+      rethrow;
     }
     final rows = await db.messageDao.forChat(chatId);
+    print('SEND_STEP_7_BEFORE_RETURN rows=${rows.length} messageId=$messageId');
     return rows.map(Message.fromRow).firstWhere((m) => m.messageId == messageId);
   }
 

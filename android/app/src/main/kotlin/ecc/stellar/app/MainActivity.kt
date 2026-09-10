@@ -2,7 +2,7 @@ package ecc.stellar.app
 
 import android.os.Bundle
 import android.view.WindowManager
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
 /**
  * FLAG_SECURE is applied window-wide here rather than per-screen in Dart,
@@ -17,7 +17,7 @@ import io.flutter.embedding.android.FlutterActivity
  * that specific screen via a MethodChannel call rather than removing this
  * default-on baseline.
  */
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setFlags(

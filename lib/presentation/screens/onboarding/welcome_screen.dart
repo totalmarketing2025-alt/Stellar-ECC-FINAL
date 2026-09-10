@@ -23,9 +23,18 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: StellarColors.bgPrimary,
-      body: SafeArea(
-        child: Column(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            'assets/images/stellar_background.jpg',
+            fit: BoxFit.cover,
+          ),
+          Container(
+            color: Colors.black.withOpacity(0.58),
+          ),
+          SafeArea(
+            child: Column(
           children: [
             Expanded(
               child: PageView.builder(
@@ -62,7 +71,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               ),
             ),
           ],
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }

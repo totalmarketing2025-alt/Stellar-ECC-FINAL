@@ -115,6 +115,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       onReply: () => setState(() => _replyingTo = message),
                       onReact: (emoji) =>
                           ref.read(chatRepositoryProvider).addReaction(message.messageId, emoji),
+                      onDelete: () async {
+                        await ref.read(chatRepositoryProvider).deleteMessage(message.messageId);
+                        ref.invalidate(chatMessagesProvider(widget.chatId));
+                        ref.invalidate(chatListProvider);
+                      },
                     );
                   },
                 );
@@ -205,12 +210,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final replyId = _replyingTo?.messageId;
     setState(() => _replyingTo = null);
 
-    await ref.read(chatRepositoryProvider).sendDirectMessage(
-          chatId: widget.chatId,
-          plaintext: text,
-          ttlSeconds: ttl,
-          replyToId: replyId,
+    try {
+      await ref.read(chatRepositoryProvider).sendDirectMessage(
+            chatId: widget.chatId,
+            plaintext: text,
+            ttlSeconds: ttl,
+            replyToId: replyId,
+          );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('SEND ERROR: $e'),
+            duration: const Duration(seconds: 8),
+          ),
         );
+      }
+      return;
+    }
 
     ref.invalidate(chatMessagesProvider(widget.chatId));
     ref.invalidate(chatListProvider);

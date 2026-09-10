@@ -11,12 +11,14 @@ class MessageBubble extends StatelessWidget {
     required this.isOutgoing,
     required this.onReply,
     required this.onReact,
+    required this.onDelete,
   });
 
   final Message message;
   final bool isOutgoing;
   final VoidCallback onReply;
   final void Function(String emoji) onReact;
+  final VoidCallback onDelete;
 
   static const _quickReactions = ['❤️', '😂', '👍', '😮', '😢', '🙏'];
 
@@ -105,21 +107,46 @@ class MessageBubble extends StatelessWidget {
     showModalBottomSheet(
       context: context,
       backgroundColor: StellarColors.bgElevated,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (sheetContext) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Wrap(
-            spacing: 16,
-            children: _quickReactions
-                .map((emoji) => GestureDetector(
-                      onTap: () {
-                        onReact(emoji);
-                        Navigator.pop(sheetContext);
-                      },
-                      child: Text(emoji, style: const TextStyle(fontSize: 28)),
-                    ))
-                .toList(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Wrap(
+                spacing: 16,
+                children: _quickReactions
+                    .map(
+                      (emoji) => GestureDetector(
+                        onTap: () {
+                          onReact(emoji);
+                          Navigator.pop(sheetContext);
+                        },
+                        child: Text(
+                          emoji,
+                          style: const TextStyle(fontSize: 28),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+              const SizedBox(height: 12),
+              const Divider(),
+              ListTile(
+                leading: const Icon(
+                  Icons.delete_outline,
+                  color: StellarColors.danger,
+                ),
+                title: const Text('Delete message'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  onDelete();
+                },
+              ),
+            ],
           ),
         ),
       ),

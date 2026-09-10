@@ -86,7 +86,9 @@ class RelayClient {
       _channel = channel;
       _ready = false;
 
+      print('RELAY_DEBUG: BEFORE_READY peer=$peer');
       await channel.ready;
+      print('RELAY_DEBUG: AFTER_READY peer=$peer');
 
       if (!identical(_channel, channel) || _manuallyDisconnected) {
         await channel.sink.close(ws_status.normalClosure);
