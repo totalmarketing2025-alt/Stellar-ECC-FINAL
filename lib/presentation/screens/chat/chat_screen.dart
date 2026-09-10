@@ -115,6 +115,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       onReply: () => setState(() => _replyingTo = message),
                       onReact: (emoji) =>
                           ref.read(chatRepositoryProvider).addReaction(message.messageId, emoji),
+                      onDelete: () async {
+                        await ref.read(chatRepositoryProvider).deleteMessage(message.messageId);
+                        ref.invalidate(chatMessagesProvider(widget.chatId));
+                        ref.invalidate(chatListProvider);
+                      },
                     );
                   },
                 );

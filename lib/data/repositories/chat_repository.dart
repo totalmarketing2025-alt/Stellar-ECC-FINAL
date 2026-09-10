@@ -45,6 +45,11 @@ class ChatRepository {
     return rows.map(Message.fromRow).toList();
   }
 
+  Future<void> deleteMessage(String messageId) async {
+    await db.messageDao.secureDelete(messageId);
+  }
+
+
   Future<String?> findDirectChatId({
     required String peerName,
     required int peerDeviceId,
@@ -194,6 +199,9 @@ class ChatRepository {
       await relayClient.send(envelope.encode());
       print('SEND_STEP_6_AFTER_RELAY');
       await db.messageDao.updateStatus(messageId, 'sent');
+      final debugRows = await db.messageDao.forChat(chatId);
+      final debugMsg = debugRows.where((m) => m['message_id'] == messageId).firstOrNull;
+      print('STATUS_DEBUG: messageId=$messageId status=${debugMsg?['status']}');
 
     } catch (e, st) {
       await db.messageDao.updateStatus(messageId, 'failed');
