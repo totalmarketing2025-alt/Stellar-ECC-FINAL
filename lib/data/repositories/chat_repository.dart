@@ -202,6 +202,7 @@ class ChatRepository {
       rethrow;
     }
     final rows = await db.messageDao.forChat(chatId);
+    print('SEND_STEP_7_BEFORE_RETURN rows=${rows.length} messageId=$messageId');
     return rows.map(Message.fromRow).firstWhere((m) => m.messageId == messageId);
   }
 
