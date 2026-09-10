@@ -69,6 +69,81 @@ export class RelayRoom {
     this.env = env;
   }
 
+  async queueEnvelope(recipient, message) {
+    const bytes =
+      typeof message === "string"
+        ? new TextEncoder().encode(message)
+        : message instanceof ArrayBuffer
+          ? new Uint8Array(message)
+          : new Uint8Array(
+              message.buffer,
+              message.byteOffset,
+              message.byteLength,
+            );
+
+    if (bytes.length < 6) {
+      throw new Error("Invalid envelope");
+    }
+
+    const ttlSeconds = readU32(bytes, 2);
+    const createdAt = Date.now();
+    const expiresAt = createdAt + ttlSeconds * 1000;
+
+    await this.ctx.storage.sql.exec(
+      `CREATE TABLE IF NOT EXISTS relay_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recipient TEXT NOT NULL,
+        envelope BLOB NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+      )`,
+    );
+
+    await this.ctx.storage.sql.exec(
+      `INSERT INTO relay_queue
+        (recipient, envelope, created_at, expires_at)
+       VALUES (?, ?, ?, ?)`,
+      recipient,
+      bytes,
+      createdAt,
+      expiresAt,
+    );
+  }
+
+  async flushQueue(ws, recipient) {
+    const now = Date.now();
+
+    const result = this.ctx.storage.sql.exec(
+      `SELECT id, envelope, expires_at
+       FROM relay_queue
+       WHERE recipient = ?
+       ORDER BY id ASC`,
+      recipient,
+    );
+
+    for (const row of result) {
+      try {
+        if (Number(row.expires_at) <= now) {
+          this.ctx.storage.sql.exec(
+            `DELETE FROM relay_queue WHERE id = ?`,
+            row.id,
+          );
+          continue;
+        }
+
+        const envelope = new Uint8Array(row.envelope);
+        ws.send(envelope);
+
+        this.ctx.storage.sql.exec(
+          `DELETE FROM relay_queue WHERE id = ?`,
+          row.id,
+        );
+      } catch (_) {
+        break;
+      }
+    }
+  }
+
   async fetch(request) {
     if (request.headers.get("Upgrade") !== "websocket") {
       return Response.json({
@@ -89,8 +164,14 @@ export class RelayRoom {
 
     this.ctx.acceptWebSocket(server);
 
+    const normalizedPeer = peer.trim().toLowerCase();
+
     server.serializeAttachment({
-      peer: peer.trim().toLowerCase(),
+      peer: normalizedPeer,
+    });
+
+    await this.ctx.blockConcurrencyWhile(async () => {
+      await this.flushQueue(server, normalizedPeer);
     });
 
     return new Response(null, {
@@ -136,6 +217,8 @@ export class RelayRoom {
         // Ignore disconnected peers.
       }
     }
+
+    await this.queueEnvelope(recipient, message);
   }
 
   async webSocketClose(ws) {
