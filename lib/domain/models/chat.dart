@@ -36,6 +36,12 @@ class Chat {
       displayName: row['display_name'] as String,
       defaultTtlSeconds: row['default_ttl_sec'] as int,
       createdAt: DateTime.fromMillisecondsSinceEpoch((row['created_at'] as int) * 1000),
+      lastMessagePreview: row['last_message_preview'] as String?,
+      lastMessageAt: row['last_message_at'] == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(
+              (row['last_message_at'] as int) * 1000,
+            ),
       peerName: row['peer_name'] as String?,
       peerDeviceId: row['peer_device_id'] as int?,
     );

@@ -365,7 +365,31 @@ class ChatDao {
   }
 
   Future<List<Map<String, Object?>>> all() async {
-    return _db.select('SELECT * FROM chat ORDER BY created_at DESC');
+    return _db.select('''
+      SELECT
+        c.*,
+        (
+          SELECT m.body_plaintext
+          FROM message m
+          WHERE m.chat_id = c.chat_id
+            AND m.expires_at > ?
+          ORDER BY m.sent_at DESC
+          LIMIT 1
+        ) AS last_message_preview,
+        (
+          SELECT m.sent_at
+          FROM message m
+          WHERE m.chat_id = c.chat_id
+            AND m.expires_at > ?
+          ORDER BY m.sent_at DESC
+          LIMIT 1
+        ) AS last_message_at
+      FROM chat c
+      ORDER BY COALESCE(last_message_at, c.created_at) DESC
+    ''', [
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    ]);
   }
 
   Future<Map<String, Object?>?> byId(String chatId) async {
