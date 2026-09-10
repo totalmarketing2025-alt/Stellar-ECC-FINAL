@@ -67,6 +67,16 @@ export class RelayRoom {
   constructor(ctx, env) {
     this.ctx = ctx;
     this.env = env;
+
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS relay_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recipient TEXT NOT NULL,
+        envelope BLOB NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+      )
+    `);
   }
 
   async queueEnvelope(recipient, message) {
