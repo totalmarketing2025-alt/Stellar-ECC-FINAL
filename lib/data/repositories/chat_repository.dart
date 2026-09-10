@@ -163,14 +163,18 @@ class ChatRepository {
       }
 
       // 2. Encrypt via the Double Ratchet session with the recipient.
+      print('SEND_STEP_1_BEFORE_SESSION');
       await _ensureDirectSession(
         peerName: peerName,
         peerDeviceId: peerDeviceId,
       );
+      print('SEND_STEP_2_AFTER_SESSION');
 
       final address = SignalProtocolAddress(peerName, peerDeviceId);
       final plaintextBytes = Uint8List.fromList(utf8.encode(plaintext));
+      print('SEND_STEP_3_BEFORE_ENCRYPT');
       final ciphertextMessage = await sessionManager.encryptForSend(address, plaintextBytes);
+      print('SEND_STEP_4_AFTER_ENCRYPT');
 
       // 3. Wrap in the relay envelope. The delivery token is a fresh random
       // id per send — never the sender's static identity (sealed sender,
@@ -183,7 +187,9 @@ class ChatRepository {
         ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
       );
       // 4. Send the opaque encrypted envelope through the relay.
+      print('SEND_STEP_5_BEFORE_RELAY');
       await relayClient.send(envelope.encode());
+      print('SEND_STEP_6_AFTER_RELAY');
       await db.messageDao.updateStatus(messageId, 'sent');
 
     } catch (e, st) {
