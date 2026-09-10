@@ -19,8 +19,18 @@ function decodeRecipientRoute(buffer) {
   offset += 2; // version
   offset += 4; // ttl
 
+  if (offset + 2 > bytes.length) {
+    throw new Error("Invalid envelope");
+  }
+
   const tokenLen = readU16(bytes, offset);
-  offset += 2 + tokenLen;
+  offset += 2;
+
+  if (offset + tokenLen > bytes.length) {
+    throw new Error("Invalid envelope");
+  }
+
+  offset += tokenLen;
 
   if (offset + 2 > bytes.length) {
     throw new Error("Invalid envelope");
@@ -33,9 +43,24 @@ function decodeRecipientRoute(buffer) {
     throw new Error("Invalid envelope");
   }
 
-  return new TextDecoder().decode(
+  const route = new TextDecoder().decode(
     bytes.slice(offset, offset + routeLen),
   );
+
+  offset += routeLen;
+
+  if (offset + 4 > bytes.length) {
+    throw new Error("Invalid envelope");
+  }
+
+  const ciphertextLen = readU32(bytes, offset);
+  offset += 4;
+
+  if (offset + ciphertextLen !== bytes.length) {
+    throw new Error("Invalid envelope");
+  }
+
+  return route;
 }
 
 export class RelayRoom {
