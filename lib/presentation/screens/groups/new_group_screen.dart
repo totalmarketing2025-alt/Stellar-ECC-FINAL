@@ -86,7 +86,12 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
   Future<void> _createGroup() async {
     final chatId = 'group_${const Uuid().v4()}';
     final repo = ref.read(chatRepositoryProvider);
-    await repo.createDirectChat(chatId: chatId, displayName: _nameController.text.trim());
+    await repo.createDirectChat(
+      chatId: chatId,
+      displayName: _nameController.text.trim(),
+      peerName: _nameController.text.trim(),
+      peerDeviceId: 1,
+    );
     // NOTE: createDirectChat is reused here for row creation only — a real
     // group flow additionally calls GroupCrypto.createOrRotateSenderKey and
     // distributes the resulting SenderKeyDistributionMessage to every
