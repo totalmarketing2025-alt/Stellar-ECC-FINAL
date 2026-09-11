@@ -218,6 +218,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             plaintext: text,
             ttlSeconds: ttl,
             replyToId: replyId,
+            forceSessionReset: true,
           );
     } catch (e) {
       if (mounted) {

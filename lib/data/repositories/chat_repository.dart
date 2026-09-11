@@ -148,11 +148,16 @@ class ChatRepository {
   Future<void> _ensureDirectSession({
     required String peerName,
     required int peerDeviceId,
+    bool forceSessionReset = false,
   }) async {
     final address = SignalProtocolAddress(
       peerName,
       peerDeviceId,
     );
+
+    if (forceSessionReset) {
+      await sessionManager.deleteSession(address);
+    }
 
     if (await sessionManager.hasSession(address)) {
       return;
@@ -174,6 +179,7 @@ class ChatRepository {
     String? replyToId,
     Uint8List? attachmentBytes,
     String? attachmentMimeType,
+    bool forceSessionReset = false,
   }) async {
     final chatRow = await db.chatDao.byId(chatId);
     final peerName = chatRow?['peer_name'] as String?;
@@ -215,6 +221,7 @@ class ChatRepository {
       await _ensureDirectSession(
         peerName: peerName,
         peerDeviceId: peerDeviceId,
+        forceSessionReset: forceSessionReset,
       ).timeout(
         const Duration(seconds: 15),
         onTimeout: () => throw StateError('SEND TIMEOUT: DIRECT SESSION'),

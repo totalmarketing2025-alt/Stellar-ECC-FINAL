@@ -141,4 +141,7 @@ class SessionManager {
 
   Future<bool> hasSession(SignalProtocolAddress address) =>
       sessionStore.containsSession(address);
+
+  Future<void> deleteSession(SignalProtocolAddress address) =>
+      sessionStore.deleteSession(address);
 }
