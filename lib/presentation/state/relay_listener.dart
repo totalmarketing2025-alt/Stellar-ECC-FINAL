@@ -25,18 +25,21 @@ class RelayListener {
   void start() {
     _subscription ??= _relayClient.incoming.listen(
       (bytes) {
+        print('RELAY_RECEIVE: envelope received (${bytes.length} bytes)');
         // Process Double Ratchet messages sequentially.
         _processingQueue = _processingQueue.then((_) async {
           try {
             final message =
                 await _chatRepository.receiveEnvelope(rawEnvelope: bytes);
-
             if (message != null) {
               ref.invalidate(chatListProvider);
               ref.invalidate(chatMessagesProvider(message.chatId));
             }
-          } catch (_) {
-            // Invalid or undecryptable envelopes must not crash the app.
+          } catch (e, stackTrace) {
+            // Never expose plaintext or ciphertext. Log only the failure
+            // type/message so Signal receive failures can be diagnosed.
+            print('RELAY_RECEIVE_ERROR: $e');
+            print('RELAY_RECEIVE_STACK: $stackTrace');
           }
         });
       },
