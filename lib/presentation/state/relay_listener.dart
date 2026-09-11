@@ -30,8 +30,11 @@ class RelayListener {
           try {
             final message =
                 await _chatRepository.receiveEnvelope(rawEnvelope: bytes);
-            ref.invalidate(chatListProvider);
-            ref.invalidate(chatMessagesProvider(message.chatId));
+
+            if (message != null) {
+              ref.invalidate(chatListProvider);
+              ref.invalidate(chatMessagesProvider(message.chatId));
+            }
           } catch (_) {
             // Invalid or undecryptable envelopes must not crash the app.
           }

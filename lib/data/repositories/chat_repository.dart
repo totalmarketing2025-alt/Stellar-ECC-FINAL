@@ -33,6 +33,28 @@ class ChatRepository {
   final DirectoryClient directoryClient;
   final String localNickname;
   final MediaAttachmentService? mediaService;
+
+  static const String _ackPrefix = 'STELLAR_ACK_V1:';
+
+  Uint8List _encodeDeliveryAck(Uint8List deliveryToken) {
+    return Uint8List.fromList(
+      utf8.encode('$_ackPrefix${base64Encode(deliveryToken)}'),
+    );
+  }
+
+  Uint8List? _decodeDeliveryAck(Uint8List plaintextBytes) {
+    final text = utf8.decode(plaintextBytes, allowMalformed: false);
+    if (!text.startsWith(_ackPrefix)) {
+      return null;
+    }
+
+    final encodedToken = text.substring(_ackPrefix.length);
+    try {
+      return Uint8List.fromList(base64Decode(encodedToken));
+    } catch (_) {
+      return null;
+    }
+  }
   final _uuid = const Uuid();
 
   Future<List<Chat>> loadChats() async {
@@ -147,6 +169,10 @@ class ChatRepository {
 
     final messageId = _uuid.v4();
 
+    // Stable per-message token used to correlate delivery ACKs.
+    final deliveryToken =
+        Uint8List.fromList(utf8.encode(_uuid.v4()).take(16).toList());
+
     // 1. Persist locally immediately (optimistic UI), status = sending.
     await db.messageDao.insert(
       messageId: messageId,
@@ -155,6 +181,7 @@ class ChatRepository {
       plaintext: plaintext,
       ttlSeconds: ttlSeconds,
       replyToId: replyToId,
+      deliveryToken: deliveryToken,
     );
 
     try {
@@ -188,9 +215,8 @@ class ChatRepository {
       // id per send — never the sender's static identity (sealed sender,
       // Phase 4 §2) — the relay only learns a rotating token and the
       // recipient's route.
-      final token = Uint8List.fromList(utf8.encode(_uuid.v4()).take(16).toList());
       final envelope = Envelope(
-        deliveryToken: token,
+        deliveryToken: deliveryToken,
         recipientRoute: peerName, // resolved server-side to an opaque route in production
         ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
       );
@@ -218,18 +244,43 @@ class ChatRepository {
   /// caller (see presentation/state/relay_listener.dart in the next
   /// module, which demultiplexes incoming envelopes by sender before
   /// calling this).
-  Future<Message> receiveEnvelope({
+  Future<void> _sendDeliveryAck({
+    required SignalProtocolAddress recipient,
+    required String recipientRoute,
+    required Uint8List deliveryToken,
+  }) async {
+    final plaintext = _encodeDeliveryAck(deliveryToken);
+
+    final ciphertextMessage =
+        await sessionManager.encryptForSend(recipient, plaintext);
+
+    // Use a fresh relay token for the ACK itself. The original delivery
+    // token remains inside the Signal-encrypted ACK payload.
+    final ackRelayToken =
+        Uint8List.fromList(utf8.encode(_uuid.v4()).take(16).toList());
+
+    final envelope = Envelope(
+      deliveryToken: ackRelayToken,
+      recipientRoute: recipientRoute,
+      ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
+    );
+
+    await relayClient.send(envelope.encode());
+  }
+
+  Future<Message?> receiveEnvelope({
     required Uint8List rawEnvelope,
   }) async {
     final envelope = Envelope.decode(rawEnvelope);
-
     final peers = await _knownDirectPeers();
+
     if (peers.isEmpty) {
       throw StateError('No known direct peer session can receive this envelope');
     }
 
     late final String chatId;
     late final String senderNickname;
+    late final SignalProtocolAddress senderAddress;
     late final Uint8List plaintextBytes;
 
     Object? lastError;
@@ -254,6 +305,7 @@ class ChatRepository {
 
         chatId = peer.chatId;
         senderNickname = peer.peerName;
+        senderAddress = address;
         plaintextBytes = decrypted;
         lastError = null;
         break;
@@ -266,6 +318,14 @@ class ChatRepository {
       throw StateError(
         'Unable to decrypt envelope with any known direct peer session: $lastError',
       );
+    }
+
+    // ACKs are Signal-encrypted control messages. They must be handled
+    // immediately after decryption and must never become chat messages.
+    final ackToken = _decodeDeliveryAck(plaintextBytes);
+    if (ackToken != null) {
+      await db.messageDao.markDeliveredByToken(ackToken);
+      return null;
     }
 
     final plaintext = utf8.decode(plaintextBytes);
@@ -286,8 +346,21 @@ class ChatRepository {
       ttlSeconds: ttl,
     );
 
-    // This message was received and successfully decrypted locally.
+    // The message has been successfully decrypted and stored locally.
     await db.messageDao.updateStatus(messageId, 'delivered');
+
+    // Tell the sender that this exact envelope was successfully delivered.
+    // ACK failure must not make us lose an already received message.
+    try {
+      await _sendDeliveryAck(
+        recipient: senderAddress,
+        recipientRoute: senderNickname,
+        deliveryToken: envelope.deliveryToken,
+      );
+    } catch (error, stackTrace) {
+      print('DELIVERY_ACK_SEND_ERROR: $error');
+      print('DELIVERY_ACK_SEND_STACK: $stackTrace');
+    }
 
     final rows = await db.messageDao.forChat(chatId);
     return rows
@@ -295,28 +368,5 @@ class ChatRepository {
         .firstWhere((m) => m.messageId == messageId);
   }
 
-  Future<void> deleteChatNow(String chatId) => db.chatDao.delete(chatId);
 
-  Future<void> updateChatTtl(String chatId, int ttlSeconds) =>
-      db.chatDao.updateDefaultTtl(chatId, ttlSeconds);
-
-  Future<void> addReaction(String messageId, String emoji) =>
-      db.reactionDao.add(messageId, localNickname, emoji);
-
-  Future<void> createDirectChat({
-    required String chatId,
-    required String displayName,
-    int defaultTtlSeconds = TtlPreset.oneHour,
-    String? peerName,
-    int? peerDeviceId,
-  }) {
-    return db.chatDao.insert(
-      chatId: chatId,
-      chatType: 'direct',
-      displayName: displayName,
-      defaultTtlSec: defaultTtlSeconds,
-      peerName: peerName,
-      peerDeviceId: peerDeviceId,
-    );
-  }
 }

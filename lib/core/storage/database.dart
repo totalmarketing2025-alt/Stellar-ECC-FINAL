@@ -59,6 +59,19 @@ class StellarDatabase {
     return StellarDatabase._(db);
   }
 
+  static void _ensureMessageDeliveryTokenColumn(Database db) {
+    final columns = db.select('PRAGMA table_info(message);');
+    final hasDeliveryToken = columns.any(
+      (row) => row['name'] == 'delivery_token',
+    );
+
+    if (!hasDeliveryToken) {
+      db.execute(
+        'ALTER TABLE message ADD COLUMN delivery_token BLOB;',
+      );
+    }
+  }
+
   static void _runMigrations(Database db) {
     db.execute('''
       CREATE TABLE IF NOT EXISTS chat (
@@ -90,6 +103,8 @@ class StellarDatabase {
     ''');
     db.execute('CREATE INDEX IF NOT EXISTS idx_message_expiry ON message(expires_at);');
     db.execute('CREATE INDEX IF NOT EXISTS idx_message_chat ON message(chat_id);');
+
+    _ensureMessageDeliveryTokenColumn(db);
 
     db.execute('''
       CREATE TABLE IF NOT EXISTS reaction (
@@ -421,13 +436,24 @@ class MessageDao {
     required String plaintext,
     required int ttlSeconds,
     String? replyToId,
+    Uint8List? deliveryToken,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     _db.execute(
       'INSERT INTO message '
-      '(message_id, chat_id, sender_id, body_plaintext, sent_at, expires_at, reply_to_id, status) '
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [messageId, chatId, senderId, plaintext, now, now + ttlSeconds, replyToId, 'sending'],
+      '(message_id, chat_id, sender_id, body_plaintext, sent_at, expires_at, reply_to_id, status, delivery_token) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        messageId,
+        chatId,
+        senderId,
+        plaintext,
+        now,
+        now + ttlSeconds,
+        replyToId,
+        'sending',
+        deliveryToken,
+      ],
     );
   }
 
@@ -462,6 +488,20 @@ class MessageDao {
       'UPDATE message SET status = ?, delivered_at = ? WHERE message_id = ?',
       ['delivered', DateTime.now().millisecondsSinceEpoch ~/ 1000, messageId],
     );
+  }
+
+  Future<bool> markDeliveredByToken(Uint8List deliveryToken) async {
+    final rows = _db.select(
+      'SELECT message_id FROM message WHERE delivery_token = ? LIMIT 1',
+      [deliveryToken],
+    );
+
+    if (rows.isEmpty) {
+      return false;
+    }
+
+    await markDelivered(rows.first['message_id'] as String);
+    return true;
   }
 
   Future<void> markRead(String messageId) async {
