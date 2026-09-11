@@ -10,6 +10,7 @@ import '../../core/network/relay_client.dart';
 import '../../core/network/directory_client.dart';
 import '../../core/network/envelope.dart';
 import '../../core/media/media_attachment_service.dart';
+import '../../core/media/attachment_payload.dart';
 import '../../domain/models/message.dart';
 import '../../domain/models/chat.dart';
 
@@ -69,6 +70,21 @@ class ChatRepository {
 
   Future<void> deleteMessage(String messageId) async {
     await db.messageDao.secureDelete(messageId);
+  }
+
+  Future<Uint8List> loadAttachment(String blobId) async {
+    final service = mediaService;
+    if (service == null) {
+      throw StateError('MediaAttachmentService is unavailable');
+    }
+
+    final row = await db.mediaBlobDao.byId(blobId);
+    if (row == null) {
+      throw StateError('Attachment $blobId not found');
+    }
+
+    final filePath = row['file_path'] as String;
+    return service.loadAttachment(blobId, filePath);
   }
 
 
@@ -206,7 +222,15 @@ class ChatRepository {
       print('SEND_STEP_2_AFTER_SESSION');
 
       final address = SignalProtocolAddress(peerName, peerDeviceId);
-      final plaintextBytes = Uint8List.fromList(utf8.encode(plaintext));
+
+      final plaintextBytes =
+          attachmentBytes != null && attachmentMimeType != null
+              ? AttachmentPayload.encode(
+                  mimeType: attachmentMimeType,
+                  bytes: attachmentBytes,
+                )
+              : Uint8List.fromList(utf8.encode(plaintext));
+
       print('SEND_STEP_3_BEFORE_ENCRYPT');
       final ciphertextMessage = await sessionManager.encryptForSend(address, plaintextBytes);
       print('SEND_STEP_4_AFTER_ENCRYPT');
@@ -328,7 +352,9 @@ class ChatRepository {
       return null;
     }
 
-    final plaintext = utf8.decode(plaintextBytes);
+    final attachment = AttachmentPayload.decode(plaintextBytes);
+    final plaintext =
+        attachment != null ? '📎 Attachment' : utf8.decode(plaintextBytes);
     final messageId = _uuid.v4();
 
     final chatRow = await db.chatDao.byId(chatId);
@@ -345,6 +371,22 @@ class ChatRepository {
       plaintext: plaintext,
       ttlSeconds: ttl,
     );
+
+    if (attachment != null) {
+      final service = mediaService;
+      if (service == null) {
+        throw StateError(
+          'Received attachment but MediaAttachmentService is unavailable',
+        );
+      }
+
+      await service.storeAttachment(
+        rawBytes: attachment.bytes,
+        messageId: messageId,
+        mimeType: attachment.mimeType,
+        ttlSeconds: ttl,
+      );
+    }
 
     // The message has been successfully decrypted and stored locally.
     await db.messageDao.updateStatus(messageId, 'delivered');

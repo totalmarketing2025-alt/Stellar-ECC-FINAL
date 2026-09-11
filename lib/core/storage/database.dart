@@ -460,7 +460,18 @@ class MessageDao {
   Future<List<Map<String, Object?>>> forChat(String chatId) async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     return _db.select(
-      'SELECT * FROM message WHERE chat_id = ? AND expires_at > ? ORDER BY sent_at ASC',
+      '''
+      SELECT m.*,
+             (
+               SELECT blob_id
+               FROM media_blob mb
+               WHERE mb.message_id = m.message_id
+               LIMIT 1
+             ) AS media_blob_id
+      FROM message m
+      WHERE m.chat_id = ? AND m.expires_at > ?
+      ORDER BY m.sent_at ASC
+      ''',
       [chatId, now],
     );
   }
@@ -555,6 +566,14 @@ class MediaBlobDao {
       'VALUES (?, ?, ?, ?, ?)',
       [blobId, messageId, mimeType, filePath, expiresAt],
     );
+  }
+
+  Future<Map<String, Object?>?> byId(String blobId) async {
+    final rows = _db.select(
+      'SELECT * FROM media_blob WHERE blob_id = ? LIMIT 1',
+      [blobId],
+    );
+    return rows.isEmpty ? null : rows.first;
   }
 
   Future<List<Map<String, Object?>>> expired() async {

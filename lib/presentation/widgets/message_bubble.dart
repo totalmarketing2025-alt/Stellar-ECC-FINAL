@@ -1,8 +1,71 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme/stellar_theme.dart';
 import '../../domain/models/message.dart';
 import 'expiry_ring.dart';
+
+class _AttachmentPreview extends StatelessWidget {
+  const _AttachmentPreview({
+    required this.blobId,
+    required this.onLoadAttachment,
+  });
+
+  final String blobId;
+  final Future<Uint8List> Function(String blobId) onLoadAttachment;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: onLoadAttachment(blobId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox(
+            width: 180,
+            height: 120,
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        }
+
+        if (snapshot.hasData) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.memory(
+              snapshot.data!,
+              width: 180,
+              height: 180,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.attach_file, size: 22),
+                    SizedBox(width: 8),
+                    Text('Attachment'),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        return const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.attach_file, size: 22),
+              SizedBox(width: 8),
+              Text('Attachment'),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
 
 class MessageBubble extends StatelessWidget {
   const MessageBubble({
@@ -12,6 +75,7 @@ class MessageBubble extends StatelessWidget {
     required this.onReply,
     required this.onReact,
     required this.onDelete,
+    required this.onLoadAttachment,
   });
 
   final Message message;
@@ -19,6 +83,7 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback onReply;
   final void Function(String emoji) onReact;
   final VoidCallback onDelete;
+  final Future<Uint8List> Function(String blobId) onLoadAttachment;
 
   static const _quickReactions = ['❤️', '😂', '👍', '😮', '😢', '🙏'];
 
@@ -65,7 +130,16 @@ class MessageBubble extends StatelessWidget {
                       child: Text(message.senderId,
                           style: const TextStyle(fontSize: 11, color: StellarColors.accentPurple, fontWeight: FontWeight.w600)),
                     ),
-                  Text(message.bodyPlaintext, style: const TextStyle(fontSize: 15)),
+                  if (message.mediaBlobId != null)
+                    _AttachmentPreview(
+                      blobId: message.mediaBlobId!,
+                      onLoadAttachment: onLoadAttachment,
+                    )
+                  else
+                    Text(
+                      message.bodyPlaintext,
+                      style: const TextStyle(fontSize: 15),
+                    ),
                   const SizedBox(height: 4),
                   Row(
                     mainAxisSize: MainAxisSize.min,

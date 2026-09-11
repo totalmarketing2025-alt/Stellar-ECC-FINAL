@@ -71,6 +71,7 @@ class Message {
           ? null
           : DateTime.fromMillisecondsSinceEpoch((row['read_at'] as int) * 1000),
       replyToId: row['reply_to_id'] as String?,
+      mediaBlobId: row['media_blob_id'] as String?,
       status: MessageStatus.values.firstWhere(
         (s) => s.name == row['status'],
         orElse: () => MessageStatus.sent,

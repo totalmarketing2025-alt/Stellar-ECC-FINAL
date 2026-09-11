@@ -120,6 +120,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ref.invalidate(chatMessagesProvider(widget.chatId));
                         ref.invalidate(chatListProvider);
                       },
+                      onLoadAttachment: (blobId) =>
+                          ref.read(chatRepositoryProvider).loadAttachment(blobId),
                     );
                   },
                 );
