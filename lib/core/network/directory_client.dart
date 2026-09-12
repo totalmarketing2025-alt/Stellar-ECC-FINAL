@@ -72,6 +72,21 @@ class DirectoryClient {
     return json;
   }
 
+  Future<Map<String, dynamic>> updateBundle({
+    required String nickname,
+    required Map<String, dynamic> preKeyBundle,
+  }) async {
+    final response = await _request(
+      'PUT',
+      '/v1/users/$nickname/bundle',
+      body: {
+        'bundle': preKeyBundle,
+      },
+    );
+
+    return _decodeJsonObject(response);
+  }
+
   Future<Map<String, dynamic>> lookup(String nickname) async {
     final response = await _request(
       'GET',

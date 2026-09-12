@@ -122,6 +122,57 @@ app.post('/v1/register', (req, res) => {
   });
 });
 
+app.put('/v1/users/:nickname/bundle', (req, res) => {
+  const nickname = normalizeNickname(req.params.nickname);
+  const bundle = req.body?.bundle;
+
+  if (!isValidNickname(nickname)) {
+    return res.status(400).json({
+      error: 'invalid_nickname',
+    });
+  }
+
+  if (!validateBundle(bundle)) {
+    return res.status(400).json({
+      error: 'invalid_signal_bundle',
+    });
+  }
+
+  const existing = users.get(nickname);
+
+  if (!existing) {
+    return res.status(404).json({
+      error: 'user_not_found',
+    });
+  }
+
+  if (existing.identityKey !== bundle.identityKey ||
+      existing.registrationId !== bundle.registrationId ||
+      existing.deviceId !== bundle.deviceId) {
+    return res.status(409).json({
+      error: 'identity_mismatch',
+    });
+  }
+
+  users.set(nickname, {
+    ...existing,
+    signedPreKey: {
+      keyId: bundle.signedPreKey.keyId,
+      publicKey: bundle.signedPreKey.publicKey,
+      signature: bundle.signedPreKey.signature,
+    },
+    preKey: {
+      keyId: bundle.preKey.keyId,
+      publicKey: bundle.preKey.publicKey,
+    },
+  });
+
+  return res.json({
+    nickname,
+    updated: true,
+  });
+});
+
 app.get('/v1/users/:nickname', (req, res) => {
   const nickname = normalizeNickname(req.params.nickname);
   const user = users.get(nickname);

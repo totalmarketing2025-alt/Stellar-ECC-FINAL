@@ -67,6 +67,59 @@ export class DirectoryStore {
       });
     }
 
+    if (request.method === "PUT" && url.pathname.startsWith("/v1/users/") &&
+        url.pathname.endsWith("/bundle")) {
+      const nickname = normalizeNickname(
+        decodeURIComponent(
+          url.pathname.substring("/v1/users/".length, url.pathname.length - "/bundle".length),
+        ),
+      );
+
+      if (!validNickname(nickname)) {
+        return json({ error: "Invalid nickname" }, 400);
+      }
+
+      let body;
+
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      if (!body.bundle || typeof body.bundle !== "object") {
+        return json({ error: "Invalid bundle" }, 400);
+      }
+
+      const key = `user:${nickname}`;
+      const existing = await this.ctx.storage.get(key);
+
+      if (!existing) {
+        return json({ error: "User not found" }, 404);
+      }
+
+      const existingBundle = existing.bundle;
+
+      if (existingBundle?.identityKey !== body.bundle.identityKey ||
+          existingBundle?.registrationId !== body.bundle.registrationId ||
+          existingBundle?.deviceId !== body.bundle.deviceId) {
+        return json({ error: "Identity mismatch" }, 409);
+      }
+
+      const user = {
+        ...existing,
+        bundle: body.bundle,
+      };
+
+      await this.ctx.storage.put(key, user);
+
+      return json({
+        ok: true,
+        nickname,
+        updated: true,
+      });
+    }
+
     if (request.method === "GET" && url.pathname.startsWith("/v1/users/")) {
       const nickname = normalizeNickname(
         decodeURIComponent(
