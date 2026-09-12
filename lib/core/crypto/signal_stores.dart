@@ -52,6 +52,8 @@ class StellarIdentityKeyStore implements IdentityKeyStore {
       for (final preKey in preKeys) {
         await _db.preKeyDao.put(preKey.id, preKey.serialize());
       }
+    } else {
+      await ensureMinimumPreKeys();
     }
 
     final hasSignedPreKey =
@@ -165,6 +167,23 @@ class StellarPreKeyStore implements PreKeyStore {
     return PreKeyRecord.fromBuffer(raw);
   }
 
+  Future<int> countPreKeys() => _db.preKeyDao.count();
+
+  Future<void> ensureMinimumPreKeys({int minimum = 20}) async {
+    final count = await _db.preKeyDao.count();
+    if (count >= minimum) return;
+
+    final maxId = await _db.preKeyDao.maxId();
+    final nextId = maxId == null ? 0 : maxId + 1;
+    final needed = minimum - count;
+
+    final generated = generatePreKeys(nextId, needed);
+
+    for (final record in generated) {
+      await _db.preKeyDao.put(record.id, record.serialize());
+    }
+  }
+
   @override
   Future<void> storePreKey(int preKeyId, PreKeyRecord record) =>
       _db.preKeyDao.put(preKeyId, record.serialize());
@@ -173,7 +192,10 @@ class StellarPreKeyStore implements PreKeyStore {
   Future<bool> containsPreKey(int preKeyId) => _db.preKeyDao.contains(preKeyId);
 
   @override
-  Future<void> removePreKey(int preKeyId) => _db.preKeyDao.remove(preKeyId);
+  Future<void> removePreKey(int preKeyId) async {
+    await _db.preKeyDao.remove(preKeyId);
+    await ensureMinimumPreKeys();
+  }
 }
 
 class StellarSignedPreKeyStore implements SignedPreKeyStore {

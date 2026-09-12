@@ -247,6 +247,11 @@ class PreKeyDao {
     return (rows.first['count'] as int?) ?? 0;
   }
 
+  Future<int?> maxId() async {
+    final rows = _db.select('SELECT MAX(id) AS max_id FROM pre_key');
+    return rows.first['max_id'] as int?;
+  }
+
   Future<void> remove(int id) async {
     _db.execute('DELETE FROM pre_key WHERE id = ?', [id]);
   }
