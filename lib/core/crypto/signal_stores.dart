@@ -52,8 +52,6 @@ class StellarIdentityKeyStore implements IdentityKeyStore {
       for (final preKey in preKeys) {
         await _db.preKeyDao.put(preKey.id, preKey.serialize());
       }
-    } else {
-      await ensureMinimumPreKeys();
     }
 
     final hasSignedPreKey =
