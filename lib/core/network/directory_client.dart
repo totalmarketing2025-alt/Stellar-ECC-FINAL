@@ -84,7 +84,17 @@ class DirectoryClient {
       },
     );
 
-    return _decodeJsonObject(response);
+    final body = await _readBody(response);
+    final json = _decodeJson(body);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw DirectoryException(
+        json['error']?.toString() ?? 'Directory bundle update failed',
+        response.statusCode,
+      );
+    }
+
+    return json;
   }
 
   Future<Map<String, dynamic>> lookup(String nickname) async {
