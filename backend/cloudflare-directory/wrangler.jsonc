@@ -11,6 +11,9 @@
       }
     ]
   },
+  "vars": {
+    "RELAY_SHARED_SECRET": "stellar-relay-dev-secret"
+  },
   "migrations": [
     {
       "tag": "v1",
