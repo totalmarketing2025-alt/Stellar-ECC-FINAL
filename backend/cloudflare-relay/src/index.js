@@ -63,6 +63,110 @@ function decodeRecipientRoute(buffer) {
   return route;
 }
 
+
+function base64UrlEncode(bytes) {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function stringToBase64Url(value) {
+  return base64UrlEncode(new TextEncoder().encode(value));
+}
+
+function pemToArrayBuffer(pem) {
+  const base64 = pem
+    .replace("-----BEGIN PRIVATE KEY-----", "")
+    .replace("-----END PRIVATE KEY-----", "")
+    .replace(/\s+/g, "");
+
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  return bytes.buffer;
+}
+
+async function createFcmAccessToken(clientEmail, privateKey) {
+  const now = Math.floor(Date.now() / 1000);
+
+  const header = stringToBase64Url(
+    JSON.stringify({
+      alg: "RS256",
+      typ: "JWT",
+    }),
+  );
+
+  const payload = stringToBase64Url(
+    JSON.stringify({
+      iss: clientEmail,
+      scope: "https://www.googleapis.com/auth/firebase.messaging",
+      aud: "https://oauth2.googleapis.com/token",
+      iat: now,
+      exp: now + 3600,
+    }),
+  );
+
+  const unsignedToken = `${header}.${payload}`;
+
+  const key = await crypto.subtle.importKey(
+    "pkcs8",
+    pemToArrayBuffer(privateKey),
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: "SHA-256",
+    },
+    false,
+    ["sign"],
+  );
+
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    key,
+    new TextEncoder().encode(unsignedToken),
+  );
+
+  const assertion =
+    `${unsignedToken}.${base64UrlEncode(new Uint8Array(signature))}`;
+
+  const tokenResponse = await fetch(
+    "https://oauth2.googleapis.com/token",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body:
+        "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer" +
+        `&assertion=${encodeURIComponent(assertion)}`,
+    },
+  );
+
+  if (!tokenResponse.ok) {
+    throw new Error("FCM OAuth token request failed");
+  }
+
+  const tokenBody = await tokenResponse.json();
+
+  if (
+    typeof tokenBody.access_token !== "string" ||
+    !tokenBody.access_token
+  ) {
+    throw new Error("FCM OAuth access token missing");
+  }
+
+  return tokenBody.access_token;
+}
+
 export class RelayRoom {
   constructor(ctx, env) {
     this.ctx = ctx;
@@ -157,8 +261,19 @@ export class RelayRoom {
   async sendPushWake(recipient) {
     const directoryUrl = this.env.DIRECTORY_URL;
     const sharedSecret = this.env.RELAY_SHARED_SECRET;
+    const projectId = this.env.FCM_PROJECT_ID;
+    const clientEmail = this.env.FCM_CLIENT_EMAIL;
+    const privateKey = this.env.FCM_PRIVATE_KEY;
 
-    if (!directoryUrl || !sharedSecret) {
+    if (
+      !directoryUrl ||
+      !sharedSecret ||
+      !projectId ||
+      !clientEmail ||
+      !privateKey ||
+      privateKey === "DEV_PLACEHOLDER" ||
+      clientEmail.startsWith("dev-placeholder@")
+    ) {
       return;
     }
 
@@ -186,12 +301,10 @@ export class RelayRoom {
       return;
     }
 
-    const accessToken = this.env.FCM_ACCESS_TOKEN;
-    const projectId = this.env.FCM_PROJECT_ID;
-
-    if (!accessToken || !projectId) {
-      return;
-    }
+    const accessToken = await createFcmAccessToken(
+      clientEmail,
+      privateKey,
+    );
 
     await fetch(
       `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
