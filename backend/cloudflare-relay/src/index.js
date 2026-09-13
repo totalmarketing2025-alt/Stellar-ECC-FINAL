@@ -154,6 +154,68 @@ export class RelayRoom {
     }
   }
 
+  async sendPushWake(recipient) {
+    const directoryUrl = this.env.DIRECTORY_URL;
+    const sharedSecret = this.env.RELAY_SHARED_SECRET;
+
+    if (!directoryUrl || !sharedSecret) {
+      return;
+    }
+
+    const response = await fetch(
+      `${directoryUrl}/v1/users/${encodeURIComponent(recipient)}/push-token`,
+      {
+        headers: {
+          Authorization: `Bearer ${sharedSecret}`,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      return;
+    }
+
+    const body = await response.json();
+    const push = body.push;
+
+    if (!push || typeof push.token !== "string" || !push.token) {
+      return;
+    }
+
+    if (push.platform !== "android" && push.platform !== "ios") {
+      return;
+    }
+
+    const accessToken = this.env.FCM_ACCESS_TOKEN;
+    const projectId = this.env.FCM_PROJECT_ID;
+
+    if (!accessToken || !projectId) {
+      return;
+    }
+
+    await fetch(
+      `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: {
+            token: push.token,
+            data: {
+              wake: "1",
+            },
+            android: {
+              priority: "high",
+            },
+          },
+        }),
+      },
+    );
+  }
+
   async fetch(request) {
     if (request.headers.get("Upgrade") !== "websocket") {
       return Response.json({
@@ -229,6 +291,7 @@ export class RelayRoom {
     }
 
     await this.queueEnvelope(recipient, message);
+    await this.sendPushWake(recipient);
   }
 
   async webSocketClose(ws) {
