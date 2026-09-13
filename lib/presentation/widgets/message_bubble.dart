@@ -6,7 +6,7 @@ import '../../core/theme/stellar_theme.dart';
 import '../../domain/models/message.dart';
 import 'expiry_ring.dart';
 
-class _AttachmentPreview extends StatelessWidget {
+class _AttachmentPreview extends StatefulWidget {
   const _AttachmentPreview({
     required this.blobId,
     required this.onLoadAttachment,
@@ -16,9 +16,32 @@ class _AttachmentPreview extends StatelessWidget {
   final Future<Uint8List> Function(String blobId) onLoadAttachment;
 
   @override
+  State<_AttachmentPreview> createState() => _AttachmentPreviewState();
+}
+
+class _AttachmentPreviewState extends State<_AttachmentPreview> {
+  late Future<Uint8List> _attachmentFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _attachmentFuture = widget.onLoadAttachment(widget.blobId);
+  }
+
+  @override
+  void didUpdateWidget(covariant _AttachmentPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.blobId != widget.blobId ||
+        oldWidget.onLoadAttachment != widget.onLoadAttachment) {
+      _attachmentFuture = widget.onLoadAttachment(widget.blobId);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return FutureBuilder<Uint8List>(
-      future: onLoadAttachment(blobId),
+      future: _attachmentFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const SizedBox(
@@ -90,6 +113,7 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final alignment = isOutgoing ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    final bubbleAlignment = isOutgoing ? Alignment.centerRight : Alignment.centerLeft;
     final bubbleColor = isOutgoing ? StellarColors.accentBlue.withOpacity(0.18) : StellarColors.bgSurface;
     final borderColor = isOutgoing ? StellarColors.accentBlue : Colors.transparent;
 
@@ -112,8 +136,10 @@ class MessageBubble extends StatelessWidget {
         child: Column(
           crossAxisAlignment: alignment,
           children: [
-            Container(
-              margin: const EdgeInsets.symmetric(vertical: 4),
+            Align(
+              alignment: bubbleAlignment,
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 4),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
               decoration: BoxDecoration(
@@ -155,6 +181,7 @@ class MessageBubble extends StatelessWidget {
                     ],
                   ),
                 ],
+                ),
               ),
             ),
             if (message.reactions.isNotEmpty)
