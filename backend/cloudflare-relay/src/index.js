@@ -404,7 +404,14 @@ export class RelayRoom {
     }
 
     await this.queueEnvelope(recipient, message);
-    await this.sendPushWake(recipient);
+
+    // Push notification must never block or break relay delivery.
+    // The envelope is already safely queued before FCM is attempted.
+    this.ctx.waitUntil(
+      this.sendPushWake(recipient).catch((error) => {
+        console.error("FCM_PUSH_WAKE_ERROR", error);
+      }),
+    );
   }
 
   async webSocketClose(ws) {
