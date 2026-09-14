@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
@@ -24,6 +25,35 @@ class SessionManager {
   final StellarPreKeyStore preKeyStore;
   final StellarSignedPreKeyStore signedPreKeyStore;
   final StellarSessionStore sessionStore;
+
+  // Signal Double Ratchet state is mutable. Every operation touching the
+  // same remote Signal address must be serialized so concurrent encrypt/
+  // decrypt operations cannot race on the persisted session state.
+  final Map<String, Future<void>> _sessionLocks = {};
+
+  Future<T> _withSessionLock<T>(
+    SignalProtocolAddress address,
+    Future<T> Function() operation,
+  ) async {
+    final key = '${address.getName()}:${address.getDeviceId()}';
+    final previous = _sessionLocks[key] ?? Future<void>.value();
+    final gate = Completer<void>();
+
+    _sessionLocks[key] = gate.future;
+
+    try {
+      await previous;
+      return await operation();
+    } finally {
+      if (!gate.isCompleted) {
+        gate.complete();
+      }
+
+      if (identical(_sessionLocks[key], gate.future)) {
+        _sessionLocks.remove(key);
+      }
+    }
+  }
 
   Future<PreKeyBundle> buildLocalPreKeyBundle() async {
     const deviceId = 1;
@@ -101,50 +131,63 @@ class SessionManager {
       identityStore,
       remoteAddress,
     );
-    await builder.processPreKeyBundle(bundle);
+    await _withSessionLock(remoteAddress, () async {
+      await builder.processPreKeyBundle(bundle);
+    });
   }
 
   Future<CiphertextMessage> encryptForSend(
     SignalProtocolAddress recipient,
     Uint8List plaintext,
   ) async {
-    final cipher = SessionCipher(
-      sessionStore,
-      preKeyStore,
-      signedPreKeyStore,
-      identityStore,
-      recipient,
-    );
-    // libsignal internally advances the Double Ratchet chain and selects
-    // the configured AEAD (AES-256-GCM) for the derived message key.
-    return cipher.encrypt(plaintext);
+    return _withSessionLock(recipient, () async {
+      final cipher = SessionCipher(
+        sessionStore,
+        preKeyStore,
+        signedPreKeyStore,
+        identityStore,
+        recipient,
+      );
+
+      // libsignal internally advances the Double Ratchet chain and selects
+      // the configured AEAD (AES-256-GCM) for the derived message key.
+      return cipher.encrypt(plaintext);
+    });
   }
 
   Future<Uint8List> decryptReceived(
     SignalProtocolAddress sender,
     CiphertextMessage ciphertext,
   ) async {
-    final cipher = SessionCipher(
-      sessionStore,
-      preKeyStore,
-      signedPreKeyStore,
-      identityStore,
-      sender,
-    );
+    return _withSessionLock(sender, () async {
+      final cipher = SessionCipher(
+        sessionStore,
+        preKeyStore,
+        signedPreKeyStore,
+        identityStore,
+        sender,
+      );
 
-    if (ciphertext is PreKeySignalMessage) {
-      // First message from this sender — establishes the session inline
-      // via X3DH if one doesn't already exist.
-      return cipher.decrypt(ciphertext);
-    } else if (ciphertext is SignalMessage) {
-      return cipher.decryptFromSignal(ciphertext);
-    }
-    throw ArgumentError('Unsupported ciphertext message type: ${ciphertext.runtimeType}');
+      if (ciphertext is PreKeySignalMessage) {
+        // First message from this sender — establishes the session inline
+        // via X3DH if one doesn't already exist.
+        return cipher.decrypt(ciphertext);
+      } else if (ciphertext is SignalMessage) {
+        return cipher.decryptFromSignal(ciphertext);
+      }
+
+      throw ArgumentError(
+        'Unsupported ciphertext message type: ${ciphertext.runtimeType}',
+      );
+    });
   }
 
   Future<bool> hasSession(SignalProtocolAddress address) =>
       sessionStore.containsSession(address);
 
-  Future<void> deleteSession(SignalProtocolAddress address) =>
-      sessionStore.deleteSession(address);
+  Future<void> deleteSession(SignalProtocolAddress address) async {
+    await _withSessionLock(address, () async {
+      await sessionStore.deleteSession(address);
+    });
+  }
 }
