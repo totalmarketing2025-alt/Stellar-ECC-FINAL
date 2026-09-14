@@ -93,7 +93,7 @@ final relayListenerProvider = Provider<RelayListener?>((ref) {
 
   listener.start();
 
-  ref.onDispose(listener.dispose);
+  ref.onDispose(() { listener.dispose(); });
 
   return listener;
 });
