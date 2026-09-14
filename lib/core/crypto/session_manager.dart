@@ -87,6 +87,9 @@ class SessionManager {
     );
   }
 
+  Future<void> ensureMinimumPreKeys({int minimum = 20}) =>
+      preKeyStore.ensureMinimumPreKeys(minimum: minimum);
+
   Future<void> establishSession(
     SignalProtocolAddress remoteAddress,
     PreKeyBundle bundle,

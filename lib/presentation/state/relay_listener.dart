@@ -2,10 +2,8 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import '../../core/network/relay_client.dart';
-import '../../core/network/envelope.dart';
 import '../../data/repositories/chat_repository.dart';
 import 'app_providers.dart';
 
@@ -73,6 +71,11 @@ class RelayListener {
         });
       },
     );
+  }
+
+  Future<void> dispose() async {
+    await _subscription?.cancel();
+    _subscription = null;
   }
 
 
