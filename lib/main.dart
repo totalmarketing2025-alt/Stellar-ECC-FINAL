@@ -59,6 +59,57 @@ Future<void> main() async {
   );
 
 
+
+  // Startup Signal bundle synchronization.
+  // Keeps Directory current after prekey consumption/restart.
+  try {
+    final nicknameBytes = await container
+        .read(platformKeyStoreProvider)
+        .readSecret('stellar.local_nickname');
+
+    final nickname = nicknameBytes == null
+        ? null
+        : String.fromCharCodes(nicknameBytes).trim();
+
+    if (nickname != null && nickname.isNotEmpty) {
+      final sessionManager = container.read(sessionManagerProvider);
+      final directoryClient = container.read(directoryClientProvider);
+
+      await sessionManager.ensureMinimumPreKeys();
+
+      final bundle = await sessionManager.buildLocalDirectoryBundle();
+
+      try {
+        await directoryClient.updateBundle(
+          nickname: nickname,
+          preKeyBundle: bundle,
+        );
+      } catch (e) {
+        final text = e.toString();
+        if (text.contains('404') || text.contains('User not found')) {
+          await directoryClient.register(
+            nickname: nickname,
+            preKeyBundle: bundle,
+          );
+        } else {
+          rethrow;
+        }
+      }
+
+      developer.log(
+        'Startup Signal bundle synchronized.',
+        name: 'stellar_ecc.directory',
+      );
+    }
+  } catch (e, st) {
+    developer.log(
+      'Startup Signal bundle synchronization failed.',
+      name: 'stellar_ecc.directory',
+      error: e,
+      stackTrace: st,
+    );
+  }
+
   if (firebaseAvailable) {
     try {
       final pushHandler = PushHandler(
