@@ -239,7 +239,31 @@ class ChatRepository {
               : Uint8List.fromList(utf8.encode(plaintext));
 
       print('SEND_STEP_3_BEFORE_ENCRYPT');
-      final ciphertextMessage = await sessionManager.encryptForSend(address, plaintextBytes);
+      CiphertextMessage ciphertextMessage;
+      try {
+        ciphertextMessage =
+            await sessionManager.encryptForSend(address, plaintextBytes);
+      } catch (firstError, firstStack) {
+        print('SIGNAL_SESSION_RECOVERY: encryption failed; rebuilding session');
+        print('SIGNAL_SESSION_RECOVERY_ERROR: $firstError');
+        print('SIGNAL_SESSION_RECOVERY_STACK: $firstStack');
+
+        await sessionManager.deleteSession(address);
+
+        await _ensureDirectSession(
+          peerName: peerName,
+          peerDeviceId: peerDeviceId,
+          forceSessionReset: false,
+        ).timeout(
+          const Duration(seconds: 15),
+          onTimeout: () => throw StateError(
+            'SEND TIMEOUT: SIGNAL SESSION RECOVERY',
+          ),
+        );
+
+        ciphertextMessage =
+            await sessionManager.encryptForSend(address, plaintextBytes);
+      }
       print('SEND_STEP_4_AFTER_ENCRYPT');
 
       // 3. Wrap in the relay envelope. The delivery token is a fresh random
@@ -323,16 +347,29 @@ class ChatRepository {
       );
 
       try {
-        final signalMessage = (envelope.ciphertext.isNotEmpty &&
-                (envelope.ciphertext[0] & 0x07) ==
-                    CiphertextMessage.prekeyType)
-            ? PreKeySignalMessage(envelope.ciphertext)
-            : SignalMessage.fromSerialized(envelope.ciphertext);
+        Uint8List decrypted;
 
-        final decrypted = await sessionManager.decryptReceived(
-          address,
-          signalMessage,
-        );
+        // Never infer Signal message type from the serialized first byte.
+        // Established sessions normally receive SignalMessage (Whisper);
+        // the first message may be a PreKeySignalMessage. Try the normal
+        // Signal message first, then fall back to PreKey parsing/decryption.
+        try {
+          final signalMessage =
+              SignalMessage.fromSerialized(envelope.ciphertext);
+
+          decrypted = await sessionManager.decryptReceived(
+            address,
+            signalMessage,
+          );
+        } catch (_) {
+          final preKeyMessage =
+              PreKeySignalMessage(envelope.ciphertext);
+
+          decrypted = await sessionManager.decryptReceived(
+            address,
+            preKeyMessage,
+          );
+        }
 
         chatId = peer.chatId;
         senderNickname = peer.peerName;

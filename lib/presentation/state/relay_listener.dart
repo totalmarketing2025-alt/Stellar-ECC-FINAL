@@ -34,11 +34,6 @@ class RelayListener {
             final message =
                 await _chatRepository.receiveEnvelope(rawEnvelope: bytes);
 
-            final nickname = ref.read(localNicknameProvider);
-            if (nickname != null && nickname.isNotEmpty) {
-              await _refreshDirectoryBundleIfPreKey(bytes, nickname);
-            }
-
             if (message != null) {
               ref.invalidate(chatListProvider);
               ref.invalidate(chatMessagesProvider(message.chatId));
@@ -54,43 +49,7 @@ class RelayListener {
     );
   }
 
-  Future<void> _refreshDirectoryBundleIfPreKey(
-    Uint8List rawEnvelope,
-    String nickname,
-  ) async {
-    try {
-      final envelope = Envelope.decode(rawEnvelope);
-      final ciphertext = envelope.ciphertext;
 
-      final isPreKey = ciphertext.isNotEmpty &&
-          (ciphertext[0] & 0x07) == CiphertextMessage.prekeyType;
-
-      if (!isPreKey) {
-        return;
-      }
-
-      final sessionManager = ref.read(sessionManagerProvider);
-      final directoryClient = ref.read(directoryClientProvider);
-
-      final bundle = await sessionManager.buildLocalDirectoryBundle();
-
-      await directoryClient.updateBundle(
-        nickname: nickname,
-        preKeyBundle: bundle,
-      );
-
-      print('DIRECTORY_BUNDLE_REFRESH: updated after PreKey message');
-    } catch (e, stackTrace) {
-      // Directory refresh must never break an already successful message receive.
-      print('DIRECTORY_BUNDLE_REFRESH_ERROR: $e');
-      print('DIRECTORY_BUNDLE_REFRESH_STACK: $stackTrace');
-    }
-  }
-
-  Future<void> dispose() async {
-    await _subscription?.cancel();
-    _subscription = null;
-  }
 }
 
 final relayListenerProvider = Provider<RelayListener?>((ref) {
