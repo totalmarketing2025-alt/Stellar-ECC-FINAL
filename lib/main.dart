@@ -64,8 +64,28 @@ Future<void> main() async {
       final pushHandler = PushHandler(
         relayClient: container.read(relayClientProvider),
         messaging: FirebaseMessaging.instance,
+        directoryClient: container.read(directoryClientProvider),
+        getLocalNickname: () async {
+          final bytes = await container
+              .read(platformKeyStoreProvider)
+              .readSecret('stellar.local_nickname');
+          return bytes == null ? null : String.fromCharCodes(bytes);
+        },
       );
-      await pushHandler.initialize(bearerToken: '');
+      await pushHandler.initialize();
+
+      container.read(localNicknameProvider.notifier).addListener((nickname) {
+        if (nickname != null && nickname.isNotEmpty) {
+          pushHandler.registerCurrentToken().catchError((error, stack) {
+            developer.log(
+              'Push token registration failed after nickname restore.',
+              name: 'stellar_ecc.push',
+              error: error,
+              stackTrace: stack,
+            );
+          });
+        }
+      });
     } catch (e, st) {
       // Same reasoning as above — a placeholder Firebase project or no
       // network at startup shouldn't block the app from opening.

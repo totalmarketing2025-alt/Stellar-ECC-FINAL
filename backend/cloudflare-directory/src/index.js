@@ -120,6 +120,77 @@ export class DirectoryStore {
       });
     }
 
+    if (request.method === "GET" && url.pathname.startsWith("/v1/users/") &&
+        url.pathname.endsWith("/push-token")) {
+      const auth = request.headers.get("authorization") || "";
+      const expected = this.env.RELAY_SHARED_SECRET || "";
+      if (!expected || auth !== `Bearer ${expected}`) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+
+      const nickname = normalizeNickname(
+        decodeURIComponent(
+          url.pathname.substring(
+            "/v1/users/".length,
+            url.pathname.length - "/push-token".length,
+          ),
+        ),
+      );
+      if (!validNickname(nickname)) return json({ error: "Invalid nickname" }, 400);
+
+      const key = `user:${nickname}`;
+      const existing = await this.ctx.storage.get(key);
+      if (!existing) return json({ error: "User not found" }, 404);
+
+      return json({
+        nickname,
+        push: existing.push ?? null,
+      });
+    }
+
+    if (request.method === "PUT" && url.pathname.startsWith("/v1/users/") &&
+        url.pathname.endsWith("/push-token")) {
+      const nickname = normalizeNickname(
+        decodeURIComponent(
+          url.pathname.substring(
+            "/v1/users/".length,
+            url.pathname.length - "/push-token".length,
+          ),
+        ),
+      );
+      if (!validNickname(nickname)) return json({ error: "Invalid nickname" }, 400);
+
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const token = typeof body.token === "string" ? body.token.trim() : "";
+      const platform = typeof body.platform === "string" ? body.platform.trim().toLowerCase() : "";
+
+      if (!token || !["android", "ios"].includes(platform)) {
+        return json({ error: "Invalid push token" }, 400);
+      }
+
+      const key = `user:${nickname}`;
+      const existing = await this.ctx.storage.get(key);
+      if (!existing) return json({ error: "User not found" }, 404);
+
+      const user = {
+        ...existing,
+        push: {
+          token,
+          platform,
+          updatedAt: Date.now(),
+        },
+      };
+
+      await this.ctx.storage.put(key, user);
+      return json({ ok: true, nickname, registered: true });
+    }
+
     if (request.method === "GET" && url.pathname.startsWith("/v1/users/")) {
       const nickname = normalizeNickname(
         decodeURIComponent(

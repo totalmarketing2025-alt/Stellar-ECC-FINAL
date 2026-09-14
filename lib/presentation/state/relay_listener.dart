@@ -34,6 +34,32 @@ class RelayListener {
             final message =
                 await _chatRepository.receiveEnvelope(rawEnvelope: bytes);
 
+            // Keep the published bundle current. PreKey refill is handled
+            // by ensureMinimumPreKeys(); never infer message type from
+            // serialized ciphertext bytes.
+            final nickname = ref.read(localNicknameProvider);
+            if (nickname != null && nickname.isNotEmpty) {
+              try {
+                final sessionManager = ref.read(sessionManagerProvider);
+                final directoryClient = ref.read(directoryClientProvider);
+
+                await sessionManager.ensureMinimumPreKeys();
+
+                final bundle =
+                    await sessionManager.buildLocalDirectoryBundle();
+
+                await directoryClient.updateBundle(
+                  nickname: nickname,
+                  preKeyBundle: bundle,
+                );
+
+                print('DIRECTORY_BUNDLE_REFRESH: bundle synchronized');
+              } catch (e, stackTrace) {
+                print('DIRECTORY_BUNDLE_REFRESH_ERROR: $e');
+                print('DIRECTORY_BUNDLE_REFRESH_STACK: $stackTrace');
+              }
+            }
+
             if (message != null) {
               ref.invalidate(chatListProvider);
               ref.invalidate(chatMessagesProvider(message.chatId));

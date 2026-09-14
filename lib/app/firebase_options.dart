@@ -32,19 +32,19 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'REPLACE_WITH_YOUR_ANDROID_API_KEY',
-    appId: 'REPLACE_WITH_YOUR_ANDROID_APP_ID',
-    messagingSenderId: 'REPLACE_WITH_YOUR_SENDER_ID',
-    projectId: 'REPLACE_WITH_YOUR_PROJECT_ID',
-    storageBucket: 'REPLACE_WITH_YOUR_PROJECT_ID.appspot.com',
+    apiKey: 'AIzaSyA5oVVSPnVwTRlLW4F1mkmR0gKoXtXRnlY',
+    appId: '1:242256147600:android:24b90075fab175f6e69415',
+    messagingSenderId: '242256147600',
+    projectId: 'stellar-adc4b',
+    storageBucket: 'stellar-adc4b.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'REPLACE_WITH_YOUR_IOS_API_KEY',
     appId: 'REPLACE_WITH_YOUR_IOS_APP_ID',
-    messagingSenderId: 'REPLACE_WITH_YOUR_SENDER_ID',
-    projectId: 'REPLACE_WITH_YOUR_PROJECT_ID',
-    storageBucket: 'REPLACE_WITH_YOUR_PROJECT_ID.appspot.com',
+    messagingSenderId: '242256147600',
+    projectId: 'stellar-adc4b',
+    storageBucket: 'stellar-adc4b.firebasestorage.app',
     iosBundleId: 'ecc.stellar.app',
   );
 }

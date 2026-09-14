@@ -97,6 +97,30 @@ class DirectoryClient {
     return json;
   }
 
+  Future<Map<String, dynamic>> registerPushToken({
+    required String nickname,
+    required String token,
+    required String platform,
+  }) async {
+    final response = await _request(
+      'PUT',
+      '/v1/users/${Uri.encodeComponent(nickname)}/push-token',
+      body: {
+        'token': token,
+        'platform': platform,
+      },
+    );
+    final body = await _readBody(response);
+    final json = _decodeJson(body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw DirectoryException(
+        json['error']?.toString() ?? 'Push token registration failed',
+        response.statusCode,
+      );
+    }
+    return json;
+  }
+
   Future<Map<String, dynamic>> lookup(String nickname) async {
     final response = await _request(
       'GET',

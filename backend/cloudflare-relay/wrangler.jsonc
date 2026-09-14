@@ -11,6 +11,13 @@
       }
     ]
   },
+  "vars": {
+    "DIRECTORY_URL": "https://stellar-ecc-directory.totalmarketing2025.workers.dev",
+    "FCM_PROJECT_ID": "stellar-adc4b",
+    "FCM_CLIENT_EMAIL": "dev-placeholder@stellar-adc4b.iam.gserviceaccount.com",
+    "FCM_PRIVATE_KEY": "DEV_PLACEHOLDER",
+    "RELAY_SHARED_SECRET": "stellar-relay-dev-secret"
+  },
   "migrations": [
     {
       "tag": "v1",
