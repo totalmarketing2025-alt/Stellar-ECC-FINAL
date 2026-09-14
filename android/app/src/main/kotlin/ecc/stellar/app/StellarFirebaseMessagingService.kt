@@ -73,7 +73,10 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
             }
             .build()
 
-        notificationManager.notify(\n            NOTIFICATION_ID_BASE + (System.currentTimeMillis() % 100000).toInt(),\n            notification,\n        )
+        notificationManager.notify(
+            NOTIFICATION_ID_BASE + (System.currentTimeMillis() % 100000).toInt(),
+            notification,
+        )
     }
 
     override fun onNewToken(token: String) {
