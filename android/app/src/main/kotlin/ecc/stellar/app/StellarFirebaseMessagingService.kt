@@ -21,7 +21,7 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
     companion object {
         private const val CHANNEL_ID = "stellar_messages"
         private const val CHANNEL_NAME = "Messages"
-        private const val NOTIFICATION_ID = 1001
+        private const val NOTIFICATION_ID_BASE = 1001
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
@@ -60,7 +60,7 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(ecc.stellar.app.R.drawable.ic_stat_stellar)
             .setContentTitle("Stellar ECC")
             .setContentText("Имате нова порака")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -73,7 +73,7 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
             }
             .build()
 
-        notificationManager.notify(NOTIFICATION_ID, notification)
+        notificationManager.notify(\n            NOTIFICATION_ID_BASE + (System.currentTimeMillis() % 100000).toInt(),\n            notification,\n        )
     }
 
     override fun onNewToken(token: String) {

@@ -42,6 +42,11 @@ class PushHandler {
     FirebaseMessaging.onMessage.listen((_) => _handleWake());
     FirebaseMessaging.onMessageOpenedApp.listen((_) => _handleWake());
 
+    final initialMessage = await messaging.getInitialMessage();
+    if (initialMessage != null) {
+      await _handleWake();
+    }
+
     FirebaseMessaging.onBackgroundMessage(_backgroundHandler);
   }
 
