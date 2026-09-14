@@ -25,10 +25,9 @@ if (flutterVersionName == null) {
 }
 
 android {
-    ndkVersion = "26.1.10909125"
     namespace 'ecc.stellar.app'
-    compileSdk 34
-    ndkVersion flutter.ndkVersion
+    compileSdk 35
+    ndkVersion "26.1.10909125"
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

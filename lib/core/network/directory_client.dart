@@ -78,7 +78,7 @@ class DirectoryClient {
   }) async {
     final response = await _request(
       'PUT',
-      '/v1/users/$nickname/bundle',
+      '/v1/users/${Uri.encodeComponent(nickname)}/bundle',
       body: {
         'bundle': preKeyBundle,
       },

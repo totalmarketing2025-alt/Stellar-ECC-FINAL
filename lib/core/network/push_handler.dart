@@ -89,4 +89,5 @@ class PushHandler {
 
 /// Runs in a separate isolate when the app is fully backgrounded.
 /// The push remains a wake signal only.
+@pragma('vm:entry-point')
 Future<void> _backgroundHandler(RemoteMessage message) async {}
