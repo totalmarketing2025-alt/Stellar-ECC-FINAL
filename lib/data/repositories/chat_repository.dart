@@ -504,4 +504,31 @@ class ChatRepository {
     final decrypted = await decryptEnvelope(rawEnvelope: rawEnvelope);
     return receiveDecryptedEnvelope(decrypted: decrypted);
   }
+
+  Future<void> addReaction(String messageId, String emoji) async {
+    await db.reactionDao.add(messageId, localNickname, emoji);
+  }
+
+  Future<void> updateChatTtl(String chatId, int ttlSeconds) async {
+    await db.chatDao.updateDefaultTtl(chatId, ttlSeconds);
+  }
+
+  Future<void> createDirectChat({
+    required String chatId,
+    required String displayName,
+    required String peerName,
+    required int peerDeviceId,
+  }) async {
+    final existing = await db.chatDao.byId(chatId);
+    if (existing != null) return;
+
+    await db.chatDao.insert(
+      chatId: chatId,
+      chatType: "direct",
+      displayName: displayName,
+      defaultTtlSec: 3600,
+      peerName: peerName,
+      peerDeviceId: peerDeviceId,
+    );
+  }
 }
