@@ -26,6 +26,33 @@ object StellarCallManager {
     private val activeConnections =
         mutableMapOf<String, StellarConnection>()
 
+    fun registerConnection(
+        callId: String,
+        connection: StellarConnection
+    ) {
+        if (callId.isBlank()) return
+        StellarCallManager.registerConnection(callId, connection)
+    }
+
+    fun setCallActive(callId: String): Boolean {
+        val connection = activeConnections[callId] ?: return false
+        connection.setActive()
+        return true
+    }
+
+    fun setCallEnded(callId: String): Boolean {
+        val connection = activeConnections.remove(callId) ?: return false
+        connection.setDisconnected(
+            Connection.DisconnectCause(Connection.DisconnectCause.REMOTE)
+        )
+        connection.destroy()
+        return true
+    }
+
+    fun removeConnection(callId: String) {
+        activeConnections.remove(callId)
+    }
+
     fun handle(context: Context): PhoneAccountHandle =
         PhoneAccountHandle(
             ComponentName(context, StellarConnectionService::class.java),
@@ -188,7 +215,7 @@ class StellarConnectionService : ConnectionService() {
     fun setCallEnded(callId: String): Boolean {
         val connection = activeConnections.remove(callId) ?: return false
         connection.setDisconnected(
-            Connection.DisconnectCause(DisconnectCause.REMOTE)
+            Connection.DisconnectCause(Connection.DisconnectCause.REMOTE)
         )
         connection.destroy()
         return true
@@ -251,7 +278,7 @@ class StellarConnection(
 
     override fun onReject() {
         setDisconnected(
-            DisconnectCause(DisconnectCause.REJECTED),
+            Connection.DisconnectCause(Connection.DisconnectCause.REJECTED),
         )
 
         stopForegroundCallService()
@@ -276,7 +303,7 @@ class StellarConnection(
 
     override fun onDisconnect() {
         setDisconnected(
-            DisconnectCause(DisconnectCause.LOCAL),
+            Connection.DisconnectCause(Connection.DisconnectCause.LOCAL),
         )
 
         stopForegroundCallService()
