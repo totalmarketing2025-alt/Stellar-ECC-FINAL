@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.telecom.Connection
+import android.telecom.DisconnectCause
 import android.telecom.ConnectionRequest
 import android.telecom.ConnectionService
 import android.telecom.PhoneAccount
@@ -31,7 +32,7 @@ object StellarCallManager {
         connection: StellarConnection
     ) {
         if (callId.isBlank()) return
-        StellarCallManager.registerConnection(callId, connection)
+        activeConnections[callId] = connection
     }
 
     fun setCallActive(callId: String): Boolean {
@@ -43,7 +44,7 @@ object StellarCallManager {
     fun setCallEnded(callId: String): Boolean {
         val connection = activeConnections.remove(callId) ?: return false
         connection.setDisconnected(
-            Connection.DisconnectCause(Connection.DisconnectCause.REMOTE)
+            DisconnectCause(Connection.DisconnectCause.REMOTE)
         )
         connection.destroy()
         return true
@@ -158,7 +159,7 @@ class StellarConnectionService : ConnectionService() {
 
         val connection = StellarConnection(this)
 
-        activeConnections[callId] = connection
+        StellarCallManager.registerConnection(callId, connection)
 
         connection.callId = callId
         connection.remoteNickname = remote
@@ -178,12 +179,12 @@ class StellarConnectionService : ConnectionService() {
 
         connection.setCallerDisplayName(
             if (remote.isBlank()) "Stellar ECC" else remote,
-            Connection.PRESENTATION_ALLOWED
+            TelecomManager.PRESENTATION_ALLOWED
         )
 
         connection.setAddress(
             Uri.parse("stellar:$callId"),
-            Connection.PRESENTATION_ALLOWED
+            TelecomManager.PRESENTATION_ALLOWED
         )
 
         connection.setVideoState(
@@ -206,24 +207,6 @@ class StellarConnectionService : ConnectionService() {
         return connection
     }
 
-    fun setCallActive(callId: String): Boolean {
-        val connection = activeConnections[callId] ?: return false
-        connection.setActive()
-        return true
-    }
-
-    fun setCallEnded(callId: String): Boolean {
-        val connection = activeConnections.remove(callId) ?: return false
-        connection.setDisconnected(
-            Connection.DisconnectCause(Connection.DisconnectCause.REMOTE)
-        )
-        connection.destroy()
-        return true
-    }
-
-    fun removeConnection(callId: String) {
-        activeConnections.remove(callId)
-    }
 }
 
 class StellarConnection(
@@ -278,7 +261,7 @@ class StellarConnection(
 
     override fun onReject() {
         setDisconnected(
-            Connection.DisconnectCause(Connection.DisconnectCause.REJECTED),
+            DisconnectCause(Connection.DisconnectCause.REJECTED),
         )
 
         stopForegroundCallService()
@@ -303,7 +286,7 @@ class StellarConnection(
 
     override fun onDisconnect() {
         setDisconnected(
-            Connection.DisconnectCause(Connection.DisconnectCause.LOCAL),
+            DisconnectCause(Connection.DisconnectCause.LOCAL),
         )
 
         stopForegroundCallService()
