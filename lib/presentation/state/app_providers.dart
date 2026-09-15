@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/storage/providers.dart';
@@ -9,17 +10,28 @@ import '../../core/crypto/group_crypto.dart';
 import '../../core/network/relay_client.dart';
 import '../../core/network/directory_client.dart';
 import '../../core/media/media_attachment_service.dart';
+import '../../core/calls/call_signal_router.dart';
+import '../../core/calls/call_coordinator.dart';
+import '../../core/calls/call_platform_bridge.dart';
+import '../../core/calls/call_service.dart';
 import '../../data/repositories/chat_repository.dart';
 import '../../domain/models/chat.dart';
 import '../../domain/models/message.dart';
 
-const _relayUrl = 'wss://stellar-ecc-final.totalmarketing2025.workers.dev/v1/connect';
-const _directoryUrl = 'https://stellar-ecc-directory.totalmarketing2025.workers.dev';
+const _relayUrl =
+    'wss://stellar-ecc-final.totalmarketing2025.workers.dev/v1/connect';
+const _directoryUrl =
+    'https://stellar-ecc-directory.totalmarketing2025.workers.dev';
 
-final platformKeyStoreProvider = Provider<PlatformKeyStore>((ref) => PlatformKeyStore());
+final platformKeyStoreProvider = Provider<PlatformKeyStore>(
+  (ref) => PlatformKeyStore(),
+);
 
 final identityKeyStoreProvider = Provider<StellarIdentityKeyStore>((ref) {
-  return StellarIdentityKeyStore(ref.watch(databaseProvider), ref.watch(platformKeyStoreProvider));
+  return StellarIdentityKeyStore(
+    ref.watch(databaseProvider),
+    ref.watch(platformKeyStoreProvider),
+  );
 });
 
 final sessionManagerProvider = Provider<SessionManager>((ref) {
@@ -33,16 +45,51 @@ final sessionManagerProvider = Provider<SessionManager>((ref) {
 });
 
 final directoryClientProvider = Provider<DirectoryClient>((ref) {
-  final client = DirectoryClient(
-    baseUrl: _directoryUrl,
-  );
+  final client = DirectoryClient(baseUrl: _directoryUrl);
 
   ref.onDispose(client.dispose);
 
   return client;
 });
 
-final relayClientProvider = Provider<RelayClient>((ref) => RelayClient(relayUrl: _relayUrl));
+final relayClientProvider = Provider<RelayClient>(
+  (ref) => RelayClient(relayUrl: _relayUrl),
+);
+
+final callSignalRouterProvider = Provider<CallSignalRouter>((ref) {
+  final router = CallSignalRouter();
+  ref.onDispose(router.dispose);
+  return router;
+});
+
+final callPlatformBridgeProvider = Provider<CallPlatformBridge>((ref) {
+  final bridge = CallPlatformBridge();
+  ref.onDispose(bridge.dispose);
+  return bridge;
+});
+
+final callServiceProvider = Provider<CallService>((ref) {
+  final service = CallService(
+    relayClient: ref.watch(relayClientProvider),
+    sessionManager: ref.watch(sessionManagerProvider),
+    platformBridge: ref.watch(callPlatformBridgeProvider),
+  );
+  ref.onDispose(service.end);
+  return service;
+});
+
+final callCoordinatorProvider = Provider<CallCoordinator>((ref) {
+  final coordinator = CallCoordinator(
+    signalRouter: ref.watch(callSignalRouterProvider),
+    callService: ref.watch(callServiceProvider),
+    platformBridge: ref.watch(callPlatformBridgeProvider),
+  );
+
+  coordinator.start();
+  ref.onDispose(coordinator.dispose);
+
+  return coordinator;
+});
 
 final groupCryptoProvider = Provider<GroupCrypto>((ref) {
   final db = ref.watch(databaseProvider);
@@ -103,16 +150,18 @@ class LocalNicknameController extends StateNotifier<String?> {
 
 final localNicknameProvider =
     StateNotifierProvider<LocalNicknameController, String?>((ref) {
-  return LocalNicknameController(
-    ref.watch(platformKeyStoreProvider),
-    ref.watch(relayClientProvider),
-  );
-});
+      return LocalNicknameController(
+        ref.watch(platformKeyStoreProvider),
+        ref.watch(relayClientProvider),
+      );
+    });
 
 final chatRepositoryProvider = Provider<ChatRepository>((ref) {
   final nickname = ref.watch(localNicknameProvider);
   if (nickname == null) {
-    throw StateError('localNicknameProvider must be set before chatRepositoryProvider is used');
+    throw StateError(
+      'localNicknameProvider must be set before chatRepositoryProvider is used',
+    );
   }
   return ChatRepository(
     db: ref.watch(databaseProvider),
@@ -132,11 +181,11 @@ final chatListProvider = FutureProvider.autoDispose<List<Chat>>((ref) async {
   return repo.loadChats();
 });
 
-final chatMessagesProvider =
-    FutureProvider.autoDispose.family<List<Message>, String>((ref, chatId) async {
-  final repo = ref.watch(chatRepositoryProvider);
-  return repo.loadMessages(chatId);
-});
+final chatMessagesProvider = FutureProvider.autoDispose
+    .family<List<Message>, String>((ref, chatId) async {
+      final repo = ref.watch(chatRepositoryProvider);
+      return repo.loadMessages(chatId);
+    });
 
 /// App-lock state — whether the user has passed biometric/PIN auth for
 /// this app session. Reset to false on cold start and on background

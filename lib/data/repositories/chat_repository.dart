@@ -56,6 +56,7 @@ class ChatRepository {
       return null;
     }
   }
+
   final _uuid = const Uuid();
 
   Future<List<Chat>> loadChats() async {
@@ -87,7 +88,6 @@ class ChatRepository {
     return service.loadAttachment(blobId, filePath);
   }
 
-
   Future<String?> findDirectChatId({
     required String peerName,
     required int peerDeviceId,
@@ -106,7 +106,7 @@ class ChatRepository {
   }
 
   Future<List<({String chatId, String peerName, int peerDeviceId})>>
-      _knownDirectPeers() async {
+  _knownDirectPeers() async {
     final chats = await db.chatDao.all();
     final result = <({String chatId, String peerName, int peerDeviceId})>[];
 
@@ -117,9 +117,7 @@ class ChatRepository {
       final peerName = chat['peer_name'] as String?;
       final peerDeviceId = chat['peer_device_id'] as int?;
 
-      if (peerName == null ||
-          peerName.isEmpty ||
-          peerDeviceId == null) {
+      if (peerName == null || peerName.isEmpty || peerDeviceId == null) {
         continue;
       }
 
@@ -150,10 +148,7 @@ class ChatRepository {
     required int peerDeviceId,
     bool forceSessionReset = false,
   }) async {
-    final address = SignalProtocolAddress(
-      peerName,
-      peerDeviceId,
-    );
+    final address = SignalProtocolAddress(peerName, peerDeviceId);
 
     if (forceSessionReset) {
       await sessionManager.deleteSession(address);
@@ -163,8 +158,7 @@ class ChatRepository {
       return;
     }
 
-    final remoteBundle =
-        await directoryClient.lookupBundle(peerName);
+    final remoteBundle = await directoryClient.lookupBundle(peerName);
 
     await sessionManager.establishSessionFromDirectory(
       remoteAddress: address,
@@ -192,8 +186,9 @@ class ChatRepository {
     final messageId = _uuid.v4();
 
     // Stable per-message token used to correlate delivery ACKs.
-    final deliveryToken =
-        Uint8List.fromList(utf8.encode(_uuid.v4()).take(16).toList());
+    final deliveryToken = Uint8List.fromList(
+      utf8.encode(_uuid.v4()).take(16).toList(),
+    );
 
     // 1. Persist locally immediately (optimistic UI), status = sending.
     await db.messageDao.insert(
@@ -207,7 +202,9 @@ class ChatRepository {
     );
 
     try {
-      if (attachmentBytes != null && attachmentMimeType != null && mediaService != null) {
+      if (attachmentBytes != null &&
+          attachmentMimeType != null &&
+          mediaService != null) {
         await mediaService!.storeAttachment(
           rawBytes: attachmentBytes,
           messageId: messageId,
@@ -232,17 +229,19 @@ class ChatRepository {
 
       final plaintextBytes =
           attachmentBytes != null && attachmentMimeType != null
-              ? AttachmentPayload.encode(
-                  mimeType: attachmentMimeType,
-                  bytes: attachmentBytes,
-                )
-              : Uint8List.fromList(utf8.encode(plaintext));
+          ? AttachmentPayload.encode(
+              mimeType: attachmentMimeType,
+              bytes: attachmentBytes,
+            )
+          : Uint8List.fromList(utf8.encode(plaintext));
 
       print('SEND_STEP_3_BEFORE_ENCRYPT');
       CiphertextMessage ciphertextMessage;
       try {
-        ciphertextMessage =
-            await sessionManager.encryptForSend(address, plaintextBytes);
+        ciphertextMessage = await sessionManager.encryptForSend(
+          address,
+          plaintextBytes,
+        );
       } catch (firstError, firstStack) {
         print('SIGNAL_SESSION_RECOVERY: encryption failed; rebuilding session');
         print('SIGNAL_SESSION_RECOVERY_ERROR: $firstError');
@@ -256,13 +255,14 @@ class ChatRepository {
           forceSessionReset: false,
         ).timeout(
           const Duration(seconds: 15),
-          onTimeout: () => throw StateError(
-            'SEND TIMEOUT: SIGNAL SESSION RECOVERY',
-          ),
+          onTimeout: () =>
+              throw StateError('SEND TIMEOUT: SIGNAL SESSION RECOVERY'),
         );
 
-        ciphertextMessage =
-            await sessionManager.encryptForSend(address, plaintextBytes);
+        ciphertextMessage = await sessionManager.encryptForSend(
+          address,
+          plaintextBytes,
+        );
       }
       print('SEND_STEP_4_AFTER_ENCRYPT');
 
@@ -272,7 +272,8 @@ class ChatRepository {
       // recipient's route.
       final envelope = Envelope(
         deliveryToken: deliveryToken,
-        recipientRoute: peerName, // resolved server-side to an opaque route in production
+        recipientRoute:
+            peerName, // resolved server-side to an opaque route in production
         ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
       );
       // 4. Send the opaque encrypted envelope through the relay.
@@ -281,9 +282,10 @@ class ChatRepository {
       print('SEND_STEP_6_AFTER_RELAY');
       await db.messageDao.updateStatus(messageId, 'sent');
       final debugRows = await db.messageDao.forChat(chatId);
-      final debugMsg = debugRows.where((m) => m['message_id'] == messageId).firstOrNull;
+      final debugMsg = debugRows
+          .where((m) => m['message_id'] == messageId)
+          .firstOrNull;
       print('STATUS_DEBUG: messageId=$messageId status=${debugMsg?['status']}');
-
     } catch (e, st) {
       await db.messageDao.updateStatus(messageId, 'failed');
       print('SEND_DIRECT_MESSAGE_ERROR: $e');
@@ -292,45 +294,34 @@ class ChatRepository {
     }
     final rows = await db.messageDao.forChat(chatId);
     print('SEND_STEP_7_BEFORE_RETURN rows=${rows.length} messageId=$messageId');
-    return rows.map(Message.fromRow).firstWhere((m) => m.messageId == messageId);
+    return rows
+        .map(Message.fromRow)
+        .firstWhere((m) => m.messageId == messageId);
   }
 
-  /// Handles an inbound envelope already routed to this chat by the
-  /// caller (see presentation/state/relay_listener.dart in the next
-  /// module, which demultiplexes incoming envelopes by sender before
-  /// calling this).
-  Future<void> _sendDeliveryAck({
-    required SignalProtocolAddress recipient,
-    required String recipientRoute,
-    required Uint8List deliveryToken,
-  }) async {
-    final plaintext = _encodeDeliveryAck(deliveryToken);
-
-    final ciphertextMessage =
-        await sessionManager.encryptForSend(recipient, plaintext);
-
-    // Use a fresh relay token for the ACK itself. The original delivery
-    // token remains inside the Signal-encrypted ACK payload.
-    final ackRelayToken =
-        Uint8List.fromList(utf8.encode(_uuid.v4()).take(16).toList());
-
-    final envelope = Envelope(
-      deliveryToken: ackRelayToken,
-      recipientRoute: recipientRoute,
-      ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
-    );
-
-    await relayClient.send(envelope.encode());
-  }
-
-  Future<Message?> receiveEnvelope({
-    required Uint8List rawEnvelope,
-  }) async {
+  /// Decrypts one inbound Stellar envelope exactly once and returns the
+  /// authenticated sender information together with the plaintext payload.
+  ///
+  /// This is intentionally kept below the RelayListener routing layer so
+  /// chat messages, ACKs, attachments and call-control messages all share
+  /// the same Double Ratchet receive path.
+  Future<
+    ({
+      Envelope envelope,
+      String chatId,
+      String senderNickname,
+      SignalProtocolAddress senderAddress,
+      Uint8List plaintextBytes,
+    })
+  >
+  decryptEnvelope({required Uint8List rawEnvelope}) async {
     final envelope = Envelope.decode(rawEnvelope);
     final peers = await _knownDirectPeers();
 
     if (peers.isEmpty) {
-      throw StateError('No known direct peer session can receive this envelope');
+      throw StateError(
+        'No known direct peer session can receive this envelope',
+      );
     }
 
     late final String chatId;
@@ -341,30 +332,21 @@ class ChatRepository {
     Object? lastError;
 
     for (final peer in peers) {
-      final address = SignalProtocolAddress(
-        peer.peerName,
-        peer.peerDeviceId,
-      );
+      final address = SignalProtocolAddress(peer.peerName, peer.peerDeviceId);
 
       try {
         Uint8List decrypted;
 
-        // Never infer Signal message type from the serialized first byte.
-        // Established sessions normally receive SignalMessage (Whisper);
-        // the first message may be a PreKeySignalMessage. Try the normal
-        // Signal message first, then fall back to PreKey parsing/decryption.
         try {
-          final signalMessage =
-              SignalMessage.fromSerialized(envelope.ciphertext);
-
+          final signalMessage = SignalMessage.fromSerialized(
+            envelope.ciphertext,
+          );
           decrypted = await sessionManager.decryptReceived(
             address,
             signalMessage,
           );
         } catch (_) {
-          final preKeyMessage =
-              PreKeySignalMessage(envelope.ciphertext);
-
+          final preKeyMessage = PreKeySignalMessage(envelope.ciphertext);
           decrypted = await sessionManager.decryptReceived(
             address,
             preKeyMessage,
@@ -388,6 +370,65 @@ class ChatRepository {
       );
     }
 
+    return (
+      envelope: envelope,
+      chatId: chatId,
+      senderNickname: senderNickname,
+      senderAddress: senderAddress,
+      plaintextBytes: plaintextBytes,
+    );
+  }
+
+  /// Handles an inbound envelope already routed to this chat by the
+  /// caller (see presentation/state/relay_listener.dart in the next
+  /// module, which demultiplexes incoming envelopes by sender before
+  /// calling this).
+  Future<void> _sendDeliveryAck({
+    required SignalProtocolAddress recipient,
+    required String recipientRoute,
+    required Uint8List deliveryToken,
+  }) async {
+    final plaintext = _encodeDeliveryAck(deliveryToken);
+
+    final ciphertextMessage = await sessionManager.encryptForSend(
+      recipient,
+      plaintext,
+    );
+
+    // Use a fresh relay token for the ACK itself. The original delivery
+    // token remains inside the Signal-encrypted ACK payload.
+    final ackRelayToken = Uint8List.fromList(
+      utf8.encode(_uuid.v4()).take(16).toList(),
+    );
+
+    final envelope = Envelope(
+      deliveryToken: ackRelayToken,
+      recipientRoute: recipientRoute,
+      ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
+    );
+
+    await relayClient.send(envelope.encode());
+  }
+
+  /// Processes an envelope after it has already been decrypted by
+  /// [decryptEnvelope]. This method must never perform another Signal
+  /// decryption, because doing so would advance the Double Ratchet twice.
+  Future<Message?> receiveDecryptedEnvelope({
+    required ({
+      Envelope envelope,
+      String chatId,
+      String senderNickname,
+      SignalProtocolAddress senderAddress,
+      Uint8List plaintextBytes,
+    })
+    decrypted,
+  }) async {
+    final envelope = decrypted.envelope;
+    final chatId = decrypted.chatId;
+    final senderNickname = decrypted.senderNickname;
+    final senderAddress = decrypted.senderAddress;
+    final plaintextBytes = decrypted.plaintextBytes;
+
     // ACKs are Signal-encrypted control messages. They must be handled
     // immediately after decryption and must never become chat messages.
     final ackToken = _decodeDeliveryAck(plaintextBytes);
@@ -397,8 +438,9 @@ class ChatRepository {
     }
 
     final attachment = AttachmentPayload.decode(plaintextBytes);
-    final plaintext =
-        attachment != null ? '📎 Attachment' : utf8.decode(plaintextBytes);
+    final plaintext = attachment != null
+        ? '📎 Attachment'
+        : utf8.decode(plaintextBytes);
     final messageId = _uuid.v4();
 
     final chatRow = await db.chatDao.byId(chatId);
@@ -454,33 +496,12 @@ class ChatRepository {
         .firstWhere((m) => m.messageId == messageId);
   }
 
-
-
-  Future<void> addReaction(String messageId, String emoji) async {
-    await db.reactionDao.add(messageId, localNickname, emoji);
+  /// Compatibility entry point for existing callers.
+  ///
+  /// The envelope is decrypted exactly once and then passed to the
+  /// already-decrypted processing path.
+  Future<Message?> receiveEnvelope({required Uint8List rawEnvelope}) async {
+    final decrypted = await decryptEnvelope(rawEnvelope: rawEnvelope);
+    return receiveDecryptedEnvelope(decrypted: decrypted);
   }
-
-  Future<void> updateChatTtl(String chatId, int ttlSeconds) async {
-    await db.chatDao.updateDefaultTtl(chatId, ttlSeconds);
-  }
-
-  Future<void> createDirectChat({
-    required String chatId,
-    required String displayName,
-    required String peerName,
-    required int peerDeviceId,
-  }) async {
-    final existing = await db.chatDao.byId(chatId);
-    if (existing != null) return;
-
-    await db.chatDao.insert(
-      chatId: chatId,
-      chatType: "direct",
-      displayName: displayName,
-      defaultTtlSec: 3600,
-      peerName: peerName,
-      peerDeviceId: peerDeviceId,
-    );
-  }
-
 }

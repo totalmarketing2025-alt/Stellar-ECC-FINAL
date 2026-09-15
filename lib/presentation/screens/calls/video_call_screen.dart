@@ -38,6 +38,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     final service = CallService(
       relayClient: ref.read(relayClientProvider),
       sessionManager: ref.read(sessionManagerProvider),
+      platformBridge: ref.read(callPlatformBridgeProvider),
       localRenderer: _localRenderer,
       remoteRenderer: _remoteRenderer,
     );

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -189,6 +190,32 @@ class RelayClient {
     }
 
     channel.sink.add(envelopeBytes);
+  }
+
+  Future<void> sendCallWake({
+    required String recipient,
+    required String callId,
+    required String kind,
+    String? chatId,
+  }) async {
+    final channel = _channel;
+
+    if (channel == null || _ready != true) {
+      throw StateError(
+        'Relay is not connected and ready',
+      );
+    }
+
+    final payload = <String, dynamic>{
+      'recipient': recipient,
+      'callId': callId,
+      'kind': kind,
+      if (chatId != null && chatId.isNotEmpty) 'chatId': chatId,
+    };
+
+    channel.sink.add(
+      'STELLAR_CALL_WAKE_V1:${jsonEncode(payload)}',
+    );
   }
 
   Future<void> disconnect() async {

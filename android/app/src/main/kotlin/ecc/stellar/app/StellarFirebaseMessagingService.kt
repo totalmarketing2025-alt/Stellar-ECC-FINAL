@@ -5,83 +5,126 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
-import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import ecc.stellar.app.calls.StellarCallManager
 
-/**
- * Privacy-safe FCM handler.
- *
- * Push notifications never expose sender, nickname, chat id, message text,
- * or any other message metadata. The notification shown to the user is
- * always the same generic "You have a new message" notification.
- */
 class StellarFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
-        private const val CHANNEL_ID = "stellar_messages"
-        private const val CHANNEL_NAME = "Messages"
-        private const val NOTIFICATION_ID_BASE = 1001
+        private const val MESSAGE_CHANNEL = "stellar_messages"
+        private const val MESSAGE_ID_BASE = 1001
     }
 
-    override fun onMessageReceived(remoteMessage: RemoteMessage) {
+    override fun onMessageReceived(
+        remoteMessage: RemoteMessage
+    ) {
         super.onMessageReceived(remoteMessage)
 
-        // Never read notification title/body or message content.
-        // The push is only a wake signal. Show a generic local notification.
-        showGenericNotification()
-    }
+        val data = remoteMessage.data
 
-    private fun showGenericNotification() {
-        val notificationManager =
-            getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_DEFAULT
-            ).apply {
-                description = "Privacy-safe Stellar message notifications"
-            }
-
-            notificationManager.createNotificationChannel(channel)
+        if (data["type"] == "call") {
+            handleIncomingCall(data)
+            return
         }
 
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        showGenericMessageNotification()
+    }
 
-        val pendingIntent = launchIntent?.let {
+    private fun handleIncomingCall(
+        data: Map<String, String>
+    ) {
+        val callId = data["callId"].orEmpty()
+        val remote = data["from"].orEmpty()
+            .ifBlank { data["remoteNickname"].orEmpty() }
+
+        val kind = data["kind"]
+            ?.lowercase()
+            ?: "voice"
+
+        val chatId = data["chatId"]
+
+        if (callId.isBlank() || remote.isBlank()) {
+            return
+        }
+
+        if (kind != "voice" && kind != "video") {
+            return
+        }
+
+        try {
+            StellarCallManager.incoming(
+                this,
+                callId,
+                remote,
+                kind,
+                chatId
+            )
+        } catch (_: Throwable) {
+            // Do not crash the FCM service.
+        }
+    }
+
+    private fun showGenericMessageNotification() {
+        val manager =
+            getSystemService(NOTIFICATION_SERVICE)
+                as NotificationManager
+
+        if (Build.VERSION.SDK_INT >= 26) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    MESSAGE_CHANNEL,
+                    "Messages",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                )
+            )
+        }
+
+        val launch =
+            packageManager.getLaunchIntentForPackage(packageName)
+
+        val pending = launch?.let {
             PendingIntent.getActivity(
                 this,
                 0,
                 it,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                PendingIntent.FLAG_UPDATE_CURRENT or
+                    PendingIntent.FLAG_IMMUTABLE
             )
         }
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(ecc.stellar.app.R.drawable.ic_stat_stellar)
+        val builder =
+            if (Build.VERSION.SDK_INT >= 26) {
+                android.app.Notification.Builder(
+                    this,
+                    MESSAGE_CHANNEL
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                android.app.Notification.Builder(this)
+            }
+
+        builder
+            .setSmallIcon(
+                ecc.stellar.app.R.drawable.ic_stat_stellar
+            )
             .setContentTitle("Stellar ECC")
             .setContentText("Имате нова порака")
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
-            .setOnlyAlertOnce(true)
-            .apply {
-                if (pendingIntent != null) {
-                    setContentIntent(pendingIntent)
-                }
-            }
-            .build()
 
-        notificationManager.notify(
-            NOTIFICATION_ID_BASE + (System.currentTimeMillis() % 100000).toInt(),
-            notification,
+        if (pending != null) {
+            builder.setContentIntent(pending)
+        }
+
+        manager.notify(
+            MESSAGE_ID_BASE +
+                (System.currentTimeMillis() % 100000).toInt(),
+            builder.build()
         )
     }
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        // Token handling remains privacy-minimized.
-        // No nickname, sender, chat, or message content is attached here.
+        // Token registration remains separate from call contents.
     }
 }

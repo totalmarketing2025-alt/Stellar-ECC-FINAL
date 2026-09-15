@@ -258,7 +258,7 @@ export class RelayRoom {
     }
   }
 
-  async sendPushWake(recipient) {
+  async sendPushWake(recipient, callMeta = null) {
     const directoryUrl = this.env.DIRECTORY_URL;
     const sharedSecret = this.env.RELAY_SHARED_SECRET;
     const projectId = this.env.FCM_PROJECT_ID;
@@ -319,6 +319,17 @@ export class RelayRoom {
             token: push.token,
             data: {
               wake: "1",
+              ...(callMeta
+                ? {
+                    type: "call",
+                    callId: callMeta.callId,
+                    from: callMeta.from,
+                    kind: callMeta.kind,
+                    ...(callMeta.chatId
+                      ? { chatId: callMeta.chatId }
+                      : {}),
+                  }
+                : {}),
             },
             android: {
               priority: "high",
@@ -366,6 +377,55 @@ export class RelayRoom {
   }
 
   async webSocketMessage(ws, message) {
+    const callWakePrefix = "STELLAR_CALL_WAKE_V1:";
+
+    if (typeof message === "string" && message.startsWith(callWakePrefix)) {
+      try {
+        const payload = JSON.parse(
+          message.slice(callWakePrefix.length),
+        );
+
+        const recipient = String(payload.recipient || "")
+          .trim()
+          .toLowerCase();
+
+        const callId = String(payload.callId || "").trim();
+        const kind = String(payload.kind || "").trim().toLowerCase();
+        const chatId = payload.chatId
+          ? String(payload.chatId).trim()
+          : "";
+
+        const senderAttachment = ws.deserializeAttachment();
+        const sender = String(senderAttachment?.peer || "")
+          .trim()
+          .toLowerCase();
+
+        if (
+          !recipient ||
+          !sender ||
+          !callId ||
+          (kind !== "voice" && kind !== "video")
+        ) {
+          return;
+        }
+
+        this.ctx.waitUntil(
+          this.sendPushWake(recipient, {
+            callId,
+            from: sender,
+            kind,
+            ...(chatId ? { chatId } : {}),
+          }).catch((error) => {
+            console.error("FCM_CALL_WAKE_ERROR", error);
+          }),
+        );
+      } catch (_) {
+        // Invalid call wake metadata is ignored.
+      }
+
+      return;
+    }
+
     let recipient;
 
     try {

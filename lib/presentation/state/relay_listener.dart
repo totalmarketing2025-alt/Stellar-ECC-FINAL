@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/calls/call_signal_router.dart';
 import '../../core/network/relay_client.dart';
 import '../../data/repositories/chat_repository.dart';
+import '../../domain/models/call_session.dart';
 import 'app_providers.dart';
 
 class RelayListener {
@@ -12,8 +15,8 @@ class RelayListener {
     required this.ref,
     required RelayClient relayClient,
     required ChatRepository chatRepository,
-  })  : _relayClient = relayClient,
-        _chatRepository = chatRepository;
+  }) : _relayClient = relayClient,
+       _chatRepository = chatRepository;
 
   final Ref ref;
   final RelayClient _relayClient;
@@ -22,63 +25,129 @@ class RelayListener {
   StreamSubscription<Uint8List>? _subscription;
   Future<void> _processingQueue = Future<void>.value();
 
+  static const _callPrefix = 'STELLAR_CALL_V1:';
+
   void start() {
-    _subscription ??= _relayClient.incoming.listen(
-      (bytes) {
-        print('RELAY_RECEIVE: envelope received (${bytes.length} bytes)');
-        // Process Double Ratchet messages sequentially.
-        _processingQueue = _processingQueue.then((_) async {
-          try {
-            final message =
-                await _chatRepository.receiveEnvelope(rawEnvelope: bytes);
+    _subscription ??= _relayClient.incoming.listen((bytes) {
+      print('RELAY_RECEIVE: envelope received (${bytes.length} bytes)');
 
-            // Keep the published bundle current. PreKey refill is handled
-            // by ensureMinimumPreKeys(); never infer message type from
-            // serialized ciphertext bytes.
-            final nickname = ref.read(localNicknameProvider);
-            if (nickname != null && nickname.isNotEmpty) {
-              try {
-                final sessionManager = ref.read(sessionManagerProvider);
-                final directoryClient = ref.read(directoryClientProvider);
+      _processingQueue = _processingQueue.then((_) async {
+        try {
+          // IMPORTANT:
+          // This is the single Signal decrypt path.
+          final decrypted = await _chatRepository.decryptEnvelope(
+            rawEnvelope: bytes,
+          );
 
-                await sessionManager.ensureMinimumPreKeys();
+          final plaintext = utf8.decode(
+            decrypted.plaintextBytes,
+            allowMalformed: false,
+          );
 
-                final bundle =
-                    await sessionManager.buildLocalDirectoryBundle();
-
-                await directoryClient.updateBundle(
-                  nickname: nickname,
-                  preKeyBundle: bundle,
-                );
-
-                print('DIRECTORY_BUNDLE_REFRESH: bundle synchronized');
-              } catch (e, stackTrace) {
-                print('DIRECTORY_BUNDLE_REFRESH_ERROR: $e');
-                print('DIRECTORY_BUNDLE_REFRESH_STACK: $stackTrace');
-              }
-            }
+          if (plaintext.startsWith(_callPrefix)) {
+            await _routeCallSignal(decrypted: decrypted, plaintext: plaintext);
+          } else {
+            final message = await _chatRepository.receiveDecryptedEnvelope(
+              decrypted: decrypted,
+            );
 
             if (message != null) {
               ref.invalidate(chatListProvider);
               ref.invalidate(chatMessagesProvider(message.chatId));
             }
-          } catch (e, stackTrace) {
-            // Never expose plaintext or ciphertext. Log only the failure
-            // type/message so Signal receive failures can be diagnosed.
-            print('RELAY_RECEIVE_ERROR: $e');
-            print('RELAY_RECEIVE_STACK: $stackTrace');
           }
-        });
-      },
-    );
+
+          // Keep the published directory bundle current.
+          final nickname = ref.read(localNicknameProvider);
+
+          if (nickname != null && nickname.isNotEmpty) {
+            try {
+              final sessionManager = ref.read(sessionManagerProvider);
+              final directoryClient = ref.read(directoryClientProvider);
+
+              await sessionManager.ensureMinimumPreKeys();
+
+              final bundle = await sessionManager.buildLocalDirectoryBundle();
+
+              await directoryClient.updateBundle(
+                nickname: nickname,
+                preKeyBundle: bundle,
+              );
+
+              print('DIRECTORY_BUNDLE_REFRESH: bundle synchronized');
+            } catch (e, stackTrace) {
+              print('DIRECTORY_BUNDLE_REFRESH_ERROR: $e');
+              print('DIRECTORY_BUNDLE_REFRESH_STACK: $stackTrace');
+            }
+          }
+        } catch (e, stackTrace) {
+          print('RELAY_RECEIVE_ERROR: $e');
+          print('RELAY_RECEIVE_STACK: $stackTrace');
+        }
+      });
+    });
+  }
+
+  Future<void> _routeCallSignal({
+    required dynamic decrypted,
+    required String plaintext,
+  }) async {
+    try {
+      final raw = jsonDecode(plaintext.substring(_callPrefix.length));
+
+      if (raw is! Map) {
+        throw StateError('Invalid Stellar call signal payload');
+      }
+
+      final signal = <String, dynamic>{
+        for (final entry in raw.entries) entry.key.toString(): entry.value,
+      };
+
+      final type = signal['type'];
+      final callId = signal['callId'];
+      final kind = signal['kind'];
+
+      if (type is! String || type.isEmpty) {
+        throw StateError('Missing Stellar call signal type');
+      }
+
+      if (callId is! String || callId.isEmpty) {
+        throw StateError('Missing Stellar callId');
+      }
+
+      if (kind != 'voice' && kind != 'video') {
+        throw StateError('Invalid Stellar call kind');
+      }
+
+      final session = CallSession(
+        callId: callId,
+        chatId: decrypted.chatId,
+        kind: kind == 'video' ? CallKind.video : CallKind.voice,
+        state: type == 'offer' ? CallState.ringing : CallState.connecting,
+        remoteNickname: decrypted.senderNickname,
+      );
+
+      ref
+          .read(callSignalRouterProvider)
+          .dispatch(session: session, type: type, payload: signal);
+
+      print(
+        'CALL_SIGNAL_ROUTED: '
+        'type=$type '
+        'callId=$callId '
+        'kind=$kind '
+        'remote=${decrypted.senderNickname}',
+      );
+    } catch (e, stackTrace) {
+      print('CALL_SIGNAL_ERROR: $e');
+      print('CALL_SIGNAL_STACK: $stackTrace');
+    }
   }
 
   Future<void> dispose() async {
     await _subscription?.cancel();
     _subscription = null;
   }
-
-
 }
 
 final relayListenerProvider = Provider<RelayListener?>((ref) {
@@ -96,7 +165,7 @@ final relayListenerProvider = Provider<RelayListener?>((ref) {
 
   listener.start();
 
-  ref.onDispose(() { listener.dispose(); });
+  ref.onDispose(listener.dispose);
 
   return listener;
 });

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/theme/stellar_theme.dart';
 import 'router.dart';
 import '../presentation/state/relay_listener.dart';
+import '../presentation/state/app_providers.dart';
 
 class StellarEccApp extends ConsumerWidget {
   const StellarEccApp({super.key});
@@ -13,6 +14,7 @@ class StellarEccApp extends ConsumerWidget {
     // Keep incoming relay processing alive after the local nickname
     // has been restored by the splash screen.
     ref.watch(relayListenerProvider);
+    ref.watch(callCoordinatorProvider);
 
     final router = ref.watch(appRouterProvider);
 
