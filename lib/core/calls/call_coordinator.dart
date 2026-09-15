@@ -161,7 +161,7 @@ class CallCoordinator {
       return;
     }
 
-    final chatId = session.chatId ?? action.chatId;
+    final chatId = session.chatId;
 
     switch (action.action) {
       case 'answer':
