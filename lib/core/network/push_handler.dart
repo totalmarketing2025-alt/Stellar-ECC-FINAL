@@ -88,7 +88,7 @@ class PushHandler {
     }
 
     if (lastError != null && lastStack != null) {
-      Error.throwWithStackTrace(lastError!, lastStack!);
+      Error.throwWithStackTrace(lastError, lastStack);
     }
   }
 
