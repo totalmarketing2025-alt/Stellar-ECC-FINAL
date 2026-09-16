@@ -44,7 +44,7 @@ object StellarCallManager {
     fun setCallEnded(callId: String): Boolean {
         val connection = activeConnections.remove(callId) ?: return false
         connection.setDisconnected(
-            DisconnectCause(Connection.DisconnectCause.REMOTE)
+            android.telecom.DisconnectCause(android.telecom.DisconnectCause.REMOTE)
         )
         connection.destroy()
         return true
@@ -261,7 +261,7 @@ class StellarConnection(
 
     override fun onReject() {
         setDisconnected(
-            DisconnectCause(Connection.DisconnectCause.REJECTED),
+            android.telecom.DisconnectCause(android.telecom.DisconnectCause.REJECTED),
         )
 
         stopForegroundCallService()
@@ -286,7 +286,7 @@ class StellarConnection(
 
     override fun onDisconnect() {
         setDisconnected(
-            DisconnectCause(Connection.DisconnectCause.LOCAL),
+            android.telecom.DisconnectCause(android.telecom.DisconnectCause.LOCAL),
         )
 
         stopForegroundCallService()
