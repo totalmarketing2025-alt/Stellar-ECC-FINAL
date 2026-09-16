@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -32,12 +33,11 @@ class PushHandler {
       return;
     }
 
-    final token = await messaging.getToken();
-    if (token != null) {
-      await _registerToken(token);
-    }
+    unawaited(_registerCurrentTokenWithRetry());
 
-    messaging.onTokenRefresh.listen(_registerToken);
+    messaging.onTokenRefresh.listen(
+      (token) => unawaited(_registerTokenWithRetry(token)),
+    );
 
     FirebaseMessaging.onMessage.listen((_) => _handleWake());
     FirebaseMessaging.onMessageOpenedApp.listen((_) => _handleWake());
@@ -51,16 +51,40 @@ class PushHandler {
   }
 
   Future<void> registerCurrentToken() async {
-    final token = await messaging.getToken();
-    if (token != null) {
-      await _registerToken(token);
+    await _registerCurrentTokenWithRetry();
+  }
+
+  Future<void> _registerCurrentTokenWithRetry([String? refreshedToken]) async {
+    String? token = refreshedToken;
+
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        token ??= await messaging.getToken();
+
+        if (token == null || token!.trim().isEmpty) {
+          token = null;
+        } else {
+          await _registerToken(token!);
+          return;
+        }
+      } catch (_) {
+        // Retry below. Startup/token rotation must not fail permanently
+        // because Firebase or Directory is temporarily unavailable.
+      }
+
+      if (attempt < 4) {
+        await Future.delayed(Duration(seconds: 1 << attempt));
+      }
     }
   }
 
   Future<void> _registerToken(String token) async {
     final nickname = await getLocalNickname();
     if (nickname == null || nickname.trim().isEmpty) {
-      return;
+      throw const DirectoryException(
+        'Local nickname is not available yet',
+        0,
+      );
     }
 
     final platform = Platform.isAndroid
@@ -70,11 +94,14 @@ class PushHandler {
             : 'unknown';
 
     if (platform == 'unknown') {
-      return;
+      throw const DirectoryException(
+        'Unsupported push platform',
+        0,
+      );
     }
 
     await directoryClient.registerPushToken(
-      nickname: nickname,
+      nickname: nickname.trim(),
       token: token,
       platform: platform,
     );
