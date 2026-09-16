@@ -11,6 +11,7 @@ import 'core/storage/providers.dart';
 import 'core/storage/expiry_sweeper.dart';
 import 'core/network/push_handler.dart';
 import 'presentation/state/app_providers.dart';
+
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 Future<void> main() async {
@@ -28,7 +29,9 @@ Future<void> main() async {
   // notifications don't work yet," not "app won't launch."
   var firebaseAvailable = true;
   try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
   } catch (e, st) {
     firebaseAvailable = false;
     developer.log(
@@ -57,8 +60,6 @@ Future<void> main() async {
   final container = ProviderContainer(
     overrides: [databaseProvider.overrideWithValue(database)],
   );
-
-
 
   // Startup Signal bundle synchronization.
   // Keeps Directory current after prekey consumption/restart.
@@ -116,6 +117,7 @@ Future<void> main() async {
         relayClient: container.read(relayClientProvider),
         messaging: FirebaseMessaging.instance,
         directoryClient: container.read(directoryClientProvider),
+        sessionManager: container.read(sessionManagerProvider),
         getLocalNickname: () async {
           final bytes = await container
               .read(platformKeyStoreProvider)
@@ -165,5 +167,3 @@ Future<void> main() async {
     ),
   );
 }
-
-

@@ -4,10 +4,8 @@ import 'dart:io';
 import 'directory_user_bundle.dart';
 
 class DirectoryClient {
-  DirectoryClient({
-    required String baseUrl,
-    this.bearerToken,
-  }) : baseUrl = baseUrl.replaceFirst(RegExp(r'/$'), '');
+  DirectoryClient({required String baseUrl, this.bearerToken})
+    : baseUrl = baseUrl.replaceFirst(RegExp(r'/$'), '');
 
   final String baseUrl;
   final String? bearerToken;
@@ -15,6 +13,25 @@ class DirectoryClient {
   final HttpClient _client = HttpClient()
     ..connectionTimeout = const Duration(seconds: 10)
     ..idleTimeout = const Duration(seconds: 30);
+
+  static String buildPushAuthMessage({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+    required String platform,
+    required String token,
+    required String challenge,
+  }) {
+    return jsonEncode([
+      'stellar-push-v1',
+      nickname,
+      deviceId,
+      registrationId,
+      platform,
+      token,
+      challenge,
+    ]);
+  }
 
   Future<bool> checkAvailability(String nickname) async {
     final response = await _request(
@@ -53,10 +70,7 @@ class DirectoryClient {
     final response = await _request(
       'POST',
       '/v1/register',
-      body: {
-        'nickname': nickname,
-        'bundle': preKeyBundle,
-      },
+      body: {'nickname': nickname, 'bundle': preKeyBundle},
     );
 
     final body = await _readBody(response);
@@ -79,9 +93,7 @@ class DirectoryClient {
     final response = await _request(
       'PUT',
       '/v1/users/${Uri.encodeComponent(nickname)}/bundle',
-      body: {
-        'bundle': preKeyBundle,
-      },
+      body: {'bundle': preKeyBundle},
     );
 
     final body = await _readBody(response);
@@ -97,10 +109,38 @@ class DirectoryClient {
     return json;
   }
 
+  Future<String> getPushChallenge({required String nickname}) async {
+    final response = await _request(
+      'POST',
+      '/v1/users/${Uri.encodeComponent(nickname)}/push-token/challenge',
+    );
+
+    final body = await _readBody(response);
+    final json = _decodeJson(body);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw DirectoryException(
+        json['error']?.toString() ?? 'Push challenge request failed',
+        response.statusCode,
+      );
+    }
+
+    final challenge = json['challenge'];
+    if (challenge is! String || challenge.isEmpty) {
+      throw const FormatException(
+        'Invalid push challenge returned by Directory',
+      );
+    }
+
+    return challenge;
+  }
+
   Future<Map<String, dynamic>> registerPushToken({
     required String nickname,
     required String token,
     required String platform,
+    required String challenge,
+    required String signature,
   }) async {
     final response = await _request(
       'PUT',
@@ -108,16 +148,21 @@ class DirectoryClient {
       body: {
         'token': token,
         'platform': platform,
+        'challenge': challenge,
+        'signature': signature,
       },
     );
+
     final body = await _readBody(response);
     final json = _decodeJson(body);
+
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw DirectoryException(
         json['error']?.toString() ?? 'Push token registration failed',
         response.statusCode,
       );
     }
+
     return json;
   }
 
@@ -150,32 +195,22 @@ class DirectoryClient {
     String path, {
     Map<String, dynamic>? body,
   }) async {
-    try {
-      final request = await _client.openUrl(
-        method,
-        Uri.parse('$baseUrl$path'),
+    final request = await _client.openUrl(method, Uri.parse('$baseUrl$path'));
+
+    request.headers.contentType = ContentType.json;
+
+    if (bearerToken != null && bearerToken!.isNotEmpty) {
+      request.headers.set(
+        HttpHeaders.authorizationHeader,
+        'Bearer $bearerToken',
       );
-
-      request.headers.contentType = ContentType.json;
-
-      if (bearerToken != null && bearerToken!.isNotEmpty) {
-        request.headers.set(
-          HttpHeaders.authorizationHeader,
-          'Bearer $bearerToken',
-        );
-      }
-
-      if (body != null) {
-        request.write(jsonEncode(body));
-      }
-
-      final response = await request
-          .close()
-          .timeout(const Duration(seconds: 15));
-      return response;
-    } catch (_) {
-      rethrow;
     }
+
+    if (body != null) {
+      request.write(jsonEncode(body));
+    }
+
+    return request.close().timeout(const Duration(seconds: 15));
   }
 
   void dispose() {
@@ -191,16 +226,12 @@ class DirectoryClient {
       final decoded = jsonDecode(body);
 
       if (decoded is! Map<String, dynamic>) {
-        throw const FormatException(
-          'Directory response must be a JSON object',
-        );
+        throw const FormatException('Directory response must be a JSON object');
       }
 
       return decoded;
     } catch (_) {
-      throw const FormatException(
-        'Invalid JSON returned by Directory',
-      );
+      throw const FormatException('Invalid JSON returned by Directory');
     }
   }
 }

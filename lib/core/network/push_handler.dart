@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
+import '../crypto/session_manager.dart';
 import '../network/directory_client.dart';
 import '../network/relay_client.dart';
 
@@ -14,12 +18,14 @@ class PushHandler {
     required this.relayClient,
     required this.messaging,
     required this.directoryClient,
+    required this.sessionManager,
     required this.getLocalNickname,
   });
 
   final RelayClient relayClient;
   final FirebaseMessaging messaging;
   final DirectoryClient directoryClient;
+  final SessionManager sessionManager;
   final Future<String?> Function() getLocalNickname;
 
   Future<void> initialize() async {
@@ -54,35 +60,45 @@ class PushHandler {
     await _registerCurrentTokenWithRetry();
   }
 
-  Future<void> _registerCurrentTokenWithRetry([String? refreshedToken]) async {
-    String? token = refreshedToken;
+  Future<void> _registerCurrentTokenWithRetry() async {
+    final token = await messaging.getToken();
+    if (token != null && token.isNotEmpty) {
+      await _registerTokenWithRetry(token);
+    }
+  }
+
+  Future<void> _registerTokenWithRetry(String token) async {
+    Object? lastError;
+    StackTrace? lastStack;
 
     for (var attempt = 0; attempt < 5; attempt++) {
       try {
-        token ??= await messaging.getToken();
+        await _registerToken(token);
+        return;
+      } catch (error, stack) {
+        lastError = error;
+        lastStack = stack;
 
-        if (token == null || token!.trim().isEmpty) {
-          token = null;
-        } else {
-          await _registerToken(token!);
-          return;
+        if (attempt == 4) {
+          break;
         }
-      } catch (_) {
-        // Retry below. Startup/token rotation must not fail permanently
-        // because Firebase or Directory is temporarily unavailable.
-      }
 
-      if (attempt < 4) {
-        await Future.delayed(Duration(seconds: 1 << attempt));
+        await Future<void>.delayed(Duration(seconds: 1 << attempt));
       }
+    }
+
+    if (lastError != null && lastStack != null) {
+      Error.throwWithStackTrace(lastError!, lastStack!);
     }
   }
 
   Future<void> _registerToken(String token) async {
-    final nickname = await getLocalNickname();
-    if (nickname == null || nickname.trim().isEmpty) {
+    final nicknameRaw = await getLocalNickname();
+    final nickname = nicknameRaw?.trim();
+
+    if (nickname == null || nickname.isEmpty) {
       throw const DirectoryException(
-        'Local nickname is not available yet',
+        'Local nickname is not available for push registration',
         0,
       );
     }
@@ -90,20 +106,54 @@ class PushHandler {
     final platform = Platform.isAndroid
         ? 'android'
         : Platform.isIOS
-            ? 'ios'
-            : 'unknown';
+        ? 'ios'
+        : 'unknown';
 
     if (platform == 'unknown') {
       throw const DirectoryException(
-        'Unsupported push platform',
+        'Unsupported platform for push registration',
         0,
       );
     }
 
+    final bundle = await sessionManager.buildLocalDirectoryBundle();
+
+    final registrationId = bundle['registrationId'];
+    final deviceId = bundle['deviceId'];
+
+    if (registrationId is! int || deviceId is! int) {
+      throw const FormatException(
+        'Invalid local Signal bundle identity fields',
+      );
+    }
+
+    final identityKeyPair = await sessionManager.identityStore
+        .getIdentityKeyPair();
+
+    final challenge = await directoryClient.getPushChallenge(
+      nickname: nickname,
+    );
+
+    final message = DirectoryClient.buildPushAuthMessage(
+      nickname: nickname,
+      deviceId: deviceId,
+      registrationId: registrationId,
+      platform: platform,
+      token: token,
+      challenge: challenge,
+    );
+
+    final signature = Curve.calculateSignature(
+      identityKeyPair.getPrivateKey(),
+      Uint8List.fromList(utf8.encode(message)),
+    );
+
     await directoryClient.registerPushToken(
-      nickname: nickname.trim(),
+      nickname: nickname,
       token: token,
       platform: platform,
+      challenge: challenge,
+      signature: base64Encode(signature),
     );
   }
 

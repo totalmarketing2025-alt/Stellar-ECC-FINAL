@@ -120,6 +120,63 @@ export class DirectoryStore {
       });
     }
 
+
+    if (request.method === "POST" &&
+        url.pathname.startsWith("/v1/users/") &&
+        url.pathname.endsWith("/push-token/challenge")) {
+      const nickname = normalizeNickname(
+        decodeURIComponent(
+          url.pathname.substring(
+            "/v1/users/".length,
+            url.pathname.length - "/push-token/challenge".length,
+          ),
+        ),
+      );
+
+      if (!validNickname(nickname)) {
+        return json({ error: "Invalid nickname" }, 400);
+      }
+
+      const key = `user:${nickname}`;
+      const existing = await this.ctx.storage.get(key);
+
+      if (!existing) {
+        return json({ error: "User not found" }, 404);
+      }
+
+      const challengeKey = `push-challenge:${nickname}`;
+      const now = Date.now();
+      const stored = await this.ctx.storage.get(challengeKey);
+
+      if (stored &&
+          typeof stored.challenge === "string" &&
+          typeof stored.expiresAt === "number" &&
+          stored.expiresAt > now) {
+        return json({
+          nickname,
+          challenge: stored.challenge,
+          expiresAt: stored.expiresAt,
+        });
+      }
+
+      const challenge = createPushChallenge();
+      const expiresAt = now + PUSH_CHALLENGE_TTL_MS;
+
+      await this.ctx.storage.put(
+        challengeKey,
+        {
+          challenge,
+          expiresAt,
+        },
+      );
+
+      return json({
+        nickname,
+        challenge,
+        expiresAt,
+      });
+    }
+
     if (request.method === "GET" && url.pathname.startsWith("/v1/users/") &&
         url.pathname.endsWith("/push-token")) {
       const auth = request.headers.get("authorization") || "";
@@ -158,7 +215,10 @@ export class DirectoryStore {
           ),
         ),
       );
-      if (!validNickname(nickname)) return json({ error: "Invalid nickname" }, 400);
+
+      if (!validNickname(nickname)) {
+        return json({ error: "Invalid nickname" }, 400);
+      }
 
       let body;
       try {
@@ -167,28 +227,112 @@ export class DirectoryStore {
         return json({ error: "Invalid JSON" }, 400);
       }
 
-      const token = typeof body.token === "string" ? body.token.trim() : "";
-      const platform = typeof body.platform === "string" ? body.platform.trim().toLowerCase() : "";
+      const token =
+        typeof body.token === "string"
+          ? body.token.trim()
+          : "";
 
-      if (!token || !["android", "ios"].includes(platform)) {
-        return json({ error: "Invalid push token" }, 400);
+      const platform =
+        typeof body.platform === "string"
+          ? body.platform.trim().toLowerCase()
+          : "";
+
+      const challenge =
+        typeof body.challenge === "string"
+          ? body.challenge.trim()
+          : "";
+
+      const signature =
+        typeof body.signature === "string"
+          ? body.signature.trim()
+          : "";
+
+      if (!token ||
+          token.length > 4096 ||
+          !["android", "ios"].includes(platform) ||
+          !challenge ||
+          challenge.length > 512 ||
+          !signature) {
+        return json({ error: "Invalid push authorization" }, 400);
       }
 
       const key = `user:${nickname}`;
       const existing = await this.ctx.storage.get(key);
-      if (!existing) return json({ error: "User not found" }, 404);
+
+      if (!existing) {
+        return json({ error: "User not found" }, 404);
+      }
+
+      const existingBundle = existing.bundle;
+
+      if (!existingBundle ||
+          typeof existingBundle.identityKey !== "string" ||
+          typeof existingBundle.registrationId !== "number" ||
+          typeof existingBundle.deviceId !== "number") {
+        return json({
+          error: "Push authorization unavailable",
+        }, 409);
+      }
+
+      const challengeKey = `push-challenge:${nickname}`;
+      const storedChallenge =
+        await this.ctx.storage.get(challengeKey);
+
+      const now = Date.now();
+
+      if (!storedChallenge ||
+          storedChallenge.challenge !== challenge ||
+          typeof storedChallenge.expiresAt !== "number" ||
+          storedChallenge.expiresAt <= now) {
+        if (storedChallenge) {
+          await this.ctx.storage.delete(challengeKey);
+        }
+
+        return json({
+          error: "Invalid or expired push challenge",
+        }, 401);
+      }
+
+      const authMessage = buildPushAuthMessage({
+        nickname,
+        deviceId: existingBundle.deviceId,
+        registrationId: existingBundle.registrationId,
+        platform,
+        token,
+        challenge,
+      });
+
+      const validSignature =
+        await verifySignalIdentitySignature({
+          identityKey: existingBundle.identityKey,
+          message: authMessage,
+          signature,
+        });
+
+      if (!validSignature) {
+        return json({
+          error: "Invalid push authorization",
+        }, 401);
+      }
+
+      await this.ctx.storage.delete(challengeKey);
 
       const user = {
         ...existing,
         push: {
           token,
           platform,
-          updatedAt: Date.now(),
+          updatedAt: now,
         },
       };
 
       await this.ctx.storage.put(key, user);
-      return json({ ok: true, nickname, registered: true });
+
+      return json({
+        ok: true,
+        nickname,
+        registered: true,
+      });
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/v1/users/")) {
