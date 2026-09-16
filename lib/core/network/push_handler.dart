@@ -28,6 +28,23 @@ class PushHandler {
   final SessionManager sessionManager;
   final Future<String?> Function() getLocalNickname;
 
+  String? _lastRegisteredToken;
+  Future<void> _registrationQueue = Future<void>.value();
+
+  Future<void> _enqueueTokenRegistration(String token) {
+    final operation = _registrationQueue.then((_) async {
+      if (token == _lastRegisteredToken) {
+        return;
+      }
+
+      await _registerTokenWithRetry(token);
+      _lastRegisteredToken = token;
+    });
+
+    _registrationQueue = operation.catchError((_) {});
+    return operation;
+  }
+
   Future<void> initialize() async {
     final settings = await messaging.requestPermission(
       alert: true,
@@ -42,7 +59,7 @@ class PushHandler {
     unawaited(_registerCurrentTokenWithRetry());
 
     messaging.onTokenRefresh.listen(
-      (token) => unawaited(_registerTokenWithRetry(token)),
+      (token) => unawaited(_enqueueTokenRegistration(token)),
     );
 
     FirebaseMessaging.onMessage.listen((_) => _handleWake());
@@ -61,9 +78,32 @@ class PushHandler {
   }
 
   Future<void> _registerCurrentTokenWithRetry() async {
-    final token = await messaging.getToken();
-    if (token != null && token.isNotEmpty) {
-      await _registerTokenWithRetry(token);
+    Object? lastError;
+    StackTrace? lastStack;
+
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        final token = await messaging.getToken();
+
+        if (token != null && token.isNotEmpty) {
+          await _enqueueTokenRegistration(token);
+        }
+
+        return;
+      } catch (error, stack) {
+        lastError = error;
+        lastStack = stack;
+
+        if (attempt == 4) {
+          break;
+        }
+
+        await Future<void>.delayed(Duration(seconds: 1 << attempt));
+      }
+    }
+
+    if (lastError != null && lastStack != null) {
+      Error.throwWithStackTrace(lastError, lastStack);
     }
   }
 
