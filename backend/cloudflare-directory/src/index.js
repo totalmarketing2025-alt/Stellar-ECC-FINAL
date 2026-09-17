@@ -6,6 +6,345 @@ function validNickname(nickname) {
   return /^[a-z0-9_]{3,32}$/.test(nickname);
 }
 
+
+const PUSH_CHALLENGE_TTL_MS = 5 * 60 * 1000;
+
+const CURVE25519_P = (1n << 255n) - 19n;
+
+function createPushChallenge() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function buildPushAuthMessage({
+  nickname,
+  deviceId,
+  registrationId,
+  platform,
+  token,
+  challenge,
+}) {
+  return JSON.stringify([
+    "stellar-push-v1",
+    nickname,
+    deviceId,
+    registrationId,
+    platform,
+    token,
+    challenge,
+  ]);
+}
+
+function decodeBase64(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    return null;
+  }
+
+  try {
+    const normalized = value
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
+
+    const padded =
+      normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+
+    const binary = atob(padded);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    return bytes;
+  } catch (_) {
+    return null;
+  }
+}
+
+function bytesToBigIntLE(bytes) {
+  let value = 0n;
+
+  for (let i = bytes.length - 1; i >= 0; i--) {
+    value = (value << 8n) | BigInt(bytes[i]);
+  }
+
+  return value;
+}
+
+function bigIntToBytesLE(value, length) {
+  const bytes = new Uint8Array(length);
+  let current = value;
+
+  for (let i = 0; i < length; i++) {
+    bytes[i] = Number(current & 0xffn);
+    current >>= 8n;
+  }
+
+  return bytes;
+}
+
+function mod(value, modulus) {
+  const result = value % modulus;
+  return result >= 0n ? result : result + modulus;
+}
+
+function modPow(base, exponent, modulus) {
+  let result = 1n;
+  let current = mod(base, modulus);
+  let power = exponent;
+
+  while (power > 0n) {
+    if (power & 1n) {
+      result = (result * current) % modulus;
+    }
+
+    current = (current * current) % modulus;
+    power >>= 1n;
+  }
+
+  return result;
+}
+
+function modInverse(value, modulus) {
+  if (value === 0n) {
+    throw new Error("inverse of zero");
+  }
+
+  return modPow(value, modulus - 2n, modulus);
+}
+
+function curve25519PublicToEd25519Public(
+  montgomeryPublicKey,
+  signBit,
+) {
+  if (montgomeryPublicKey.length !== 32) {
+    return null;
+  }
+
+  if (signBit !== 0 && signBit !== 1) {
+    return null;
+  }
+
+  const u = bytesToBigIntLE(montgomeryPublicKey);
+
+  if (u >= CURVE25519_P) {
+    return null;
+  }
+
+  const denominator = mod(u + 1n, CURVE25519_P);
+
+  if (denominator === 0n) {
+    return null;
+  }
+
+  const y = mod(
+    (u - 1n) * modInverse(denominator, CURVE25519_P),
+    CURVE25519_P,
+  );
+
+  const encoded = bigIntToBytesLE(y, 32);
+
+  encoded[31] &= 0x7f;
+  encoded[31] |= signBit << 7;
+
+  return encoded;
+}
+
+async function verifySignalIdentitySignature({
+  identityKey,
+  message,
+  signature,
+}) {
+  const publicKey = decodeBase64(identityKey);
+  const sig = decodeBase64(signature);
+
+  if (!publicKey || publicKey.length !== 33 || publicKey[0] !== 0x05) {
+    return false;
+  }
+
+  if (!sig || sig.length !== 64) {
+    return false;
+  }
+
+  try {
+    /*
+     * Signal/XEd25519:
+     * identityKey = 0x05 || little-endian Curve25519 u-coordinate.
+     *
+     * XEdDSA convert_mont() maps that Montgomery u-coordinate to
+     * an Edwards public key and forces the Edwards sign bit to zero.
+     */
+    const montgomeryPublicKey = publicKey.slice(1);
+
+    /*
+     * XEdDSA verification requires:
+     *
+     *   u < p
+     *   R.y < 2^255
+     *   s < 2^253
+     *
+     * Signal's convert_mont() masks the high bit of the 32-byte
+     * Montgomery u-coordinate before performing the field conversion.
+     */
+    montgomeryPublicKey[31] &= 0x7f;
+
+    const u = bytesToBigIntLE(montgomeryPublicKey);
+
+    if (u >= CURVE25519_P) {
+      return false;
+    }
+
+    const rBytes = sig.slice(0, 32);
+    const sBytes = sig.slice(32);
+
+    /*
+     * XEdDSA requires the encoded R.y value to have no excess
+     * high bit. Do not mask it before validation: doing so would
+     * silently normalize an invalid signature.
+     */
+    if ((rBytes[31] & 0x80) !== 0) {
+      return false;
+    }
+
+    const rY = bytesToBigIntLE(rBytes);
+    const s = bytesToBigIntLE(sBytes);
+
+    /*
+     * XEdDSA uses a 253-bit scalar range for s.
+     */
+    const CURVE25519_Q =
+      (1n << 252n) +
+      27742317777372353535851937790883648493n;
+
+    if (rY >= CURVE25519_P || s >= CURVE25519_Q) {
+      return false;
+    }
+
+    const edPublicKey = curve25519PublicToEd25519Public(
+      montgomeryPublicKey,
+      0,
+    );
+
+    if (!edPublicKey) {
+      return false;
+    }
+
+    /*
+     * XEd25519 signatures are Ed25519-compatible after the public-key
+     * conversion above. WebCrypto provides the Ed25519 verification
+     * primitive; the conversion itself follows Signal XEdDSA.
+     */
+    const cryptoKey = await crypto.subtle.importKey(
+      "raw",
+      edPublicKey,
+      {
+        name: "Ed25519",
+      },
+      false,
+      ["verify"],
+    );
+
+    const messageBytes = new TextEncoder().encode(message);
+
+    return await crypto.subtle.verify(
+      {
+        name: "Ed25519",
+      },
+      cryptoKey,
+      sig,
+      messageBytes,
+    );
+  } catch (error) {
+    console.log("PUSH_SIGNATURE_VERIFY_FAILED", error);
+    return false;
+  }
+}
+function validSignalPublicKey(value) {
+  const bytes = decodeBase64(value);
+
+  return Boolean(
+    bytes &&
+    bytes.length === 33 &&
+    bytes[0] === 0x05,
+  );
+}
+
+function validSignalSignature(value) {
+  const bytes = decodeBase64(value);
+
+  return Boolean(
+    bytes &&
+    bytes.length === 64,
+  );
+}
+
+function validSignalBundle(bundle, requirePreKey = true) {
+  if (!bundle || typeof bundle !== "object") {
+    return false;
+  }
+
+  if (!Number.isInteger(bundle.registrationId) ||
+      bundle.registrationId < 1 ||
+      bundle.registrationId > 0x7fffffff) {
+    return false;
+  }
+
+  if (!Number.isInteger(bundle.deviceId) ||
+      bundle.deviceId < 1 ||
+      bundle.deviceId > 0x7fffffff) {
+    return false;
+  }
+
+  if (!validSignalPublicKey(bundle.identityKey)) {
+    return false;
+  }
+
+  const signedPreKey = bundle.signedPreKey;
+
+  if (!signedPreKey ||
+      typeof signedPreKey !== "object" ||
+      !Number.isInteger(signedPreKey.keyId) ||
+      signedPreKey.keyId < 0 ||
+      signedPreKey.keyId > 0x7fffffff ||
+      !validSignalPublicKey(signedPreKey.publicKey) ||
+      !validSignalSignature(signedPreKey.signature)) {
+    return false;
+  }
+
+  if (bundle.preKey == null) {
+    return !requirePreKey;
+  }
+
+  if (!bundle.preKey ||
+      typeof bundle.preKey !== "object" ||
+      !Number.isInteger(bundle.preKey.keyId) ||
+      bundle.preKey.keyId < 0 ||
+      bundle.preKey.keyId > 0x7fffffff ||
+      !validSignalPublicKey(bundle.preKey.publicKey)) {
+    return false;
+  }
+
+  return true;
+}
+
+function publicUserRecord(user) {
+  return {
+    nickname: user.nickname,
+    bundle: user.bundle,
+  };
+}
+
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -87,7 +426,7 @@ export class DirectoryStore {
         return json({ error: "Invalid JSON" }, 400);
       }
 
-      if (!body.bundle || typeof body.bundle !== "object") {
+      if (!validSignalBundle(body.bundle, true)) {
         return json({ error: "Invalid bundle" }, 400);
       }
 
@@ -546,7 +885,7 @@ export class DirectoryStore {
         return json({ error: "User not found" }, 404);
       }
 
-      return json(user);
+      return json(publicUserRecord(user));
     }
 
     if (request.method === "POST" && url.pathname === "/v1/register") {
@@ -564,7 +903,7 @@ export class DirectoryStore {
         return json({ error: "Invalid nickname" }, 400);
       }
 
-      if (!body.bundle || typeof body.bundle !== "object") {
+      if (!validSignalBundle(body.bundle, true)) {
         return json({ error: "Invalid bundle" }, 400);
       }
 
