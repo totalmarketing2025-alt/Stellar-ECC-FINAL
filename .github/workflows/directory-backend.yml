@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - block6-android-incoming-call
   pull_request:
     branches:
       - main
@@ -25,6 +26,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Run XEd25519 runtime verification
+        run: node tests/xeddsa_verify.test.mjs
 
       - name: Validate Wrangler configuration
         run: npx wrangler@4.129.0 deploy --dry-run
