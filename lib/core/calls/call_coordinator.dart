@@ -146,17 +146,35 @@ class CallCoordinator {
       }
 
       _ringTimeout = Timer(const Duration(seconds: 45), () {
-        if (_activeSession?.callId == session.callId) {
-          _activeSession = _activeSession?.copyWith(
-            state: CallState.ended,
-          );
-
-          _sessionController.add(_activeSession);
-
-          _activeSession = null;
-          _lastSignal = null;
-          _sessionController.add(null);
+        if (_activeSession?.callId != session.callId) {
+          return;
         }
+
+        final remoteNickname = _activeSession?.remoteNickname;
+
+        if (remoteNickname != null && remoteNickname.isNotEmpty) {
+          unawaited(
+            _callService.reject(
+              remoteNickname,
+              callId: session.callId,
+              chatId: session.chatId,
+              kind: session.kind,
+            ),
+          );
+        } else {
+          unawaited(_callService.end());
+        }
+
+        _activeSession = _activeSession?.copyWith(
+          state: CallState.ended,
+        );
+
+        _sessionController.add(_activeSession);
+
+        _activeSession = null;
+        _lastSignal = null;
+        _pendingPlatformAction = null;
+        _sessionController.add(null);
       });
 
       return;
