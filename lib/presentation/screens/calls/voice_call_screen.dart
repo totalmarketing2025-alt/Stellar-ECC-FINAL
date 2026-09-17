@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../../core/theme/stellar_theme.dart';
-import '../../../core/calls/call_service.dart';
+import '../../../core/calls/call_coordinator.dart';
 import '../../state/app_providers.dart';
 import '../../widgets/stellar_avatar.dart';
 import '../../widgets/call_control_dock.dart';
@@ -20,7 +20,7 @@ class VoiceCallScreen extends ConsumerStatefulWidget {
 class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
   final _localRenderer = RTCVideoRenderer(); // unused visually for voice, but CallService's
   final _remoteRenderer = RTCVideoRenderer(); // API is shared between voice/video calls.
-  CallService? _callService;
+  CallCoordinator? _callCoordinator;
   bool _muted = false;
   bool _speakerOn = false;
   String _stateLabel = 'Connecting…';
@@ -35,26 +35,38 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
 
-    final service = CallService(
-      relayClient: ref.read(relayClientProvider),
-      sessionManager: ref.read(sessionManagerProvider),
-      platformBridge: ref.read(callPlatformBridgeProvider),
-      localRenderer: _localRenderer,
-      remoteRenderer: _remoteRenderer,
+    final coordinator = ref.read(callCoordinatorProvider);
+    _callCoordinator = coordinator;
+
+    coordinator.attachRenderers(
+      local: _localRenderer,
+      remote: _remoteRenderer,
     );
-    _callService = service;
 
     final remoteNickname = widget.chatId.startsWith('direct_')
         ? widget.chatId.substring('direct_'.length)
         : widget.chatId;
 
-    await service.start(remoteNickname: remoteNickname, direction: CallDirection.outgoing, video: false);
-    if (mounted) setState(() => _stateLabel = 'Encrypted call in progress');
+    try {
+      await coordinator.startOutgoing(
+        remoteNickname: remoteNickname,
+        chatId: widget.chatId,
+        video: false,
+      );
+
+      if (mounted) {
+        setState(() => _stateLabel = 'Encrypted call in progress');
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _stateLabel = 'Call failed');
+      }
+      print('VOICE_CALL_START_FAILED: $error');
+    }
   }
 
   @override
   void dispose() {
-    _callService?.end();
     _localRenderer.dispose();
     _remoteRenderer.dispose();
     super.dispose();
@@ -92,11 +104,11 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
               speakerOn: _speakerOn,
               onToggleMute: () {
                 setState(() => _muted = !_muted);
-                _callService?.toggleMute(_muted);
+                _callCoordinator?.toggleMute(_muted);
               },
               onToggleSpeaker: () => setState(() => _speakerOn = !_speakerOn),
               onEndCall: () {
-                _callService?.end();
+                _callCoordinator?.endActiveCall();
                 context.pop();
               },
             ),

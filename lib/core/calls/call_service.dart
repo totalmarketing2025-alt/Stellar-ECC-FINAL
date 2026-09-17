@@ -26,11 +26,12 @@ class CallService {
   final RelayClient relayClient;
   final SessionManager sessionManager;
   final CallPlatformBridge platformBridge;
-  final RTCVideoRenderer? localRenderer;
-  final RTCVideoRenderer? remoteRenderer;
+  RTCVideoRenderer? localRenderer;
+  RTCVideoRenderer? remoteRenderer;
 
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
+  MediaStream? _remoteStream;
 
   String? _callId;
   String? _chatId;
@@ -55,6 +56,21 @@ class CallService {
   String? get callId => _callId;
   String? get chatId => _chatId;
   CallKind? get callKind => _callKind;
+
+  void attachRenderers({
+    RTCVideoRenderer? local,
+    RTCVideoRenderer? remote,
+  }) {
+    if (local != null) {
+      localRenderer = local;
+      local.srcObject = _localStream;
+    }
+
+    if (remote != null) {
+      remoteRenderer = remote;
+      remote.srcObject = _remoteStream;
+    }
+  }
 
   Future<void> start({
     required String remoteNickname,
@@ -84,7 +100,8 @@ class CallService {
 
     _peerConnection!.onTrack = (RTCTrackEvent event) {
       if (event.streams.isNotEmpty) {
-        remoteRenderer?.srcObject = event.streams.first;
+        _remoteStream = event.streams.first;
+        remoteRenderer?.srcObject = _remoteStream;
       }
     };
 
@@ -350,6 +367,7 @@ class CallService {
     }
 
     _localStream = null;
+    _remoteStream = null;
     _peerConnection = null;
     _remoteDescriptionSet = false;
     _pendingIceCandidates.clear();

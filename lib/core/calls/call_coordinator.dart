@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../domain/models/call_session.dart';
 import 'call_platform_bridge.dart';
@@ -33,6 +34,90 @@ class CallCoordinator {
 
   CallSession? get activeSession => _activeSession;
   CallSignal? get lastSignal => _lastSignal;
+
+  void attachRenderers({
+    RTCVideoRenderer? local,
+    RTCVideoRenderer? remote,
+  }) {
+    _callService.attachRenderers(
+      local: local,
+      remote: remote,
+    );
+  }
+
+  Future<void> startOutgoing({
+    required String remoteNickname,
+    required String chatId,
+    required bool video,
+  }) async {
+    _ringTimeout?.cancel();
+
+    if (_activeSession != null) {
+      throw StateError('Another call is already active');
+    }
+
+    try {
+      await _callService.start(
+        remoteNickname: remoteNickname,
+        direction: CallDirection.outgoing,
+        video: video,
+        chatId: chatId,
+      );
+
+      final callId = _callService.callId;
+      if (callId == null || callId.isEmpty) {
+        throw StateError('Outgoing call did not initialize callId');
+      }
+
+      _activeSession = CallSession(
+        callId: callId,
+        chatId: chatId,
+        kind: video ? CallKind.video : CallKind.voice,
+        state: CallState.connecting,
+        remoteNickname: remoteNickname,
+      );
+
+      _lastSignal = null;
+      _sessionController.add(_activeSession);
+    } catch (_) {
+      await _callService.end();
+      _activeSession = null;
+      _lastSignal = null;
+      _sessionController.add(null);
+      rethrow;
+    }
+  }
+
+  Future<void> endActiveCall() async {
+    _ringTimeout?.cancel();
+
+    final session = _activeSession;
+    if (session != null) {
+      _activeSession = session.copyWith(
+        state: CallState.ended,
+      );
+      _sessionController.add(_activeSession);
+    }
+
+    await _callService.end();
+
+    _activeSession = null;
+    _lastSignal = null;
+    _pendingPlatformAction = null;
+    _sessionController.add(null);
+  }
+
+  Future<void> toggleMute(bool muted) {
+    return _callService.toggleMute(muted);
+  }
+
+  Future<void> toggleCamera(bool cameraOff) {
+    return _callService.toggleCamera(cameraOff);
+  }
+
+  Future<void> switchCamera() {
+    return _callService.switchCamera();
+  }
 
   void start() {
     _subscription ??= _signalRouter.incoming.listen(_handleSignal);
