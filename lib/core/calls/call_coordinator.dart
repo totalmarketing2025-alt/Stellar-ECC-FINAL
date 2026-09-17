@@ -43,6 +43,45 @@ class CallCoordinator {
       local: local,
       remote: remote,
     );
+    _callService.onConnectionStateChanged = _handleConnectionState;
+  }
+
+  void _handleConnectionState(RTCPeerConnectionState state) {
+    final session = _activeSession;
+    if (session == null) {
+      return;
+    }
+
+    switch (state) {
+      case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
+        _activeSession = session.copyWith(
+          state: CallState.connected,
+        );
+        _sessionController.add(_activeSession);
+        break;
+
+      case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
+        _activeSession = session.copyWith(
+          state: CallState.failed,
+        );
+        _sessionController.add(_activeSession);
+
+        final remoteNickname = session.remoteNickname;
+        if (remoteNickname != null && remoteNickname.isNotEmpty) {
+          unawaited(_callService.endForRemote(remoteNickname));
+        } else {
+          unawaited(_callService.end());
+        }
+
+        _activeSession = null;
+        _lastSignal = null;
+        _pendingPlatformAction = null;
+        _sessionController.add(null);
+        break;
+
+      default:
+        break;
+    }
   }
 
   Future<void> startOutgoing({
@@ -99,7 +138,13 @@ class CallCoordinator {
       _sessionController.add(_activeSession);
     }
 
-    await _callService.end();
+    final remoteNickname = session?.remoteNickname;
+
+    if (remoteNickname != null && remoteNickname.isNotEmpty) {
+      await _callService.endForRemote(remoteNickname);
+    } else {
+      await _callService.end();
+    }
 
     _activeSession = null;
     _lastSignal = null;
@@ -397,7 +442,13 @@ class CallCoordinator {
 
   void clear() {
     _ringTimeout?.cancel();
-    unawaited(_callService.end());
+
+    final remoteNickname = _activeSession?.remoteNickname;
+    if (remoteNickname != null && remoteNickname.isNotEmpty) {
+      unawaited(_callService.endForRemote(remoteNickname));
+    } else {
+      unawaited(_callService.end());
+    }
 
     _activeSession = null;
     _lastSignal = null;
@@ -407,6 +458,7 @@ class CallCoordinator {
 
   Future<void> dispose() async {
     _ringTimeout?.cancel();
+    _callService.onConnectionStateChanged = null;
 
     await _subscription?.cancel();
     await _platformSubscription?.cancel();

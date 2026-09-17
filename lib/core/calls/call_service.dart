@@ -40,6 +40,8 @@ class CallService {
   bool _remoteDescriptionSet = false;
   final List<RTCIceCandidate> _pendingIceCandidates = [];
 
+  void Function(RTCPeerConnectionState state)? onConnectionStateChanged;
+
   static const _signalPrefix = 'STELLAR_CALL_V1:';
 
   final _configuration = <String, dynamic>{
@@ -116,6 +118,8 @@ class CallService {
 
     _peerConnection!.onConnectionState = (RTCPeerConnectionState state) {
       print('CALL_CONNECTION_STATE: $state');
+
+      onConnectionStateChanged?.call(state);
 
       final callId = _callId;
       if (callId == null || callId.isEmpty) {
@@ -352,6 +356,28 @@ class CallService {
     _callKind ??= effectiveCallKind;
 
     await _sendSignal(remoteNickname, {'type': 'reject'});
+
+    await end();
+  }
+
+  Future<void> endForRemote(String remoteNickname) async {
+    if (remoteNickname.isEmpty) {
+      await end();
+      return;
+    }
+
+    final callId = _callId;
+    final callKind = _callKind;
+
+    if (callId != null &&
+        callId.isNotEmpty &&
+        callKind != null) {
+      try {
+        await _sendSignal(remoteNickname, {'type': 'end'});
+      } catch (error) {
+        print('CALL_END_SIGNAL_FAILED: $error');
+      }
+    }
 
     await end();
   }
