@@ -8,6 +8,7 @@ import android.os.Build
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import ecc.stellar.app.calls.StellarCallManager
+import ecc.stellar.app.calls.StellarIncomingCallNotification
 
 class StellarFirebaseMessagingService : FirebaseMessagingService() {
 
@@ -60,8 +61,25 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
                 kind,
                 chatId
             )
-        } catch (_: Throwable) {
-            // Do not crash the FCM service.
+        } catch (error: Throwable) {
+            // Telecom can reject an incoming call for platform/state reasons.
+            // Keep the existing incoming-call notification as a fallback.
+            try {
+                StellarIncomingCallNotification.show(
+                    this,
+                    callId,
+                    remote,
+                    kind
+                )
+            } catch (_: Throwable) {
+                // Do not crash the FCM service if notification setup also fails.
+            }
+
+            android.util.Log.e(
+                "StellarFCM",
+                "Telecom incoming call failed for $callId",
+                error
+            )
         }
     }
 

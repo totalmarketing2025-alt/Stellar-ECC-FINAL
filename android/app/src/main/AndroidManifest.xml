@@ -62,7 +62,7 @@
         <service
             android:name=".calls.StellarCallForegroundService"
             android:exported="false"
-            android:foregroundServiceType="phoneCall|microphone|camera" />
+            android:foregroundServiceType="phoneCall" />
 
         <!-- Silent/high-priority FCM wake pings only — no content in payload. -->
 
@@ -77,8 +77,7 @@
         <service
             android:name=".calls.StellarConnectionService"
             android:exported="true"
-            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE"
-            android:foregroundServiceType="microphone|camera">
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
             <intent-filter>
                 <action android:name="android.telecom.ConnectionService" />
             </intent-filter>

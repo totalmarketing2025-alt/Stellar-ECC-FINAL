@@ -2,6 +2,7 @@ package ecc.stellar.app
 
 import android.content.Intent
 import android.os.Bundle
+import android.content.Context
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -17,10 +18,12 @@ class MainActivity : FlutterFragmentActivity() {
         private const val METHOD_GET_PENDING_ACTION = "getPendingCallAction"
         private const val METHOD_SET_CALL_ACTIVE = "setCallActive"
         private const val METHOD_SET_CALL_ENDED = "setCallEnded"
+
+        private const val PREFS_NAME = "stellar_call_state"
+        private const val PREF_PENDING_ACTION = "pending_call_action"
     }
 
     private var callChannel: MethodChannel? = null
-    private var pendingCallAction: HashMap<String, Any?>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,9 +46,42 @@ class MainActivity : FlutterFragmentActivity() {
             channel.setMethodCallHandler { call: MethodCall, result ->
                 when (call.method) {
                     METHOD_GET_PENDING_ACTION -> {
-                        val pending = pendingCallAction
-                        pendingCallAction = null
-                        result.success(pending)
+                        val prefs = getSharedPreferences(
+                            PREFS_NAME,
+                            Context.MODE_PRIVATE
+                        )
+
+                        val pendingJson =
+                            prefs.getString(PREF_PENDING_ACTION, null)
+
+                        if (pendingJson == null) {
+                            result.success(null)
+                        } else {
+                            try {
+                                val pending = org.json.JSONObject(pendingJson)
+                                val payload = hashMapOf<String, Any?>(
+                                    "action" to pending.optString("action", null),
+                                    "callId" to pending.optString("callId", null),
+                                    "remoteNickname" to pending.optString(
+                                        "remoteNickname",
+                                        null
+                                    ),
+                                    "kind" to pending.optString("kind", null),
+                                    "chatId" to pending.optString("chatId", null)
+                                )
+
+                                prefs.edit()
+                                    .remove(PREF_PENDING_ACTION)
+                                    .apply()
+
+                                result.success(payload)
+                            } catch (_: Throwable) {
+                                prefs.edit()
+                                    .remove(PREF_PENDING_ACTION)
+                                    .apply()
+                                result.success(null)
+                            }
+                        }
                     }
 
                     METHOD_SET_CALL_ACTIVE -> {
@@ -99,9 +135,27 @@ class MainActivity : FlutterFragmentActivity() {
             "chatId" to intent.getStringExtra("stellar.call.chat")
         )
 
-        pendingCallAction = payload
+        val pendingJson = org.json.JSONObject().apply {
+            put("action", payload["action"])
+            put("callId", payload["callId"])
+            put("remoteNickname", payload["remoteNickname"])
+            put("kind", payload["kind"])
+            put("chatId", payload["chatId"])
+        }.toString()
 
-        callChannel?.invokeMethod(
+        val channel = callChannel
+
+        if (channel == null) {
+            getSharedPreferences(
+                PREFS_NAME,
+                Context.MODE_PRIVATE
+            ).edit()
+                .putString(PREF_PENDING_ACTION, pendingJson)
+                .apply()
+            return
+        }
+
+        channel.invokeMethod(
             METHOD_INCOMING_ACTION,
             payload
         )

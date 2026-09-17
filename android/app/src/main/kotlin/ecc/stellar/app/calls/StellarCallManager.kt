@@ -27,6 +27,9 @@ object StellarCallManager {
     private val activeConnections =
         mutableMapOf<String, StellarConnection>()
 
+    private val pendingIncomingCalls =
+        mutableSetOf<String>()
+
     fun registerConnection(
         callId: String,
         connection: StellarConnection
@@ -42,6 +45,8 @@ object StellarCallManager {
     }
 
     fun setCallEnded(callId: String): Boolean {
+        pendingIncomingCalls.remove(callId)
+
         val connection = activeConnections.remove(callId) ?: return false
         connection.setDisconnected(
             android.telecom.DisconnectCause(android.telecom.DisconnectCause.REMOTE)
@@ -52,6 +57,7 @@ object StellarCallManager {
 
     fun removeConnection(callId: String) {
         activeConnections.remove(callId)
+        pendingIncomingCalls.remove(callId)
     }
 
     fun handle(context: Context): PhoneAccountHandle =
@@ -91,7 +97,19 @@ object StellarCallManager {
         if (callId.isBlank() || remoteNickname.isBlank()) return
         if (kind != "voice" && kind != "video") return
 
-        ensureRegistered(context)
+        if (pendingIncomingCalls.contains(callId) ||
+            activeConnections.containsKey(callId)) {
+            return
+        }
+
+        pendingIncomingCalls.add(callId)
+
+        try {
+            ensureRegistered(context)
+        } catch (error: Throwable) {
+            pendingIncomingCalls.remove(callId)
+            throw error
+        }
 
         val telecom =
             context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
@@ -117,16 +135,21 @@ object StellarCallManager {
 
         val address = Uri.parse("stellar:$callId")
 
-        telecom.addNewIncomingCall(
-            handle(context),
-            Bundle().apply {
-                putParcelable(
-                    TelecomManager.EXTRA_INCOMING_CALL_ADDRESS,
-                    address
-                )
-                putAll(extras)
-            }
-        )
+        try {
+            telecom.addNewIncomingCall(
+                handle(context),
+                Bundle().apply {
+                    putParcelable(
+                        TelecomManager.EXTRA_INCOMING_CALL_ADDRESS,
+                        address
+                    )
+                    putAll(extras)
+                }
+            )
+        } catch (error: Throwable) {
+            pendingIncomingCalls.remove(callId)
+            throw error
+        }
     }
 }
 
@@ -218,6 +241,8 @@ class StellarConnection(
     var kind = "voice"
     var chatId = ""
 
+    private var terminalHandled = false
+
     override fun onAnswer() {
         val foregroundIntent = Intent(
             appContext,
@@ -260,6 +285,11 @@ class StellarConnection(
     }
 
     override fun onReject() {
+        if (terminalHandled) {
+            return
+        }
+        terminalHandled = true
+
         setDisconnected(
             android.telecom.DisconnectCause(android.telecom.DisconnectCause.REJECTED),
         )
@@ -285,6 +315,11 @@ class StellarConnection(
     }
 
     override fun onDisconnect() {
+        if (terminalHandled) {
+            return
+        }
+        terminalHandled = true
+
         setDisconnected(
             android.telecom.DisconnectCause(android.telecom.DisconnectCause.LOCAL),
         )
@@ -310,13 +345,11 @@ class StellarConnection(
     }
 
     private fun stopForegroundCallService() {
-        val intent = Intent(
-            appContext,
-            StellarCallForegroundService::class.java,
-        ).apply {
-            action = StellarCallForegroundService.ACTION_STOP
-        }
-
-        appContext.startService(intent)
+        appContext.stopService(
+            Intent(
+                appContext,
+                StellarCallForegroundService::class.java,
+            )
+        )
     }
 }

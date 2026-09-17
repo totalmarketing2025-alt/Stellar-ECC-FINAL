@@ -353,6 +353,11 @@ class CallService {
     _peerConnection = null;
     _remoteDescriptionSet = false;
     _pendingIceCandidates.clear();
+
+    // Fully reset call identity so the next call starts as a fresh session.
+    _callId = null;
+    _chatId = null;
+    _callKind = null;
   }
 
   Future<void> toggleMute(bool muted) async {

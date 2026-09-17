@@ -298,6 +298,7 @@ class CallCoordinator {
 
     _activeSession = null;
     _lastSignal = null;
+    _pendingPlatformAction = null;
     _sessionController.add(null);
   }
 
