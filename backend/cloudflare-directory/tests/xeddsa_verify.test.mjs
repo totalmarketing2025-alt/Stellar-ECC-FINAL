@@ -3,7 +3,8 @@ import fs from "node:fs";
 
 const source = fs
   .readFileSync(new URL("../src/index.js", import.meta.url), "utf8")
-  .replace("export class DirectoryStore", "class DirectoryStore")
+  .replace(/\\nexport default[\\s\\S]*$/, "")
+  .replace(/export class DirectoryStore/g, "class DirectoryStore")
   + "\nreturn { verifySignalIdentitySignature };\n";
 
 const factory = new Function(
