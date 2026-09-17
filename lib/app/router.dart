@@ -36,11 +36,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/call/voice/:chatId',
-        builder: (c, s) => VoiceCallScreen(chatId: s.pathParameters['chatId']!),
+        builder: (c, s) => VoiceCallScreen(
+          chatId: s.pathParameters['chatId']!,
+          incoming: s.uri.queryParameters['incoming'] == '1',
+        ),
       ),
       GoRoute(
         path: '/call/video/:chatId',
-        builder: (c, s) => VideoCallScreen(chatId: s.pathParameters['chatId']!),
+        builder: (c, s) => VideoCallScreen(
+          chatId: s.pathParameters['chatId']!,
+          incoming: s.uri.queryParameters['incoming'] == '1',
+        ),
       ),
       GoRoute(path: '/settings', builder: (c, s) => const SettingsScreen()),
       GoRoute(

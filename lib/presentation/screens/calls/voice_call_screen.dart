@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,13 +7,19 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../../core/theme/stellar_theme.dart';
 import '../../../core/calls/call_coordinator.dart';
+import '../../../domain/models/call_session.dart';
 import '../../state/app_providers.dart';
 import '../../widgets/stellar_avatar.dart';
 import '../../widgets/call_control_dock.dart';
 
 class VoiceCallScreen extends ConsumerStatefulWidget {
-  const VoiceCallScreen({super.key, required this.chatId});
+  const VoiceCallScreen({
+    super.key,
+    required this.chatId,
+    this.incoming = false,
+  });
   final String chatId;
+  final bool incoming;
 
   @override
   ConsumerState<VoiceCallScreen> createState() => _VoiceCallScreenState();
@@ -24,6 +32,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
   bool _muted = false;
   bool _speakerOn = false;
   String _stateLabel = 'Connecting…';
+  StreamSubscription<CallSession?>? _sessionSubscription;
 
   @override
   void initState() {
@@ -42,6 +51,27 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
       local: _localRenderer,
       remote: _remoteRenderer,
     );
+
+    if (widget.incoming) {
+      final active = coordinator.activeSession;
+      if (active != null && active.chatId == widget.chatId) {
+        _stateLabel = active.state == CallState.connected
+            ? 'Encrypted call in progress'
+            : 'Connecting…';
+      } else {
+        _sessionSubscription = coordinator.sessionStream.listen((session) {
+          if (!mounted || session == null || session.chatId != widget.chatId) {
+            return;
+          }
+          setState(() {
+            _stateLabel = session.state == CallState.connected
+                ? 'Encrypted call in progress'
+                : 'Connecting…';
+          });
+        });
+      }
+      return;
+    }
 
     final remoteNickname = widget.chatId.startsWith('direct_')
         ? widget.chatId.substring('direct_'.length)
@@ -67,6 +97,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
 
   @override
   void dispose() {
+    _sessionSubscription?.cancel();
     _localRenderer.dispose();
     _remoteRenderer.dispose();
     super.dispose();
