@@ -96,6 +96,141 @@ function pemToArrayBuffer(pem) {
   return bytes.buffer;
 }
 
+function getFcmRetryDelayMs(response, attempt) {
+  const retryAfter = response
+    ? response.headers.get("Retry-After")
+    : null;
+
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(seconds * 1000, 10000);
+    }
+  }
+
+  return Math.min(1000 * (2 ** attempt), 10000);
+}
+
+async function classifyFcmResponse(response) {
+  let body = null;
+
+  try {
+    body = await response.json();
+  } catch (_) {
+    body = null;
+  }
+
+  const error = body?.error;
+
+  const details = Array.isArray(error?.details)
+    ? error.details
+    : [];
+
+  const hasUnregisteredError = details.some(
+    (detail) =>
+      detail &&
+      typeof detail === "object" &&
+      detail["@type"] ===
+        "type.googleapis.com/google.firebase.fcm.v1.FcmError" &&
+      detail.errorCode === "UNREGISTERED",
+  );
+
+  if (hasUnregisteredError) {
+    return "invalid-token";
+  }
+
+  if (
+    response.status === 429 ||
+    response.status === 500 ||
+    response.status === 503
+  ) {
+    return "transient";
+  }
+
+  return "other";
+}
+
+async function removePushToken(directoryUrl, sharedSecret, nickname, token) {
+  try {
+    await fetch(
+      `${directoryUrl}/v1/users/${encodeURIComponent(nickname)}/push-token`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${sharedSecret}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token }),
+      },
+    );
+  } catch (_) {
+    // Push cleanup must never affect relay delivery.
+  }
+}
+
+async function sendFcmMessage({
+  projectId,
+  accessToken,
+  token,
+  data,
+}) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let response;
+
+    try {
+      response = await fetch(
+        `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: {
+              token,
+              data,
+              android: {
+                priority: "high",
+              },
+            },
+          }),
+        },
+      );
+    } catch (_) {
+      if (attempt === 2) {
+        return "other";
+      }
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, getFcmRetryDelayMs(null, attempt)),
+      );
+      continue;
+    }
+
+    if (response.ok) {
+      return "sent";
+    }
+
+    const kind = await classifyFcmResponse(response);
+
+    if (kind === "invalid-token") {
+      return "invalid-token";
+    }
+
+    if (kind !== "transient" || attempt === 2) {
+      return "other";
+    }
+
+    await new Promise((resolve) =>
+      setTimeout(resolve, getFcmRetryDelayMs(response, attempt)),
+    );
+  }
+
+  return "other";
+}
+
 async function createFcmAccessToken(clientEmail, privateKey) {
   const now = Math.floor(Date.now() / 1000);
 
@@ -316,40 +451,36 @@ export class RelayRoom {
       privateKey,
     );
 
-    const sends = validRegistrations.map((registration) =>
-      fetch(
-        `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            message: {
-              token: registration.token,
-              data: {
-                wake: "1",
-                ...(callMeta
-                  ? {
-                      type: "call",
-                      callId: callMeta.callId,
-                      from: callMeta.from,
-                      kind: callMeta.kind,
-                      ...(callMeta.chatId
-                        ? { chatId: callMeta.chatId }
-                        : {}),
-                    }
+    const sends = validRegistrations.map(async (registration) => {
+      const result = await sendFcmMessage({
+        projectId,
+        accessToken,
+        token: registration.token,
+        data: {
+          wake: "1",
+          ...(callMeta
+            ? {
+                type: "call",
+                callId: callMeta.callId,
+                from: callMeta.from,
+                kind: callMeta.kind,
+                ...(callMeta.chatId
+                  ? { chatId: callMeta.chatId }
                   : {}),
-              },
-              android: {
-                priority: "high",
-              },
-            },
-          }),
+              }
+            : {}),
         },
-      ).catch(() => null),
-    );
+      });
+
+      if (result === "invalid-token") {
+        await removePushToken(
+          directoryUrl,
+          sharedSecret,
+          recipient,
+          registration.token,
+        );
+      }
+    });
 
     await Promise.all(sends);
   }
@@ -429,8 +560,8 @@ export class RelayRoom {
             from: sender,
             kind,
             ...(chatId ? { chatId } : {}),
-          }).catch((error) => {
-            console.error("FCM_CALL_WAKE_ERROR", error);
+          }).catch(() => {
+            console.error("FCM_CALL_WAKE_FAILED");
           }),
         );
       } catch (_) {
@@ -482,8 +613,8 @@ export class RelayRoom {
     // Push notification must never block or break relay delivery.
     // The envelope is already safely queued before FCM is attempted.
     this.ctx.waitUntil(
-      this.sendPushWake(recipient).catch((error) => {
-        console.error("FCM_PUSH_WAKE_ERROR", error);
+      this.sendPushWake(recipient).catch(() => {
+        console.error("FCM_PUSH_WAKE_FAILED");
       }),
     );
   }

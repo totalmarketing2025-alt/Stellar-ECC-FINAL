@@ -121,6 +121,107 @@ export class DirectoryStore {
     }
 
 
+    if (request.method === "DELETE" &&
+        url.pathname.startsWith("/v1/users/") &&
+        url.pathname.endsWith("/push-token")) {
+      const auth = request.headers.get("authorization") || "";
+      const expected = this.env.RELAY_SHARED_SECRET || "";
+      if (!expected || auth !== `Bearer ${expected}`) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+
+      const nickname = normalizeNickname(
+        decodeURIComponent(
+          url.pathname.substring(
+            "/v1/users/".length,
+            url.pathname.length - "/push-token".length,
+          ),
+        ),
+      );
+
+      if (!validNickname(nickname)) {
+        return json({ error: "Invalid nickname" }, 400);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const token =
+        typeof body.token === "string"
+          ? body.token.trim()
+          : "";
+
+      if (!token || token.length > 4096) {
+        return json({ error: "Invalid push token" }, 400);
+      }
+
+      const key = `user:${nickname}`;
+      const existing = await this.ctx.storage.get(key);
+
+      if (!existing) {
+        return json({ error: "User not found" }, 404);
+      }
+
+      const registrations = Array.isArray(existing.pushRegistrations)
+        ? existing.pushRegistrations.filter(
+            (registration) =>
+              registration &&
+              typeof registration === "object" &&
+              typeof registration.token === "string" &&
+              registration.token,
+          )
+        : existing.push &&
+          typeof existing.push === "object" &&
+          typeof existing.push.token === "string" &&
+          existing.push.token
+          ? [
+              {
+                token: existing.push.token,
+                platform: existing.push.platform,
+                updatedAt: existing.push.updatedAt,
+              },
+            ]
+          : [];
+
+      const nextRegistrations = registrations.filter(
+        (registration) => registration.token !== token,
+      );
+
+      if (nextRegistrations.length === registrations.length) {
+        return json({
+          ok: true,
+          nickname,
+          removed: false,
+        });
+      }
+
+      const nextLegacyPush = nextRegistrations[0]
+        ? {
+            token: nextRegistrations[0].token,
+            platform: nextRegistrations[0].platform,
+            updatedAt: nextRegistrations[0].updatedAt,
+          }
+        : null;
+
+      const user = {
+        ...existing,
+        pushRegistrations: nextRegistrations,
+        push: nextLegacyPush,
+      };
+
+      await this.ctx.storage.put(key, user);
+
+      return json({
+        ok: true,
+        nickname,
+        removed: true,
+      });
+    }
+
     if (request.method === "POST" &&
         url.pathname.startsWith("/v1/users/") &&
         url.pathname.endsWith("/push-token/challenge")) {
