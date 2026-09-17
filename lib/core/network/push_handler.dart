@@ -172,6 +172,8 @@ class PushHandler {
 
     final challenge = await directoryClient.getPushChallenge(
       nickname: nickname,
+      deviceId: deviceId,
+      registrationId: registrationId,
     );
 
     final message = DirectoryClient.buildPushAuthMessage(

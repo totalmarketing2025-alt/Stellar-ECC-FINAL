@@ -137,6 +137,31 @@ export class DirectoryStore {
         return json({ error: "Invalid nickname" }, 400);
       }
 
+      let body;
+
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const deviceId =
+        typeof body.deviceId === "number"
+          ? body.deviceId
+          : null;
+
+      const registrationId =
+        typeof body.registrationId === "number"
+          ? body.registrationId
+          : null;
+
+      if (!Number.isInteger(deviceId) ||
+          !Number.isInteger(registrationId)) {
+        return json({
+          error: "Invalid device identity",
+        }, 400);
+      }
+
       const key = `user:${nickname}`;
       const existing = await this.ctx.storage.get(key);
 
@@ -144,7 +169,21 @@ export class DirectoryStore {
         return json({ error: "User not found" }, 404);
       }
 
-      const challengeKey = `push-challenge:${nickname}`;
+      const existingBundle = existing.bundle;
+
+      if (!existingBundle ||
+          typeof existingBundle.registrationId !== "number" ||
+          typeof existingBundle.deviceId !== "number" ||
+          existingBundle.registrationId !== registrationId ||
+          existingBundle.deviceId !== deviceId) {
+        return json({
+          error: "Identity mismatch",
+        }, 409);
+      }
+
+      const challengeKey =
+        `push-challenge:${nickname}:${deviceId}:${registrationId}`;
+
       const now = Date.now();
       const stored = await this.ctx.storage.get(challengeKey);
 
@@ -199,9 +238,14 @@ export class DirectoryStore {
       const existing = await this.ctx.storage.get(key);
       if (!existing) return json({ error: "User not found" }, 404);
 
+      const pushRegistrations = Array.isArray(existing.pushRegistrations)
+        ? existing.pushRegistrations
+        : [];
+
       return json({
         nickname,
-        push: existing.push ?? null,
+        pushRegistrations,
+        push: existing.push ?? pushRegistrations[0] ?? null,
       });
     }
 
@@ -274,7 +318,8 @@ export class DirectoryStore {
         }, 409);
       }
 
-      const challengeKey = `push-challenge:${nickname}`;
+      const challengeKey =
+        `push-challenge:${nickname}:${existingBundle.deviceId}:${existingBundle.registrationId}`;
       const storedChallenge =
         await this.ctx.storage.get(challengeKey);
 
@@ -317,8 +362,56 @@ export class DirectoryStore {
 
       await this.ctx.storage.delete(challengeKey);
 
+      const registrations = Array.isArray(existing.pushRegistrations)
+        ? existing.pushRegistrations.filter(
+            (registration) =>
+              registration &&
+              typeof registration === "object" &&
+              typeof registration.token === "string" &&
+              typeof registration.platform === "string" &&
+              typeof registration.deviceId === "number" &&
+              typeof registration.registrationId === "number",
+          )
+        : [];
+
+      if (registrations.length === 0 &&
+          existing.push &&
+          typeof existing.push === "object" &&
+          typeof existing.push.token === "string" &&
+          typeof existing.push.platform === "string") {
+        registrations.push({
+          token: existing.push.token,
+          platform: existing.push.platform,
+          deviceId: existingBundle.deviceId,
+          registrationId: existingBundle.registrationId,
+          updatedAt: typeof existing.push.updatedAt === "number"
+              ? existing.push.updatedAt
+              : now,
+        });
+      }
+
+      const nextRegistrations = registrations.filter(
+        (registration) =>
+          registration.deviceId !== existingBundle.deviceId ||
+          registration.registrationId !== existingBundle.registrationId ||
+          registration.platform !== platform,
+      );
+
+      const withoutDuplicateToken = nextRegistrations.filter(
+        (registration) => registration.token !== token,
+      );
+
+      withoutDuplicateToken.push({
+        token,
+        platform,
+        deviceId: existingBundle.deviceId,
+        registrationId: existingBundle.registrationId,
+        updatedAt: now,
+      });
+
       const user = {
         ...existing,
+        pushRegistrations: withoutDuplicateToken,
         push: {
           token,
           platform,

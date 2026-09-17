@@ -109,10 +109,15 @@ class DirectoryClient {
     return json;
   }
 
-  Future<String> getPushChallenge({required String nickname}) async {
+  Future<String> getPushChallenge({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+  }) async {
     final response = await _request(
       'POST',
       '/v1/users/${Uri.encodeComponent(nickname)}/push-token/challenge',
+      body: {'deviceId': deviceId, 'registrationId': registrationId},
     );
 
     final body = await _readBody(response);

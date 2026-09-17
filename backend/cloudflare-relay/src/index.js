@@ -291,13 +291,23 @@ export class RelayRoom {
     }
 
     const body = await response.json();
-    const push = body.push;
 
-    if (!push || typeof push.token !== "string" || !push.token) {
-      return;
-    }
+    const registrations = Array.isArray(body.pushRegistrations)
+      ? body.pushRegistrations
+      : body.push
+        ? [body.push]
+        : [];
 
-    if (push.platform !== "android" && push.platform !== "ios") {
+    const validRegistrations = registrations.filter(
+      (registration) =>
+        registration &&
+        typeof registration.token === "string" &&
+        registration.token &&
+        (registration.platform === "android" ||
+          registration.platform === "ios"),
+    );
+
+    if (validRegistrations.length === 0) {
       return;
     }
 
@@ -306,38 +316,42 @@ export class RelayRoom {
       privateKey,
     );
 
-    await fetch(
-      `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: {
-            token: push.token,
-            data: {
-              wake: "1",
-              ...(callMeta
-                ? {
-                    type: "call",
-                    callId: callMeta.callId,
-                    from: callMeta.from,
-                    kind: callMeta.kind,
-                    ...(callMeta.chatId
-                      ? { chatId: callMeta.chatId }
-                      : {}),
-                  }
-                : {}),
-            },
-            android: {
-              priority: "high",
-            },
+    const sends = validRegistrations.map((registration) =>
+      fetch(
+        `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
           },
-        }),
-      },
+          body: JSON.stringify({
+            message: {
+              token: registration.token,
+              data: {
+                wake: "1",
+                ...(callMeta
+                  ? {
+                      type: "call",
+                      callId: callMeta.callId,
+                      from: callMeta.from,
+                      kind: callMeta.kind,
+                      ...(callMeta.chatId
+                        ? { chatId: callMeta.chatId }
+                        : {}),
+                    }
+                  : {}),
+              },
+              android: {
+                priority: "high",
+              },
+            },
+          }),
+        },
+      ).catch(() => null),
     );
+
+    await Promise.all(sends);
   }
 
   async fetch(request) {
