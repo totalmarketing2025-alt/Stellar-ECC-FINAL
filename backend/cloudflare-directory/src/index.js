@@ -187,17 +187,9 @@ async function verifySignalIdentitySignature({
     const montgomeryPublicKey = publicKey.slice(1);
 
     /*
-     * XEdDSA verification requires:
-     *
-     *   u < p
-     *   R.y < 2^255
-     *   s < 2^253
-     *
-     * Signal's convert_mont() masks the high bit of the 32-byte
-     * Montgomery u-coordinate before performing the field conversion.
+     * XEdDSA first validates the encoded Montgomery u-coordinate.
+     * convert_mont() masks the high bit only when converting it.
      */
-    montgomeryPublicKey[31] &= 0x7f;
-
     const u = bytesToBigIntLE(montgomeryPublicKey);
 
     if (u >= CURVE25519_P) {
@@ -208,15 +200,16 @@ async function verifySignalIdentitySignature({
     const sBytes = sig.slice(32);
 
     /*
-     * XEdDSA requires the encoded R.y value to have no excess
-     * high bit. Do not mask it before validation: doing so would
-     * silently normalize an invalid signature.
+     * R is a compressed Edwards point:
+     *   - low 255 bits encode y
+     *   - high bit encodes the Edwards sign
+     *
+     * The sign bit must not be treated as part of y.
      */
-    if ((rBytes[31] & 0x80) !== 0) {
-      return false;
-    }
+    const rYBytes = rBytes.slice();
+    rYBytes[31] &= 0x7f;
 
-    const rY = bytesToBigIntLE(rBytes);
+    const rY = bytesToBigIntLE(rYBytes);
     const s = bytesToBigIntLE(sBytes);
 
     /*
@@ -230,8 +223,13 @@ async function verifySignalIdentitySignature({
       return false;
     }
 
+    const montgomeryPublicKeyForConversion =
+      montgomeryPublicKey.slice();
+
+    montgomeryPublicKeyForConversion[31] &= 0x7f;
+
     const edPublicKey = curve25519PublicToEd25519Public(
-      montgomeryPublicKey,
+      montgomeryPublicKeyForConversion,
       0,
     );
 

@@ -100,7 +100,23 @@ const invalidRBytes = Uint8Array.from(
   (character) => character.charCodeAt(0),
 );
 
-invalidRBytes[31] |= 0x80;
+/*
+ * The high bit is the Edwards sign bit and is valid.
+ * Instead, construct an actually invalid y >= p.
+ */
+const CURVE25519_P =
+  (1n << 255n) - 19n;
+
+const invalidY = new Uint8Array(32);
+let invalidYValue = CURVE25519_P;
+
+for (let i = 0; i < 32; i++) {
+  invalidY[i] = Number(invalidYValue & 0xffn);
+  invalidYValue >>= 8n;
+}
+
+invalidY[31] &= 0x7f;
+invalidRBytes.set(invalidY, 0);
 
 const invalidRSignature = btoa(
   String.fromCharCode(...invalidRBytes),
@@ -115,7 +131,7 @@ const invalidRRejected = await verifySignalIdentitySignature({
 assert.equal(
   invalidRRejected,
   false,
-  "R with excess high bit must be rejected",
+  "R.y outside the field must be rejected",
 );
 
 const invalidSBytes = Uint8Array.from(
@@ -145,5 +161,5 @@ console.log("XEd25519 runtime verification: PASS");
 console.log("valid signature: PASS");
 console.log("tampered message: PASS");
 console.log("tampered signature: PASS");
-console.log("invalid R high bit: PASS");
+console.log("invalid R.y field range: PASS");
 console.log("invalid s range: PASS");
