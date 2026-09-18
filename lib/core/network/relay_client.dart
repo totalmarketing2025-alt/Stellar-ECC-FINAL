@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as ws_status;
 
@@ -96,13 +97,14 @@ class RelayClient {
     WebSocketChannel? channel;
 
     try {
-      channel = WebSocketChannel.connect(uri);
+      final connectedChannel = WebSocketChannel.connect(uri);
+      channel = connectedChannel;
 
-      _channel = channel;
+      _channel = connectedChannel;
       _ready = false;
 
       print('RELAY_DEBUG: BEFORE_READY peer=$peer');
-      await channel.ready;
+      await connectedChannel.ready;
       print('RELAY_DEBUG: AFTER_READY peer=$peer');
 
       if (!identical(_channel, channel) || _manuallyDisconnected) {
@@ -113,9 +115,9 @@ class RelayClient {
       _ready = false;
       _backoffMs = 500;
 
-      channel.stream.listen(
+      connectedChannel.stream.listen(
         (data) {
-          if (!identical(_channel, channel)) {
+          if (!identical(_channel, connectedChannel)) {
             return;
           }
 
@@ -127,7 +129,7 @@ class RelayClient {
             if (data.startsWith(_challengePrefix)) {
               unawaited(
                 _authenticateRelay(
-                  channel,
+                  connectedChannel,
                   peer,
                   data.substring(_challengePrefix.length),
                 ),
@@ -150,12 +152,12 @@ class RelayClient {
           }
         },
         onDone: () {
-          if (identical(_channel, channel)) {
+          if (identical(_channel, connectedChannel)) {
             _handleDisconnect();
           }
         },
         onError: (_) {
-          if (identical(_channel, channel)) {
+          if (identical(_channel, connectedChannel)) {
             _handleDisconnect();
           }
         },
