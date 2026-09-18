@@ -302,6 +302,32 @@ async function createFcmAccessToken(clientEmail, privateKey) {
   return tokenBody.access_token;
 }
 
+const RELAY_AUTH_CHALLENGE_PREFIX =
+  "STELLAR_RELAY_AUTH_CHALLENGE_V1:";
+
+const RELAY_AUTH_RESPONSE_PREFIX =
+  "STELLAR_RELAY_AUTH_RESPONSE_V1:";
+
+const RELAY_AUTH_OK =
+  "STELLAR_RELAY_AUTH_OK_V1";
+
+const RELAY_AUTH_TTL_MS = 60 * 1000;
+
+function createRelayChallenge() {
+  const bytes = crypto.getRandomValues(
+    new Uint8Array(32),
+  );
+
+  return base64UrlEncode(bytes);
+}
+
+function validRelayPeer(peer) {
+  return (
+    typeof peer === "string" &&
+    /^[a-z0-9_.-]{1,64}$/.test(peer)
+  );
+}
+
 export class RelayRoom {
   constructor(ctx, env) {
     this.ctx = ctx;
@@ -493,10 +519,15 @@ export class RelayRoom {
       });
     }
 
-    const peer = new URL(request.url).searchParams.get("peer");
+    const rawPeer =
+      new URL(request.url).searchParams.get("peer");
 
-    if (!peer) {
-      return new Response("Missing peer", { status: 400 });
+    const normalizedPeer = String(rawPeer || "")
+      .trim()
+      .toLowerCase();
+
+    if (!validRelayPeer(normalizedPeer)) {
+      return new Response("Invalid peer", { status: 400 });
     }
 
     const pair = new WebSocketPair();
@@ -505,15 +536,28 @@ export class RelayRoom {
 
     this.ctx.acceptWebSocket(server);
 
-    const normalizedPeer = peer.trim().toLowerCase();
+    const challenge = createRelayChallenge();
 
     server.serializeAttachment({
       peer: normalizedPeer,
+      authenticated: false,
+      authState: "challenge-sent",
+      challenge,
+      challengeExpiresAt: Date.now() + RELAY_AUTH_TTL_MS,
     });
 
-    await this.ctx.blockConcurrencyWhile(async () => {
-      await this.flushQueue(server, normalizedPeer);
-    });
+    server.send(
+      `${RELAY_AUTH_CHALLENGE_PREFIX}${challenge}`,
+    );
+
+    /*
+     * IMPORTANT:
+     * No queue flush here.
+     *
+     * The socket is only routing-identified by ?peer=.
+     * It is not authenticated until the XEd25519 challenge
+     * completes through the Directory.
+     */
 
     return new Response(null, {
       status: 101,
@@ -522,6 +566,188 @@ export class RelayRoom {
   }
 
   async webSocketMessage(ws, message) {
+
+    const attachment = ws.deserializeAttachment() || {};
+    const now = Date.now();
+
+    /*
+     * Authentication protocol is the only accepted protocol
+     * before authenticated=true.
+     */
+    if (!attachment.authenticated) {
+      if (
+        typeof message !== "string" ||
+        !message.startsWith(RELAY_AUTH_RESPONSE_PREFIX)
+      ) {
+        try {
+          ws.close(1008, "Relay authentication required");
+        } catch (_) {}
+        return;
+      }
+
+      if (attachment.authState !== "challenge-sent") {
+        try {
+          ws.close(1008, "Invalid relay authentication state");
+        } catch (_) {}
+        return;
+      }
+
+      if (
+        !attachment.challenge ||
+        Number(attachment.challengeExpiresAt) < now
+      ) {
+        try {
+          ws.close(1008, "Relay authentication expired");
+        } catch (_) {}
+        return;
+      }
+
+      let response;
+
+      try {
+        response = JSON.parse(
+          message.slice(RELAY_AUTH_RESPONSE_PREFIX.length),
+        );
+      } catch (_) {
+        try {
+          ws.close(1008, "Invalid relay authentication");
+        } catch (_) {}
+        return;
+      }
+
+      if (attachment.authState !== "challenge-sent") {
+        try {
+          ws.close(1008, "Relay authentication replay");
+        } catch (_) {}
+        return;
+      }
+
+      if (
+        response.challenge !== attachment.challenge ||
+        !Number.isInteger(Number(response.deviceId)) ||
+        !Number.isInteger(Number(response.registrationId)) ||
+        typeof response.signature !== "string" ||
+        !response.signature
+      ) {
+        try {
+          ws.close(1008, "Invalid relay authentication");
+        } catch (_) {}
+        return;
+      }
+
+      /*
+       * Move to verifying state before external async I/O.
+       * This prevents duplicate responses on the same socket
+       * from starting parallel verification attempts.
+       */
+      const serverAttachment = {
+        ...attachment,
+        authState: "verifying",
+      };
+
+      ws.serializeAttachment(serverAttachment);
+
+      const directoryUrl = this.env.DIRECTORY_URL;
+      const sharedSecret = this.env.RELAY_SHARED_SECRET;
+
+      if (!directoryUrl || !sharedSecret) {
+        try {
+          ws.close(1011, "Relay authentication unavailable");
+        } catch (_) {}
+        return;
+      }
+
+      try {
+        const verificationResponse = await fetch(
+          `${directoryUrl}/v1/internal/relay-auth`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${sharedSecret}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              nickname: attachment.peer,
+              deviceId: Number(response.deviceId),
+              registrationId: Number(response.registrationId),
+              challenge: response.challenge,
+              signature: response.signature,
+            }),
+          },
+        );
+
+        if (!verificationResponse.ok) {
+          try {
+            ws.close(1008, "Relay authentication failed");
+          } catch (_) {}
+          return;
+        }
+
+        const result = await verificationResponse.json();
+
+        if (result?.ok !== true) {
+          try {
+            ws.close(1008, "Relay authentication failed");
+          } catch (_) {}
+          return;
+        }
+
+        /*
+         * Re-check the socket-bound challenge after the external
+         * Directory verification. Authentication must not be
+         * finalized after the challenge has expired.
+         */
+        if (
+          !attachment.challenge ||
+          attachment.challenge !== response.challenge ||
+          Number(attachment.challengeExpiresAt) < Date.now()
+        ) {
+          try {
+            ws.close(1008, "Relay authentication expired");
+          } catch (_) {}
+          return;
+        }
+
+        /*
+         * Final state is persisted in the WebSocket attachment
+         * so it survives Durable Object hibernation.
+         */
+        ws.serializeAttachment({
+          peer: attachment.peer,
+          authenticated: true,
+          authState: "authenticated",
+          challenge: null,
+          challengeExpiresAt: null,
+          authenticatedAt: Date.now(),
+        });
+
+        ws.send(RELAY_AUTH_OK);
+
+        /*
+         * Queue is flushed only after authentication succeeds.
+         */
+        await this.flushQueue(
+          ws,
+          attachment.peer,
+        );
+      } catch (_) {
+        try {
+          ws.close(1011, "Relay authentication error");
+        } catch (_) {}
+      }
+
+      return;
+    }
+
+    if (
+      attachment.authState !== "authenticated"
+    ) {
+      try {
+        ws.close(1008, "Invalid relay authentication state");
+      } catch (_) {}
+      return;
+    }
+
     const callWakePrefix = "STELLAR_CALL_WAKE_V1:";
 
     if (typeof message === "string" && message.startsWith(callWakePrefix)) {
@@ -541,6 +767,14 @@ export class RelayRoom {
           : "";
 
         const senderAttachment = ws.deserializeAttachment();
+
+        if (
+          senderAttachment?.authenticated !== true ||
+          senderAttachment?.authState !== "authenticated"
+        ) {
+          return;
+        }
+
         const sender = String(senderAttachment?.peer || "")
           .trim()
           .toLowerCase();
@@ -598,6 +832,8 @@ export class RelayRoom {
 
         if (
           attachment &&
+          attachment.authenticated === true &&
+          attachment.authState === "authenticated" &&
           attachment.peer === recipient
         ) {
           peer.send(message);

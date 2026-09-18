@@ -33,6 +33,21 @@ class DirectoryClient {
     ]);
   }
 
+  static String buildRelayAuthMessage({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+    required String challenge,
+  }) {
+    return jsonEncode([
+      'stellar-relay-v1',
+      nickname,
+      deviceId,
+      registrationId,
+      challenge,
+    ]);
+  }
+
   Future<bool> checkAvailability(String nickname) async {
     final response = await _request(
       'GET',

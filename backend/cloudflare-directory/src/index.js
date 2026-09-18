@@ -406,6 +406,108 @@ export class DirectoryStore {
       });
     }
 
+    if (
+      request.method === "POST" &&
+      url.pathname === "/v1/internal/relay-auth"
+    ) {
+      const authorization =
+        request.headers.get("Authorization") || "";
+
+      const expectedSecret =
+        this.env.RELAY_SHARED_SECRET || "";
+
+      if (
+        !expectedSecret ||
+        authorization !== `Bearer ${expectedSecret}`
+      ) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+
+      let body;
+
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const nickname = normalizeNickname(
+        typeof body.nickname === "string"
+          ? body.nickname
+          : "",
+      );
+
+      const deviceId = Number(body.deviceId);
+      const registrationId = Number(body.registrationId);
+
+      const challenge =
+        typeof body.challenge === "string"
+          ? body.challenge
+          : "";
+
+      const signature =
+        typeof body.signature === "string"
+          ? body.signature
+          : "";
+
+      if (
+        !validNickname(nickname) ||
+        !Number.isInteger(deviceId) ||
+        deviceId <= 0 ||
+        !Number.isInteger(registrationId) ||
+        registrationId <= 0 ||
+        !challenge ||
+        !signature
+      ) {
+        return json({
+          error: "Invalid relay auth request",
+        }, 400);
+      }
+
+      const user =
+        await this.ctx.storage.get(`user:${nickname}`);
+
+      if (!user || !user.bundle) {
+        return json({
+          error: "User not found",
+        }, 404);
+      }
+
+      const bundle = user.bundle;
+
+      if (
+        Number(bundle.deviceId) !== deviceId ||
+        Number(bundle.registrationId) !== registrationId
+      ) {
+        return json({
+          error: "identity_mismatch",
+        }, 409);
+      }
+
+      const authMessage = JSON.stringify([
+        "stellar-relay-v1",
+        nickname,
+        deviceId,
+        registrationId,
+        challenge,
+      ]);
+
+      const verified =
+        await verifySignalIdentitySignature({
+          identityKey: bundle.identityKey,
+          message: authMessage,
+          signature,
+        });
+
+      if (!verified) {
+        return json({
+          error: "Invalid relay signature",
+        }, 401);
+      }
+
+      return json({ ok: true });
+    }
+
     if (request.method === "PUT" && url.pathname.startsWith("/v1/users/") &&
         url.pathname.endsWith("/bundle")) {
       const nickname = normalizeNickname(

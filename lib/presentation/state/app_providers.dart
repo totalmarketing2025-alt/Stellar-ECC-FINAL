@@ -53,7 +53,10 @@ final directoryClientProvider = Provider<DirectoryClient>((ref) {
 });
 
 final relayClientProvider = Provider<RelayClient>(
-  (ref) => RelayClient(relayUrl: _relayUrl),
+  (ref) => RelayClient(
+    relayUrl: _relayUrl,
+    identityStore: ref.watch(identityKeyStoreProvider),
+  ),
 );
 
 final callSignalRouterProvider = Provider<CallSignalRouter>((ref) {

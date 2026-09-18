@@ -5,6 +5,9 @@ import 'dart:typed_data';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as ws_status;
 
+import 'directory_client.dart';
+import '../crypto/signal_stores.dart';
+
 /// WebSocket client for the Stellar relay.
 ///
 /// The relay only transports opaque bytes. Signal encryption/decryption
@@ -12,9 +15,11 @@ import 'package:web_socket_channel/status.dart' as ws_status;
 class RelayClient {
   RelayClient({
     required this.relayUrl,
+    required this.identityStore,
   });
 
   final String relayUrl;
+  final StellarIdentityKeyStore identityStore;
 
   WebSocketChannel? _channel;
   StreamController<Uint8List>? _incomingController;
@@ -23,6 +28,15 @@ class RelayClient {
   int _backoffMs = 500;
 
   static const _maxBackoffMs = 30000;
+
+  static const _challengePrefix =
+      'STELLAR_RELAY_AUTH_CHALLENGE_V1:';
+
+  static const _responsePrefix =
+      'STELLAR_RELAY_AUTH_RESPONSE_V1:';
+
+  static const _authOk =
+      'STELLAR_RELAY_AUTH_OK_V1';
 
   String? _lastPeer;
 
@@ -96,7 +110,7 @@ class RelayClient {
         return;
       }
 
-      _ready = true;
+      _ready = false;
       _backoffMs = 500;
 
       channel.stream.listen(
@@ -110,9 +124,29 @@ class RelayClient {
                     StreamController<Uint8List>.broadcast())
                 .add(Uint8List.fromList(data));
           } else if (data is String) {
-            (_incomingController ??=
-                    StreamController<Uint8List>.broadcast())
-                .add(Uint8List.fromList(data.codeUnits));
+            if (data.startsWith(_challengePrefix)) {
+              unawaited(
+                _authenticateRelay(
+                  channel,
+                  peer,
+                  data.substring(_challengePrefix.length),
+                ),
+              );
+              return;
+            }
+
+            if (data == _authOk) {
+              if (identical(_channel, channel)) {
+                _ready = true;
+              }
+              return;
+            }
+
+            /*
+             * Relay control frames must never enter the
+             * encrypted envelope decoder.
+             */
+            return;
           }
         },
         onDone: () {
@@ -134,6 +168,67 @@ class RelayClient {
       }
       _scheduleReconnect();
       rethrow;
+    }
+  }
+
+  Future<void> _authenticateRelay(
+    WebSocketChannel channel,
+    String peer,
+    String challenge,
+  ) async {
+    if (!identical(_channel, channel) || _manuallyDisconnected) {
+      return;
+    }
+
+    try {
+      final nickname = peer.trim().toLowerCase();
+
+      final identityKeyPair =
+          await identityStore.getIdentityKeyPair();
+
+      final registrationId =
+          await identityStore.getLocalRegistrationId();
+
+      const deviceId = 1;
+
+      final message =
+          DirectoryClient.buildRelayAuthMessage(
+        nickname: nickname,
+        deviceId: deviceId,
+        registrationId: registrationId,
+        challenge: challenge,
+      );
+
+      final signature = Curve.calculateSignature(
+        identityKeyPair.getPrivateKey(),
+        Uint8List.fromList(
+          utf8.encode(message),
+        ),
+      );
+
+      final payload = jsonEncode({
+        'challenge': challenge,
+        'deviceId': deviceId,
+        'registrationId': registrationId,
+        'signature': base64Encode(signature),
+      });
+
+      if (!identical(_channel, channel) ||
+          _manuallyDisconnected) {
+        return;
+      }
+
+      channel.sink.add(
+        '$_responsePrefix$payload',
+      );
+    } catch (_) {
+      if (identical(_channel, channel)) {
+        try {
+          await channel.sink.close(
+            ws_status.policyViolation,
+          );
+        } catch (_) {}
+      }
     }
   }
 
