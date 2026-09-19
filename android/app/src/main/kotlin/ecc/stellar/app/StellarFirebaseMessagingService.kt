@@ -5,6 +5,12 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import ecc.stellar.app.calls.StellarCallManager
@@ -15,6 +21,13 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
     companion object {
         private const val MESSAGE_CHANNEL = "stellar_messages"
         private const val MESSAGE_ID_BASE = 1001
+
+        private const val BACKGROUND_CHANNEL =
+            "ecc.stellar.app/push_background"
+
+        private const val BACKGROUND_TIMEOUT_SECONDS = 20L
+
+        private val backgroundEngineLock = Any()
     }
 
     override fun onMessageReceived(
@@ -29,7 +42,106 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
             return
         }
 
+        if (data["wake"] == "1") {
+            startBackgroundMessageSync()
+            return
+        }
+
         showGenericMessageNotification()
+    }
+
+    private fun startBackgroundMessageSync() {
+        val latch = CountDownLatch(1)
+
+        Handler(Looper.getMainLooper()).post {
+            synchronized(backgroundEngineLock) {
+                try {
+                    val loader =
+                        io.flutter.embedding.engine.loader.FlutterLoader()
+
+                    loader.startInitialization(applicationContext)
+
+                    loader.ensureInitializationComplete(
+                        applicationContext,
+                        null
+                    )
+
+                    val engine =
+                        io.flutter.embedding.engine.FlutterEngine(
+                            applicationContext
+                        )
+
+                    val channel =
+                        io.flutter.plugin.common.MethodChannel(
+                            engine.dartExecutor.binaryMessenger,
+                            BACKGROUND_CHANNEL
+                        )
+
+                    channel.setMethodCallHandler { call, result ->
+                        if (call.method == "backgroundComplete") {
+                            result.success(true)
+                            latch.countDown()
+
+                            Handler(Looper.getMainLooper()).post {
+                                try {
+                                    engine.destroy()
+                                } catch (error: Throwable) {
+                                    Log.e(
+                                        "StellarFCM",
+                                        "Background engine destroy failed",
+                                        error
+                                    )
+                                }
+                            }
+                        } else {
+                            result.notImplemented()
+                        }
+                    }
+
+                    engine.dartExecutor.executeDartEntrypoint(
+                        io.flutter.embedding.engine.dart.DartExecutor.DartEntrypoint(
+                            loader.findAppBundlePath(),
+                            "stellarPushBackgroundMain"
+                        )
+                    )
+
+                    Log.d(
+                        "StellarFCM",
+                        "FIX5-A headless Flutter engine started"
+                    )
+                } catch (error: Throwable) {
+                    Log.e(
+                        "StellarFCM",
+                        "FIX5-A headless engine failed",
+                        error
+                    )
+
+                    latch.countDown()
+                }
+            }
+        }
+
+        try {
+            val completed = latch.await(
+                BACKGROUND_TIMEOUT_SECONDS,
+                TimeUnit.SECONDS
+            )
+
+            if (!completed) {
+                Log.w(
+                    "StellarFCM",
+                    "FIX5-A background sync timeout"
+                )
+            }
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+
+            Log.e(
+                "StellarFCM",
+                "FIX5-A background sync interrupted",
+                error
+            )
+        }
     }
 
     private fun handleIncomingCall(

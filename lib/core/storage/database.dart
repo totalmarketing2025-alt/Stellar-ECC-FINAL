@@ -107,6 +107,18 @@ class StellarDatabase {
     _ensureMessageDeliveryTokenColumn(db);
 
     db.execute('''
+      CREATE TABLE IF NOT EXISTS processed_envelope (
+        delivery_token BLOB PRIMARY KEY,
+        processed_at INTEGER NOT NULL
+      );
+    ''');
+
+    db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_processed_envelope_time '
+      'ON processed_envelope(processed_at);',
+    );
+
+    db.execute('''
       CREATE TABLE IF NOT EXISTS reaction (
         message_id TEXT NOT NULL REFERENCES message(message_id) ON DELETE CASCADE,
         sender_id  TEXT NOT NULL,
@@ -518,6 +530,39 @@ class MessageDao {
 
     await markDelivered(rows.first['message_id'] as String);
     return true;
+  }
+
+  Future<bool> isProcessedEnvelope(Uint8List deliveryToken) async {
+    final rows = _db.select(
+      'SELECT 1 FROM processed_envelope '
+      'WHERE delivery_token = ? LIMIT 1',
+      [deliveryToken],
+    );
+    return rows.isNotEmpty;
+  }
+
+  Future<void> markEnvelopeProcessed(Uint8List deliveryToken) async {
+    _db.execute(
+      'INSERT OR IGNORE INTO processed_envelope '
+      '(delivery_token, processed_at) VALUES (?, ?)',
+      [
+        deliveryToken,
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      ],
+    );
+  }
+
+  Future<void> purgeProcessedEnvelopes({
+    int maxAgeSeconds = 7 * 24 * 60 * 60,
+  }) async {
+    final cutoff =
+        DateTime.now().millisecondsSinceEpoch ~/ 1000 -
+        maxAgeSeconds;
+
+    _db.execute(
+      'DELETE FROM processed_envelope WHERE processed_at < ?',
+      [cutoff],
+    );
   }
 
   Future<void> markRead(String messageId) async {

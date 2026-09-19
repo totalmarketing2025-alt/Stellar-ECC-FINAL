@@ -311,6 +311,12 @@ const RELAY_AUTH_RESPONSE_PREFIX =
 const RELAY_AUTH_OK =
   "STELLAR_RELAY_AUTH_OK_V1";
 
+const RELAY_DELIVERY_PREFIX =
+  "STELLAR_RELAY_DELIVERY_V1:";
+
+const RELAY_ACK_PREFIX =
+  "STELLAR_RELAY_ACK_V1:";
+
 const RELAY_AUTH_TTL_MS = 60 * 1000;
 
 function createRelayChallenge() {
@@ -400,19 +406,29 @@ export class RelayRoom {
       try {
         if (Number(row.expires_at) <= now) {
           this.ctx.storage.sql.exec(
-            `DELETE FROM relay_queue WHERE id = ?`,
+            `DELETE FROM relay_queue
+             WHERE id = ? AND recipient = ?`,
             row.id,
+            recipient,
           );
           continue;
         }
 
         const envelope = new Uint8Array(row.envelope);
-        ws.send(envelope);
 
-        this.ctx.storage.sql.exec(
-          `DELETE FROM relay_queue WHERE id = ?`,
-          row.id,
+        /*
+         * IMPORTANT:
+         * Queue rows are NOT deleted here.
+         *
+         * The client receives a delivery id first and then
+         * the opaque Signal envelope. The row is deleted only
+         * after the authenticated client sends ACK.
+         */
+        ws.send(
+          `${RELAY_DELIVERY_PREFIX}${row.id}`,
         );
+
+        ws.send(envelope);
       } catch (_) {
         break;
       }
@@ -745,6 +761,52 @@ export class RelayRoom {
       try {
         ws.close(1008, "Invalid relay authentication state");
       } catch (_) {}
+      return;
+    }
+
+    if (
+      typeof message === "string" &&
+      message.startsWith(RELAY_ACK_PREFIX)
+    ) {
+      const deliveryId = Number(
+        message.slice(RELAY_ACK_PREFIX.length),
+      );
+
+      if (!Number.isInteger(deliveryId) || deliveryId <= 0) {
+        return;
+      }
+
+      const authenticatedAttachment =
+        ws.deserializeAttachment() || {};
+
+      if (
+        authenticatedAttachment.authenticated !== true ||
+        authenticatedAttachment.authState !== "authenticated"
+      ) {
+        return;
+      }
+
+      const recipient = String(
+        authenticatedAttachment.peer || "",
+      )
+        .trim()
+        .toLowerCase();
+
+      if (!recipient) {
+        return;
+      }
+
+      /*
+       * ACK is scoped to the authenticated recipient.
+       * A peer cannot delete another peer's queued envelope.
+       */
+      this.ctx.storage.sql.exec(
+        `DELETE FROM relay_queue
+         WHERE id = ? AND recipient = ?`,
+        deliveryId,
+        recipient,
+      );
+
       return;
     }
 
