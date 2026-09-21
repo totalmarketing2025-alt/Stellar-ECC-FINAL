@@ -1,5 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import 'directory_user_bundle.dart';
 
@@ -153,6 +156,88 @@ class DirectoryClient {
     }
 
     return challenge;
+  }
+
+  Future<String> getTurnChallenge({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+  }) async {
+    final response = await _request(
+      'POST',
+      '/v1/turn-credentials/challenge',
+      body: {
+        'nickname': nickname,
+        'deviceId': deviceId,
+        'registrationId': registrationId,
+      },
+    );
+
+    final body = await _readBody(response);
+    final json = _decodeJson(body);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw DirectoryException(
+        json['error']?.toString() ?? 'TURN challenge request failed',
+        response.statusCode,
+      );
+    }
+
+    final challenge = json['challenge'];
+    if (challenge is! String || challenge.isEmpty) {
+      throw const FormatException(
+        'Invalid TURN challenge returned by Directory',
+      );
+    }
+
+    return challenge;
+  }
+
+  static String buildTurnAuthMessage({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+    required String challenge,
+  }) {
+    return jsonEncode([
+      'stellar-turn-v1',
+      nickname,
+      deviceId,
+      registrationId,
+      challenge,
+    ]);
+  }
+
+  Future<Map<String, dynamic>> getTurnCredentials({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+    required String challenge,
+    required String signature,
+  }) async {
+    final response = await _request(
+      'POST',
+      '/v1/turn-credentials',
+      body: {
+        'nickname': nickname,
+        'deviceId': deviceId,
+        'registrationId': registrationId,
+        'challenge': challenge,
+        'signature': signature,
+      },
+    );
+
+    final body = await _readBody(response);
+    final json = _decodeJson(body);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw DirectoryException(
+        json['error']?.toString() ?? 'TURN credentials request failed',
+        response.statusCode,
+      );
+    }
+
+    return json;
   }
 
   Future<Map<String, dynamic>> registerPushToken({

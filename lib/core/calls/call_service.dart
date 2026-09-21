@@ -8,6 +8,7 @@ import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import '../crypto/session_manager.dart';
 import '../network/envelope.dart';
+import '../network/directory_client.dart';
 import '../network/relay_client.dart';
 import '../../domain/models/call_session.dart';
 import 'call_platform_bridge.dart';
@@ -19,6 +20,8 @@ class CallService {
     required this.relayClient,
     required this.sessionManager,
     required this.platformBridge,
+    required this.directoryClient,
+    required this.localNickname,
     this.localRenderer,
     this.remoteRenderer,
   });
@@ -26,6 +29,8 @@ class CallService {
   final RelayClient relayClient;
   final SessionManager sessionManager;
   final CallPlatformBridge platformBridge;
+  final DirectoryClient directoryClient;
+  final String localNickname;
   RTCVideoRenderer? localRenderer;
   RTCVideoRenderer? remoteRenderer;
 
@@ -44,16 +49,22 @@ class CallService {
 
   static const _signalPrefix = 'STELLAR_CALL_V1:';
 
-  final _configuration = <String, dynamic>{
-    'iceServers': [
-      {'urls': 'stun:stun.stellarecc.example:3478'},
-      {
-        'urls': 'turn:turn.stellarecc.example:3478',
-        'username': 'REPLACE_WITH_FETCHED_TURN_USERNAME',
-        'credential': 'REPLACE_WITH_FETCHED_TURN_CREDENTIAL',
-      },
-    ],
-  };
+  Future<Map<String, dynamic>> _buildIceConfiguration() async {
+    final response = await _fetchIceServers(
+      localNickname: localNickname,
+    );
+
+    final iceServers = response['iceServers'];
+    if (iceServers is! List || iceServers.isEmpty) {
+      throw const FormatException(
+        'Invalid ICE servers returned by Directory',
+      );
+    }
+
+    return <String, dynamic>{
+      'iceServers': iceServers,
+    };
+  }
 
   String? get callId => _callId;
   String? get chatId => _chatId;
@@ -72,6 +83,43 @@ class CallService {
       remoteRenderer = remote;
       remote.srcObject = _remoteStream;
     }
+  }
+
+  Future<Map<String, dynamic>> _fetchIceServers({
+    required String localNickname,
+  }) async {
+    final nickname = localNickname.trim().toLowerCase();
+    final identityKeyPair =
+        await sessionManager.identityStore.getIdentityKeyPair();
+    final registrationId =
+        await sessionManager.identityStore.getLocalRegistrationId();
+    const deviceId = 1;
+
+    final challenge = await directoryClient.getTurnChallenge(
+      nickname: nickname,
+      deviceId: deviceId,
+      registrationId: registrationId,
+    );
+
+    final message = DirectoryClient.buildTurnAuthMessage(
+      nickname: nickname,
+      deviceId: deviceId,
+      registrationId: registrationId,
+      challenge: challenge,
+    );
+
+    final signature = Curve.calculateSignature(
+      identityKeyPair.getPrivateKey(),
+      Uint8List.fromList(utf8.encode(message)),
+    );
+
+    return directoryClient.getTurnCredentials(
+      nickname: nickname,
+      deviceId: deviceId,
+      registrationId: registrationId,
+      challenge: challenge,
+      signature: base64Encode(signature),
+    );
   }
 
   Future<void> start({
@@ -94,7 +142,8 @@ class CallService {
 
     localRenderer?.srcObject = _localStream;
 
-    _peerConnection = await createPeerConnection(_configuration);
+    final iceConfiguration = await _buildIceConfiguration();
+    _peerConnection = await createPeerConnection(iceConfiguration);
 
     for (final track in _localStream!.getTracks()) {
       await _peerConnection!.addTrack(track, _localStream!);

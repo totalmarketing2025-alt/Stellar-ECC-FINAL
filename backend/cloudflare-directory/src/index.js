@@ -406,8 +406,182 @@ export class DirectoryStore {
 
     if (
       request.method === "POST" &&
-      url.pathname === "/v1/internal/relay-auth"
+      url.pathname === "/v1/turn-credentials/challenge"
     ) {
+      let body;
+
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const nickname = normalizeNickname(body.nickname);
+      const deviceId = String(body.deviceId || "").trim();
+      const registrationId = Number(body.registrationId);
+
+      if (
+        !validNickname(nickname) ||
+        !deviceId ||
+        !Number.isInteger(registrationId) ||
+        registrationId < 0
+      ) {
+        return json({ error: "Invalid TURN challenge request" }, 400);
+      }
+
+      const bundle = await this.ctx.storage.get(`bundle:${nickname}`);
+
+      if (
+        !bundle ||
+        bundle.deviceId !== deviceId ||
+        Number(bundle.registrationId) !== registrationId
+      ) {
+        return json({ error: "Device not registered" }, 404);
+      }
+
+      const challenge = createPushChallenge();
+      const expiresAt = Date.now() + PUSH_CHALLENGE_TTL_MS;
+
+      const challengeKey =
+        `turn-challenge:${nickname}:${deviceId}:${registrationId}`;
+
+      await this.ctx.storage.put(
+        challengeKey,
+        {
+          challenge,
+          expiresAt,
+        },
+      );
+
+      return json({
+        challenge,
+        expiresAt,
+      });
+    }
+
+    if (
+      request.method === "POST" &&
+      url.pathname === "/v1/turn-credentials"
+    ) {
+      let body;
+
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const nickname = normalizeNickname(body.nickname);
+      const deviceId = String(body.deviceId || "").trim();
+      const registrationId = Number(body.registrationId);
+      const challenge = String(body.challenge || "").trim();
+      const signature = String(body.signature || "").trim();
+
+      if (
+        !validNickname(nickname) ||
+        !deviceId ||
+        !Number.isInteger(registrationId) ||
+        registrationId < 0 ||
+        !challenge ||
+        !signature
+      ) {
+        return json({ error: "Invalid TURN credential request" }, 400);
+      }
+
+      const bundle = await this.ctx.storage.get(`bundle:${nickname}`);
+
+      if (
+        !bundle ||
+        bundle.deviceId !== deviceId ||
+        Number(bundle.registrationId) !== registrationId
+      ) {
+        return json({ error: "Device not registered" }, 404);
+      }
+
+      const challengeKey =
+        `turn-challenge:${nickname}:${deviceId}:${registrationId}`;
+
+      const stored = await this.ctx.storage.get(challengeKey);
+
+      if (
+        !stored ||
+        stored.challenge !== challenge ||
+        Number(stored.expiresAt) < Date.now()
+      ) {
+        return json({ error: "Invalid or expired TURN challenge" }, 401);
+      }
+
+      const authMessage = JSON.stringify([
+        "stellar-turn-v1",
+        nickname,
+        deviceId,
+        registrationId,
+        challenge,
+      ]);
+
+      const verified = await verifySignalIdentitySignature({
+        identityKey: bundle.identityKey,
+        message: authMessage,
+        signature,
+      });
+
+      if (!verified) {
+        return json({
+          error: "Invalid TURN signature",
+        }, 401);
+      }
+
+      await this.ctx.storage.delete(challengeKey);
+
+      const turnKeyId = String(this.env.TURN_KEY_ID || "").trim();
+      const turnKeySecret = String(this.env.TURN_KEY_SECRET || "").trim();
+
+      if (!turnKeyId || !turnKeySecret) {
+        return json({
+          error: "TURN service is not configured",
+        }, 503);
+      }
+
+      const turnUrl =
+        "https://rtc.live.cloudflare.com/v1/turn/keys/" +
+        encodeURIComponent(turnKeyId) +
+        "/credentials/generate-ice-servers";
+
+      const turnResponse = await fetch(turnUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${turnKeySecret}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ttl: 3600,
+        }),
+      });
+
+      if (!turnResponse.ok) {
+        return json({
+          error: "TURN credential generation failed",
+          status: turnResponse.status,
+        }, 502);
+      }
+
+      const turnData = await turnResponse.json();
+
+      return new Response(
+        JSON.stringify(turnData),
+        {
+          status: 201,
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/internal/relay-auth"
+      ) {
       const authorization =
         request.headers.get("Authorization") || "";
 

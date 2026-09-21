@@ -72,10 +72,17 @@ final callPlatformBridgeProvider = Provider<CallPlatformBridge>((ref) {
 });
 
 final callServiceProvider = Provider<CallService>((ref) {
+  final nickname = ref.watch(localNicknameProvider);
+  if (nickname == null || nickname.isEmpty) {
+    throw StateError('localNicknameProvider must be set before callServiceProvider is used');
+  }
+
   final service = CallService(
     relayClient: ref.watch(relayClientProvider),
     sessionManager: ref.watch(sessionManagerProvider),
     platformBridge: ref.watch(callPlatformBridgeProvider),
+    directoryClient: ref.watch(directoryClientProvider),
+    localNickname: nickname,
   );
   ref.onDispose(service.end);
   return service;
