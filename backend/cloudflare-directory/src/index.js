@@ -429,7 +429,9 @@ export class DirectoryStore {
         return json({ error: "Invalid TURN challenge request" }, 400);
       }
 
-      const bundle = await this.ctx.storage.get(`bundle:${nickname}`);
+      const user = await this.ctx.storage.get(`user:${nickname}`);
+
+      const bundle = user?.bundle;
 
       if (
         !bundle ||
@@ -488,7 +490,9 @@ export class DirectoryStore {
         return json({ error: "Invalid TURN credential request" }, 400);
       }
 
-      const bundle = await this.ctx.storage.get(`bundle:${nickname}`);
+      const user = await this.ctx.storage.get(`user:${nickname}`);
+
+      const bundle = user?.bundle;
 
       if (
         !bundle ||
