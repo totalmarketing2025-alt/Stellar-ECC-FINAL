@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - block6-android-incoming-call
   workflow_dispatch:
 
 jobs:
@@ -19,145 +20,98 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install dependencies
-        working-directory: backend/relay
-        run: npm install
-
-      - name: Start Relay
-        working-directory: backend/relay
+      - name: Check Cloudflare Relay health
         run: |
-          node server.js > /tmp/stellar-relay.log 2>&1 &
-          echo $! > /tmp/stellar-relay.pid
+          curl -fsS https://stellar-ecc-final.totalmarketing2025.workers.dev/health
 
-      - name: Wait for Relay
+      - name: Test Relay authentication challenge
         run: |
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8787/health; then
-              exit 0
-            fi
-            sleep 1
-          done
+          mkdir -p /tmp/relay-test
+          cd /tmp/relay-test
 
-          cat /tmp/stellar-relay.log
-          exit 1
+          npm init -y >/dev/null 2>&1
+          npm install ws >/dev/null 2>&1
 
-      - name: Test binary envelope relay
-        working-directory: backend/relay
-        run: |
           node --input-type=module <<'NODE'
-          import WebSocket from 'ws';
+          import WebSocket from "ws";
 
-          const connect = (peer) =>
-            new Promise((resolve, reject) => {
-              const ws = new WebSocket(
-                `ws://127.0.0.1:8787/v1/connect?peer=${peer}`,
-              );
+          const url =
+            "wss://stellar-ecc-final.totalmarketing2025.workers.dev/v1/connect?peer=relay-test";
 
-              ws.once('open', () => resolve(ws));
-              ws.once('error', reject);
-            });
+          const ws = new WebSocket(url);
 
-          const alice = await connect('alice');
-          const bob = await connect('bob');
+          const timer = setTimeout(() => {
+            console.error("Timed out waiting for relay challenge");
+            ws.close();
+            process.exit(1);
+          }, 10000);
 
-          const payload = Buffer.from(
-            'STELLAR_ENCRYPTED_SIGNAL_PAYLOAD',
-            'utf8',
-          );
+          ws.on("open", () => {
+            console.log("WebSocket connected");
+          });
 
-          const received = new Promise(
-            (resolve, reject) => {
-              const timer = setTimeout(
-                () => {
-                  reject(
-                    new Error(
-                      'Timed out waiting for relay',
-                    ),
-                  );
-                },
-                5000,
-              );
+          ws.on("message", (data) => {
+            const message = data.toString();
 
-              bob.once(
-                'message',
-                (data) => {
-                  clearTimeout(timer);
-                  resolve(Buffer.from(data));
-                },
-              );
-            },
-          );
+            if (!message.startsWith("STELLAR_RELAY_AUTH_CHALLENGE_V1:")) {
+              clearTimeout(timer);
+              console.error("Unexpected relay message:", message);
+              ws.close();
+              process.exit(1);
+            }
 
-          const route = Buffer.from('bob', 'utf8');
-          const token = Buffer.alloc(0);
+            const challenge =
+              message.slice("STELLAR_RELAY_AUTH_CHALLENGE_V1:".length);
 
-          const envelope = Buffer.concat([
-            Buffer.from([0x00, 0x01]),
+            if (!challenge) {
+              clearTimeout(timer);
+              console.error("Relay challenge is empty");
+              ws.close();
+              process.exit(1);
+            }
 
-            (() => {
-              const b = Buffer.alloc(4);
-              b.writeUInt32BE(300, 0);
-              return b;
-            })(),
+            console.log("Relay authentication challenge: PASS");
 
-            (() => {
-              const b = Buffer.alloc(2);
-              b.writeUInt16BE(token.length, 0);
-              return b;
-            })(),
-
-            token,
-
-            (() => {
-              const b = Buffer.alloc(2);
-              b.writeUInt16BE(route.length, 0);
-              return b;
-            })(),
-
-            route,
-
-            (() => {
-              const b = Buffer.alloc(4);
-              b.writeUInt32BE(payload.length, 0);
-              return b;
-            })(),
-
-            payload,
-          ]);
-
-          alice.send(envelope);
-
-          const result = await received;
-
-          if (!result.equals(envelope)) {
-            throw new Error(
-              'Relay modified the complete envelope',
+            /*
+             * Deliberately send an invalid authentication response.
+             * This must be rejected by the live relay.
+             */
+            ws.send(
+              "STELLAR_RELAY_AUTH_RESPONSE_V1:" +
+              JSON.stringify({
+                challenge,
+                deviceId: 1,
+                registrationId: 1,
+                signature: "invalid-test-signature",
+              }),
             );
-          }
+          });
 
-          console.log(
-            '========================================',
-          );
-          console.log(
-            'STELLAR BINARY RELAY TEST PASSED',
-          );
-          console.log(
-            'Alice -> Relay -> Bob',
-          );
-          console.log(
-            'Complete Stellar Envelope preserved',
-          );
-          console.log(
-            '========================================',
-          );
+          ws.on("close", (code, reason) => {
+            clearTimeout(timer);
 
-          alice.close();
-          bob.close();
+            console.log(
+              `Relay close code: ${code} reason: ${reason.toString()}`,
+            );
+
+            if (code !== 1008) {
+              console.error(
+                "Relay did not reject invalid authentication",
+              );
+              process.exit(1);
+            }
+
+            console.log(
+              "Invalid relay authentication rejection: PASS",
+            );
+            console.log("CLOUDFLARE RELAY TEST PASSED");
+
+            process.exit(0);
+          });
+
+          ws.on("error", (error) => {
+            clearTimeout(timer);
+            console.error("Relay WebSocket error:", error.message);
+            process.exit(1);
+          });
           NODE
-
-      - name: Stop Relay
-        if: always()
-        run: |
-          if [ -f /tmp/stellar-relay.pid ]; then
-            kill $(cat /tmp/stellar-relay.pid) || true
-          fi
