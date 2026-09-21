@@ -562,18 +562,8 @@ export class RelayRoom {
       challengeExpiresAt: Date.now() + RELAY_AUTH_TTL_MS,
     });
 
-    this.ctx.waitUntil(
-      new Promise((resolve) => {
-        setTimeout(() => {
-          try {
-            server.send(
-              `${RELAY_AUTH_CHALLENGE_PREFIX}${challenge}`,
-            );
-          } finally {
-            resolve();
-          }
-        }, 0);
-      }),
+    server.send(
+      `${RELAY_AUTH_CHALLENGE_PREFIX}${challenge}`,
     );
 
     /*
