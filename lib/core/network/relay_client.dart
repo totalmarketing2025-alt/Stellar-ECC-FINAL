@@ -9,6 +9,18 @@ import 'package:web_socket_channel/status.dart' as ws_status;
 import 'directory_client.dart';
 import '../crypto/signal_stores.dart';
 
+class RelayDelivery {
+  const RelayDelivery({
+    required this.bytes,
+    required this.deliveryId,
+  });
+
+  final Uint8List bytes;
+
+  /// Non-null only for a queued relay delivery.
+  final int? deliveryId;
+}
+
 /// WebSocket client for the Stellar relay.
 ///
 /// The relay only transports opaque bytes. Signal encryption/decryption
@@ -24,6 +36,9 @@ class RelayClient {
 
   WebSocketChannel? _channel;
   StreamController<Uint8List>? _incomingController;
+  StreamController<RelayDelivery>? _incomingDeliveryController;
+
+  final List<int> _pendingDeliveryIds = <int>[];
 
   bool _manuallyDisconnected = false;
   int _backoffMs = 500;
@@ -39,11 +54,22 @@ class RelayClient {
   static const _authOk =
       'STELLAR_RELAY_AUTH_OK_V1';
 
+  static const _deliveryPrefix =
+      'STELLAR_RELAY_DELIVERY_V1:';
+
+  static const _ackPrefix =
+      'STELLAR_RELAY_ACK_V1:';
+
   String? _lastPeer;
 
   Stream<Uint8List> get incoming =>
       (_incomingController ??=
               StreamController<Uint8List>.broadcast())
+          .stream;
+
+  Stream<RelayDelivery> get incomingDelivery =>
+      (_incomingDeliveryController ??=
+              StreamController<RelayDelivery>.broadcast())
           .stream;
 
   bool get isConnected => _channel != null && _ready == true;
@@ -102,6 +128,7 @@ class RelayClient {
 
       _channel = connectedChannel;
       _ready = false;
+      _pendingDeliveryIds.clear();
 
       print('RELAY_DEBUG: BEFORE_READY peer=$peer');
       await connectedChannel.ready;
@@ -122,10 +149,38 @@ class RelayClient {
           }
 
           if (data is List<int>) {
+            final bytes = Uint8List.fromList(data);
+
+            final deliveryId =
+                _pendingDeliveryIds.isEmpty
+                    ? null
+                    : _pendingDeliveryIds.removeAt(0);
+
             (_incomingController ??=
                     StreamController<Uint8List>.broadcast())
-                .add(Uint8List.fromList(data));
+                .add(bytes);
+
+            (_incomingDeliveryController ??=
+                    StreamController<RelayDelivery>.broadcast())
+                .add(
+              RelayDelivery(
+                bytes: bytes,
+                deliveryId: deliveryId,
+              ),
+            );
           } else if (data is String) {
+            if (data.startsWith(_deliveryPrefix)) {
+              final deliveryId = int.tryParse(
+                data.substring(_deliveryPrefix.length),
+              );
+
+              if (deliveryId != null && deliveryId > 0) {
+                _pendingDeliveryIds.add(deliveryId);
+              }
+
+              return;
+            }
+
             if (data.startsWith(_challengePrefix)) {
               unawaited(
                 _authenticateRelay(
@@ -312,6 +367,22 @@ class RelayClient {
 
     channel.sink.add(
       'STELLAR_CALL_WAKE_V1:${jsonEncode(payload)}',
+    );
+  }
+
+  Future<void> acknowledgeDelivery(
+    int deliveryId,
+  ) async {
+    final channel = _channel;
+
+    if (deliveryId <= 0 ||
+        channel == null ||
+        _ready != true) {
+      return;
+    }
+
+    channel.sink.add(
+      '$_ackPrefix$deliveryId',
     );
   }
 
