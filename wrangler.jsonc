@@ -3,6 +3,7 @@
   "name": "stellar-ecc-final",
   "main": "backend/cloudflare-relay/src/index.js",
   "compatibility_date": "2026-09-06",
+  "keep_vars": true,
   "durable_objects": {
     "bindings": [
       {
