@@ -47,7 +47,13 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
     // Keep incoming relay processing alive after the local nickname
     // has been restored by the splash screen.
     ref.watch(relayListenerProvider);
-    ref.watch(callCoordinatorProvider);
+
+    // Call services require a restored local nickname. Do not create the
+    // coordinator during the initial build while the splash is loading it.
+    final nickname = ref.watch(localNicknameProvider);
+    if (nickname != null && nickname.isNotEmpty) {
+      ref.watch(callCoordinatorProvider);
+    }
 
     final router = ref.watch(appRouterProvider);
 
