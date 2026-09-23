@@ -938,6 +938,10 @@ export default {
       return Response.json({
         ok: true,
         service: "stellar-relay",
+        runtime: {
+          DIRECTORY_URL: Boolean(env.DIRECTORY_URL),
+          RELAY_SHARED_SECRET: Boolean(env.RELAY_SHARED_SECRET),
+        },
       });
     }
 
