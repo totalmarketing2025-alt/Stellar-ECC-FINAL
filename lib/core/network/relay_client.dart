@@ -76,6 +76,7 @@ class RelayClient {
   bool? _ready;
   Timer? _reconnectTimer;
   Future<void>? _connectFuture;
+  Completer<void>? _authCompleter;
 
   Future<void> connect({
     required String peer,
@@ -141,6 +142,7 @@ class RelayClient {
 
       _ready = false;
       _backoffMs = 500;
+      _authCompleter = Completer<void>();
 
       connectedChannel.stream.listen(
         (data) {
@@ -195,6 +197,11 @@ class RelayClient {
             if (data == _authOk) {
               if (identical(_channel, channel)) {
                 _ready = true;
+
+                final completer = _authCompleter;
+                if (completer != null && !completer.isCompleted) {
+                  completer.complete();
+                }
               }
               return;
             }
@@ -218,6 +225,22 @@ class RelayClient {
         },
         cancelOnError: true,
       );
+
+      final authCompleter = _authCompleter;
+      if (authCompleter != null) {
+        await authCompleter.future.timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            throw StateError('Relay authentication timed out');
+          },
+        );
+      }
+
+      if (!identical(_channel, channel) ||
+          _manuallyDisconnected ||
+          _ready != true) {
+        throw StateError('Relay authentication failed');
+      }
     } catch (_) {
       if (identical(_channel, channel)) {
         _channel = null;
@@ -290,6 +313,14 @@ class RelayClient {
   }
 
   void _handleDisconnect() {
+    final completer = _authCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.completeError(
+        StateError('Relay connection disconnected before authentication'),
+      );
+    }
+
+    _authCompleter = null;
     _channel = null;
     _ready = false;
 
@@ -390,6 +421,15 @@ class RelayClient {
     _manuallyDisconnected = true;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+
+    final authCompleter = _authCompleter;
+    if (authCompleter != null && !authCompleter.isCompleted) {
+      authCompleter.completeError(
+        StateError('Relay manually disconnected before authentication'),
+      );
+    }
+
+    _authCompleter = null;
 
     final channel = _channel;
     _channel = null;
