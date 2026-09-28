@@ -121,6 +121,12 @@ async function classifyFcmResponse(response) {
     body = null;
   }
 
+  console.error("FCM_RESPONSE", JSON.stringify({
+    status: response.status,
+    statusText: response.statusText,
+    body,
+  }));
+
   const error = body?.error;
 
   const details = Array.isArray(error?.details)
@@ -198,7 +204,9 @@ async function sendFcmMessage({
           }),
         },
       );
-    } catch (_) {
+    } catch (error) {
+      console.error("FCM_FETCH_ERROR", String(error));
+
       if (attempt === 2) {
         return "other";
       }
@@ -287,7 +295,21 @@ async function createFcmAccessToken(clientEmail, privateKey) {
   );
 
   if (!tokenResponse.ok) {
-    throw new Error("FCM OAuth token request failed");
+    let oauthError = null;
+
+    try {
+      oauthError = await tokenResponse.json();
+    } catch (_) {
+      oauthError = null;
+    }
+
+    console.error("FCM_OAUTH_ERROR", JSON.stringify({
+      status: tokenResponse.status,
+      statusText: tokenResponse.statusText,
+      body: oauthError,
+    }));
+
+    throw new Error(`FCM OAuth token request failed (${tokenResponse.status})`);
   }
 
   const tokenBody = await tokenResponse.json();
@@ -451,6 +473,13 @@ export class RelayRoom {
       privateKey === "DEV_PLACEHOLDER" ||
       clientEmail.startsWith("dev-placeholder@")
     ) {
+      console.error("FCM_CONFIG_MISSING", JSON.stringify({
+        directoryUrl: Boolean(directoryUrl),
+        sharedSecret: Boolean(sharedSecret),
+        projectId: Boolean(projectId),
+        clientEmail: Boolean(clientEmail),
+        privateKey: Boolean(privateKey),
+      }));
       return;
     }
 
@@ -464,10 +493,22 @@ export class RelayRoom {
     );
 
     if (!response.ok) {
+      console.error("FCM_DIRECTORY_ERROR", JSON.stringify({
+        status: response.status,
+        statusText: response.statusText,
+      }));
       return;
     }
 
     const body = await response.json();
+
+    console.log("FCM_DIRECTORY_REGISTRATIONS", JSON.stringify({
+      count: Array.isArray(body.pushRegistrations)
+        ? body.pushRegistrations.length
+        : body.push
+          ? 1
+          : 0,
+    }));
 
     const registrations = Array.isArray(body.pushRegistrations)
       ? body.pushRegistrations
@@ -488,10 +529,24 @@ export class RelayRoom {
       return;
     }
 
-    const accessToken = await createFcmAccessToken(
-      clientEmail,
-      privateKey,
-    );
+    if (validRegistrations.length === 0) {
+      console.error("FCM_NO_VALID_REGISTRATIONS");
+      return;
+    }
+
+    console.log("FCM_VALID_REGISTRATIONS", validRegistrations.length);
+
+    let accessToken;
+
+    try {
+      accessToken = await createFcmAccessToken(
+        clientEmail,
+        privateKey,
+      );
+    } catch (error) {
+      console.error("FCM_ACCESS_TOKEN_ERROR", String(error));
+      return;
+    }
 
     const sends = validRegistrations.map(async (registration) => {
       const result = await sendFcmMessage({
