@@ -10,12 +10,12 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/firebase_options.dart';
-import '../../core/crypto/envelope.dart';
-import '../../core/network/relay_client.dart';
-import '../../core/chat/chat_repository.dart';
-import '../../core/database/database.dart';
-import '../../core/storage/platform_key_store.dart';
-import '../../core/providers/app_providers.dart';
+import 'envelope.dart';
+import 'relay_client.dart';
+import '../../data/repositories/chat_repository.dart';
+import '../storage/database.dart';
+import '../security/platform_key_store.dart';
+import '../../presentation/state/app_providers.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(
