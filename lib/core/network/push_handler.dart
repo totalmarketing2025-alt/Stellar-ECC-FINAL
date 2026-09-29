@@ -20,6 +20,7 @@ class PushHandler {
     required this.directoryClient,
     required this.sessionManager,
     required this.getLocalNickname,
+    required this.backgroundHandler,
   });
 
   final RelayClient relayClient;
@@ -27,6 +28,7 @@ class PushHandler {
   final DirectoryClient directoryClient;
   final SessionManager sessionManager;
   final Future<String?> Function() getLocalNickname;
+  final Future<void> Function(RemoteMessage message) backgroundHandler;
 
   String? _lastRegisteredToken;
   Future<void> _registrationQueue = Future<void>.value();
@@ -70,7 +72,7 @@ class PushHandler {
       await _handleWake();
     }
 
-    FirebaseMessaging.onBackgroundMessage(_backgroundHandler);
+    FirebaseMessaging.onBackgroundMessage(backgroundHandler);
   }
 
   Future<void> registerCurrentToken() async {
@@ -210,8 +212,3 @@ class PushHandler {
     }
   }
 }
-
-/// Runs in a separate isolate when the app is fully backgrounded.
-/// The push remains a wake signal only.
-@pragma('vm:entry-point')
-Future<void> _backgroundHandler(RemoteMessage message) async {}

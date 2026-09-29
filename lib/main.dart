@@ -436,6 +436,7 @@ Future<void> main() async {
         messaging: FirebaseMessaging.instance,
         directoryClient: container.read(directoryClientProvider),
         sessionManager: container.read(sessionManagerProvider),
+        backgroundHandler: stellarPushBackgroundMain,
         getLocalNickname: () async {
           final bytes = await container
               .read(platformKeyStoreProvider)
