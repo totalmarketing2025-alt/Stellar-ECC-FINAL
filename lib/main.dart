@@ -22,7 +22,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 
 
 @pragma('vm:entry-point')
-Future<void> stellarPushBackgroundMain() async {
+Future<void> stellarPushBackgroundMain(RemoteMessage message) async {
   WidgetsFlutterBinding.ensureInitialized();
 
   const backgroundChannel =
