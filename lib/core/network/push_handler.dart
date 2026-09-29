@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'push_background_handler.dart';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
@@ -20,7 +21,6 @@ class PushHandler {
     required this.directoryClient,
     required this.sessionManager,
     required this.getLocalNickname,
-    required this.backgroundHandler,
   });
 
   final RelayClient relayClient;
@@ -28,7 +28,6 @@ class PushHandler {
   final DirectoryClient directoryClient;
   final SessionManager sessionManager;
   final Future<String?> Function() getLocalNickname;
-  final Future<void> Function(RemoteMessage message) backgroundHandler;
 
   String? _lastRegisteredToken;
   Future<void> _registrationQueue = Future<void>.value();
@@ -72,7 +71,9 @@ class PushHandler {
       await _handleWake();
     }
 
-    FirebaseMessaging.onBackgroundMessage(backgroundHandler);
+    FirebaseMessaging.onBackgroundMessage(
+      firebaseMessagingBackgroundHandler,
+    );
   }
 
   Future<void> registerCurrentToken() async {
