@@ -14,6 +14,7 @@ import 'envelope.dart';
 import 'relay_client.dart';
 import '../../data/repositories/chat_repository.dart';
 import '../storage/database.dart';
+import '../storage/providers.dart';
 import '../security/platform_key_store.dart';
 import '../../presentation/state/app_providers.dart';
 
