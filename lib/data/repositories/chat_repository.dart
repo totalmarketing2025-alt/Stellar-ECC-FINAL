@@ -183,6 +183,17 @@ class ChatRepository {
       throw StateError('Direct chat peer mapping is missing for $chatId');
     }
 
+    // Validate and build the exact network payload before creating any
+    // local message/blob state. This prevents oversized or malformed
+    // attachments from leaving orphaned local media records.
+    final plaintextBytes =
+        attachmentBytes != null && attachmentMimeType != null
+        ? AttachmentPayload.encode(
+            mimeType: attachmentMimeType,
+            bytes: attachmentBytes,
+          )
+        : Uint8List.fromList(utf8.encode(plaintext));
+
     final messageId = _uuid.v4();
 
     // Stable per-message token used to correlate delivery ACKs.
@@ -226,14 +237,6 @@ class ChatRepository {
       print('SEND_STEP_2_AFTER_SESSION');
 
       final address = SignalProtocolAddress(peerName, peerDeviceId);
-
-      final plaintextBytes =
-          attachmentBytes != null && attachmentMimeType != null
-          ? AttachmentPayload.encode(
-              mimeType: attachmentMimeType,
-              bytes: attachmentBytes,
-            )
-          : Uint8List.fromList(utf8.encode(plaintext));
 
       print('SEND_STEP_3_BEFORE_ENCRYPT');
       CiphertextMessage ciphertextMessage;
