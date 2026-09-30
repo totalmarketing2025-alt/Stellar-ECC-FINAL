@@ -1,6 +1,10 @@
 package ecc.stellar.app
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -17,7 +21,80 @@ object StellarPushBackgroundRunner {
     private const val CHANNEL = "ecc.stellar.app/push_background"
     private const val TIMEOUT_SECONDS = 15L
 
+    private const val MESSAGE_CHANNEL = "stellar_messages"
+    private const val MESSAGE_ID_BASE = 1001
+
     private val engineLock = Any()
+
+    private fun showMessageNotification(context: Context) {
+        try {
+            val manager =
+                context.getSystemService(Context.NOTIFICATION_SERVICE)
+                    as NotificationManager
+
+            if (Build.VERSION.SDK_INT >= 26) {
+                manager.createNotificationChannel(
+                    NotificationChannel(
+                        MESSAGE_CHANNEL,
+                        "Messages",
+                        NotificationManager.IMPORTANCE_DEFAULT
+                    )
+                )
+            }
+
+            val launch =
+                context.packageManager
+                    .getLaunchIntentForPackage(context.packageName)
+
+            val pending = launch?.let {
+                PendingIntent.getActivity(
+                    context,
+                    0,
+                    it,
+                    PendingIntent.FLAG_UPDATE_CURRENT or
+                        PendingIntent.FLAG_IMMUTABLE
+                )
+            }
+
+            val builder =
+                if (Build.VERSION.SDK_INT >= 26) {
+                    android.app.Notification.Builder(
+                        context,
+                        MESSAGE_CHANNEL
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    android.app.Notification.Builder(context)
+                }
+
+            builder
+                .setSmallIcon(R.drawable.ic_stat_stellar)
+                .setContentTitle("Stellar ECC")
+                .setContentText("Имате нова порака")
+                .setAutoCancel(true)
+
+            if (pending != null) {
+                builder.setContentIntent(pending)
+            }
+
+            manager.notify(
+                MESSAGE_ID_BASE +
+                    (System.currentTimeMillis() % 100000).toInt(),
+                builder.build()
+            )
+
+            Log.d(
+                "StellarFCM",
+                "Background local message notification shown"
+            )
+        } catch (error: Throwable) {
+            Log.e(
+                "StellarFCM",
+                "Background local message notification failed",
+                error
+            )
+        }
+    }
 
     fun run(context: Context): Boolean {
         val latch = CountDownLatch(1)
@@ -50,7 +127,10 @@ object StellarPushBackgroundRunner {
                     )
 
                     channel.setMethodCallHandler { call, result ->
-                        if (call.method == "backgroundComplete") {
+                        if (call.method == "showMessageNotification") {
+                            showMessageNotification(context)
+                            result.success(true)
+                        } else if (call.method == "backgroundComplete") {
                             val backgroundSuccess =
                                 call.arguments as? Boolean ?: true
 
