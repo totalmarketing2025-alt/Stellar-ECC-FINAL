@@ -36,10 +36,38 @@ class CallPlatformBridge {
 
   static const MethodChannel _channel = MethodChannel('ecc.stellar.app/calls');
 
-  final StreamController<CallPlatformAction> _controller =
-      StreamController<CallPlatformAction>.broadcast();
+  late final StreamController<CallPlatformAction> _controller =
+      StreamController<CallPlatformAction>.broadcast(
+        onListen: _flushPendingAction,
+      );
+
+  CallPlatformAction? _pendingAction;
 
   Stream<CallPlatformAction> get actions => _controller.stream;
+
+  void _flushPendingAction() {
+    final pending = _pendingAction;
+
+    if (pending == null || _controller.isClosed) {
+      return;
+    }
+
+    _pendingAction = null;
+    _controller.add(pending);
+  }
+
+  void _emitAction(CallPlatformAction action) {
+    if (_controller.isClosed) {
+      return;
+    }
+
+    if (!_controller.hasListener) {
+      _pendingAction = action;
+      return;
+    }
+
+    _controller.add(action);
+  }
 
   Future<void> _loadPendingAction() async {
     try {
@@ -52,9 +80,8 @@ class CallPlatformBridge {
 
         if (action.action.isNotEmpty &&
             action.callId.isNotEmpty &&
-            action.remoteNickname.isNotEmpty &&
-            !_controller.isClosed) {
-          _controller.add(action);
+            action.remoteNickname.isNotEmpty) {
+          _emitAction(action);
         }
       }
     } catch (error) {
@@ -81,9 +108,7 @@ class CallPlatformBridge {
       return;
     }
 
-    if (!_controller.isClosed) {
-      _controller.add(action);
-    }
+    _emitAction(action);
   }
 
   Future<bool> setCallActive(String callId) async {
