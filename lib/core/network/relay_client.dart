@@ -415,14 +415,6 @@ class RelayClient {
     required String kind,
     String? chatId,
   }) async {
-    final channel = _channel;
-
-    if (channel == null || _ready != true) {
-      throw StateError(
-        'Relay is not connected and ready',
-      );
-    }
-
     final payload = <String, dynamic>{
       'recipient': recipient,
       'callId': callId,
@@ -430,8 +422,59 @@ class RelayClient {
       if (chatId != null && chatId.isNotEmpty) 'chatId': chatId,
     };
 
-    channel.sink.add(
-      'STELLAR_CALL_WAKE_V1:${jsonEncode(payload)}',
+    Object? lastError;
+
+    for (var attempt = 0; attempt < 3; attempt++) {
+      WebSocketChannel? attemptedChannel;
+
+      try {
+        var channel = _channel;
+
+        if (channel == null || _ready != true) {
+          final peer = _lastPeer;
+
+          if (peer == null || peer.isEmpty) {
+            throw StateError(
+              'Relay peer is not available for CALL_WAKE retry',
+            );
+          }
+
+          await connect(peer: peer);
+
+          channel = _channel;
+
+          if (channel == null || _ready != true) {
+            throw StateError(
+              'Relay did not become ready for CALL_WAKE',
+            );
+          }
+        }
+
+        attemptedChannel = channel;
+
+        channel.sink.add(
+          'STELLAR_CALL_WAKE_V1:${jsonEncode(payload)}',
+        );
+
+        return;
+      } catch (error) {
+        lastError = error;
+
+        if (attemptedChannel != null &&
+            identical(_channel, attemptedChannel)) {
+          _handleDisconnect();
+        }
+
+        if (attempt < 2) {
+          await Future<void>.delayed(
+            const Duration(milliseconds: 300),
+          );
+        }
+      }
+    }
+
+    throw StateError(
+      'Relay CALL_WAKE failed after 3 attempts: $lastError',
     );
   }
 
