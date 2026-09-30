@@ -107,6 +107,13 @@ function getFcmRetryDelayMs(response, attempt) {
     if (Number.isFinite(seconds) && seconds >= 0) {
       return Math.min(seconds * 1000, 10000);
     }
+
+    const retryAt = Date.parse(retryAfter);
+
+    if (Number.isFinite(retryAt)) {
+      const delay = Math.max(0, retryAt - Date.now());
+      return Math.min(delay, 10000);
+    }
   }
 
   return Math.min(1000 * (2 ** attempt), 10000);
@@ -149,10 +156,19 @@ async function classifyFcmResponse(response) {
   if (
     response.status === 429 ||
     response.status === 500 ||
-    response.status === 503
+    response.status === 502 ||
+    response.status === 503 ||
+    response.status === 504
   ) {
     return "transient";
   }
+
+  /*
+   * INVALID_ARGUMENT is intentionally NOT treated as an invalid
+   * registration. FCM may use INVALID_ARGUMENT for malformed
+   * requests or invalid message parameters, so the token must
+   * remain registered until FCM explicitly reports UNREGISTERED.
+   */
 
   return "other";
 }
