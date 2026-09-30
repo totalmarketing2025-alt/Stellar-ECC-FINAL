@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-import 'push_background_handler.dart';
-
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
@@ -66,10 +64,6 @@ class PushHandler {
     if (initialMessage != null) {
       await _handleWake();
     }
-
-    FirebaseMessaging.onBackgroundMessage(
-      firebaseMessagingBackgroundHandler,
-    );
   }
 
   Future<void> registerCurrentToken() async {

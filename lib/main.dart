@@ -121,6 +121,10 @@ Future<void> main() async {
   }
 
   if (firebaseAvailable) {
+    FirebaseMessaging.onBackgroundMessage(
+      firebaseMessagingBackgroundHandler,
+    );
+
     try {
       final pushHandler = PushHandler(
         relayClient: container.read(relayClientProvider),
