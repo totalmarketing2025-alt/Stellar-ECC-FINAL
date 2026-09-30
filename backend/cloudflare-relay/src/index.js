@@ -180,6 +180,7 @@ async function sendFcmMessage({
   accessToken,
   token,
   data,
+  priority = "normal",
 }) {
   for (let attempt = 0; attempt < 3; attempt++) {
     let response;
@@ -198,7 +199,7 @@ async function sendFcmMessage({
               token,
               data,
               android: {
-                priority: "high",
+                priority,
               },
             },
           }),
@@ -526,10 +527,6 @@ export class RelayRoom {
     );
 
     if (validRegistrations.length === 0) {
-      return;
-    }
-
-    if (validRegistrations.length === 0) {
       console.error("FCM_NO_VALID_REGISTRATIONS");
       return;
     }
@@ -567,6 +564,7 @@ export class RelayRoom {
               }
             : {}),
         },
+        priority: callMeta ? "high" : "normal",
       });
 
       if (result === "invalid-token") {
