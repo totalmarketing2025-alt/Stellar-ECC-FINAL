@@ -340,6 +340,9 @@ const RELAY_DELIVERY_PREFIX =
 const RELAY_ACK_PREFIX =
   "STELLAR_RELAY_ACK_V1:";
 
+const RELAY_ACK_OK_PREFIX =
+  "STELLAR_RELAY_ACK_OK_V1:";
+
 const RELAY_AUTH_TTL_MS = 60 * 1000;
 
 function createRelayChallenge() {
@@ -858,6 +861,10 @@ export class RelayRoom {
          WHERE id = ? AND recipient = ?`,
         deliveryId,
         recipient,
+      );
+
+      ws.send(
+        `${RELAY_ACK_OK_PREFIX}${deliveryId}`,
       );
 
       return;

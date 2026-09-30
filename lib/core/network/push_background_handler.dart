@@ -315,13 +315,12 @@ Future<void> stellarPushBackgroundMain() async {
     // ----------------------------------------------------------
     hardTimeout = Timer(
       const Duration(seconds: 15),
-      () async {
-        try {
-          await processingQueue;
-        } finally {
-          await subscription.cancel();
-          await complete();
-        }
+      () {
+        // Native StellarPushBackgroundRunner owns the real hard cutoff.
+        // Never await processingQueue here: a stuck queue must not block
+        // the 15s safety path.
+        unawaited(subscription.cancel());
+        unawaited(relayClient?.disconnect());
       },
     );
   } catch (error, stackTrace) {

@@ -60,6 +60,9 @@ class RelayClient {
   static const _ackPrefix =
       'STELLAR_RELAY_ACK_V1:';
 
+  static const _ackOkPrefix =
+      'STELLAR_RELAY_ACK_OK_V1:';
+
   String? _lastPeer;
 
   Stream<Uint8List> get incoming =>
@@ -77,6 +80,8 @@ class RelayClient {
   Timer? _reconnectTimer;
   Future<void>? _connectFuture;
   Completer<void>? _authCompleter;
+  final Map<int, Completer<void>> _ackWaiters =
+      <int, Completer<void>>{};
 
   Future<void> connect({
     required String peer,
@@ -171,6 +176,22 @@ class RelayClient {
               ),
             );
           } else if (data is String) {
+            if (data.startsWith(_ackOkPrefix)) {
+              final deliveryId = int.tryParse(
+                data.substring(_ackOkPrefix.length),
+              );
+
+              if (deliveryId != null && deliveryId > 0) {
+                final waiter = _ackWaiters.remove(deliveryId);
+
+                if (waiter != null && !waiter.isCompleted) {
+                  waiter.complete();
+                }
+              }
+
+              return;
+            }
+
             if (data.startsWith(_deliveryPrefix)) {
               final deliveryId = int.tryParse(
                 data.substring(_deliveryPrefix.length),
@@ -321,6 +342,19 @@ class RelayClient {
     }
 
     _authCompleter = null;
+
+    for (final waiter in _ackWaiters.values) {
+      if (!waiter.isCompleted) {
+        waiter.completeError(
+          StateError(
+            'Relay connection closed before ACK confirmation',
+          ),
+        );
+      }
+    }
+
+    _ackWaiters.clear();
+
     _channel = null;
     _ready = false;
 
@@ -404,16 +438,60 @@ class RelayClient {
   Future<void> acknowledgeDelivery(
     int deliveryId,
   ) async {
-    final channel = _channel;
-
-    if (deliveryId <= 0 ||
-        channel == null ||
-        _ready != true) {
+    if (deliveryId <= 0) {
       return;
     }
 
-    channel.sink.add(
-      '$_ackPrefix$deliveryId',
+    Object? lastError;
+
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final channel = _channel;
+
+      if (channel == null || _ready != true) {
+        lastError = StateError(
+          'Relay is not connected and ready for ACK',
+        );
+      } else {
+        final waiter = Completer<void>();
+
+        final previous = _ackWaiters[deliveryId];
+        if (previous != null && !previous.isCompleted) {
+          previous.completeError(
+            StateError('Relay ACK waiter replaced'),
+          );
+        }
+
+        _ackWaiters[deliveryId] = waiter;
+
+        try {
+          channel.sink.add(
+            '$_ackPrefix$deliveryId',
+          );
+
+          await waiter.future.timeout(
+            const Duration(seconds: 2),
+          );
+
+          return;
+        } catch (error) {
+          lastError = error;
+
+          if (identical(_ackWaiters[deliveryId], waiter)) {
+            _ackWaiters.remove(deliveryId);
+          }
+        }
+      }
+
+      if (attempt < 2) {
+        await Future<void>.delayed(
+          const Duration(milliseconds: 200),
+        );
+      }
+    }
+
+    throw StateError(
+      'Relay ACK confirmation timed out: '
+      '$deliveryId ($lastError)',
     );
   }
 
@@ -430,6 +508,18 @@ class RelayClient {
     }
 
     _authCompleter = null;
+
+    for (final waiter in _ackWaiters.values) {
+      if (!waiter.isCompleted) {
+        waiter.completeError(
+          StateError(
+            'Relay manually disconnected before ACK confirmation',
+          ),
+        );
+      }
+    }
+
+    _ackWaiters.clear();
 
     final channel = _channel;
     _channel = null;
