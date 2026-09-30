@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/media/attachment_payload.dart';
 import '../../core/network/relay_client.dart';
 import '../../core/storage/providers.dart';
 import '../../core/network/envelope.dart';
@@ -67,21 +68,14 @@ class RelayListener {
             rawEnvelope: bytes,
           );
 
-          final plaintext = utf8.decode(
+          // Attachments are binary payloads. Detect them before attempting
+          // UTF-8 decoding so arbitrary attachment bytes can never be
+          // interpreted as text.
+          final attachment = AttachmentPayload.decode(
             decrypted.plaintextBytes,
-            allowMalformed: false,
           );
 
-          if (plaintext.startsWith(_callPrefix)) {
-            final callProcessed = await _routeCallSignal(
-              decrypted: decrypted,
-              plaintext: plaintext,
-            );
-
-            if (!callProcessed) {
-              return;
-            }
-          } else {
+          if (attachment != null) {
             final message = await _chatRepository.receiveDecryptedEnvelope(
               decrypted: decrypted,
             );
@@ -89,6 +83,32 @@ class RelayListener {
             if (message != null) {
               ref.invalidate(chatListProvider);
               ref.invalidate(chatMessagesProvider(message.chatId));
+            }
+          } else {
+            final plaintext = utf8.decode(
+              decrypted.plaintextBytes,
+              allowMalformed: false,
+            );
+
+            if (plaintext.startsWith(_callPrefix)) {
+              final callProcessed = await _routeCallSignal(
+                decrypted: decrypted,
+                plaintext: plaintext,
+              );
+
+              if (!callProcessed) {
+                return;
+              }
+            } else {
+              final message =
+                  await _chatRepository.receiveDecryptedEnvelope(
+                decrypted: decrypted,
+              );
+
+              if (message != null) {
+                ref.invalidate(chatListProvider);
+                ref.invalidate(chatMessagesProvider(message.chatId));
+              }
             }
           }
 
