@@ -777,65 +777,81 @@ export class DirectoryStore {
       }
 
       const key = `user:${nickname}`;
-      const existing = await this.ctx.storage.get(key);
 
-      if (!existing) {
-        return json({ error: "User not found" }, 404);
-      }
+      const result = await this.ctx.storage.transaction(async (txn) => {
+        const existing = await txn.get(key);
 
-      const registrations = Array.isArray(existing.pushRegistrations)
-        ? existing.pushRegistrations.filter(
-            (registration) =>
-              registration &&
-              typeof registration === "object" &&
-              typeof registration.token === "string" &&
-              registration.token,
-          )
-        : existing.push &&
-          typeof existing.push === "object" &&
-          typeof existing.push.token === "string" &&
-          existing.push.token
-          ? [
-              {
-                token: existing.push.token,
-                platform: existing.push.platform,
-                updatedAt: existing.push.updatedAt,
-              },
-            ]
-          : [];
+        if (!existing) {
+          return {
+            error: "User not found",
+            status: 404,
+          };
+        }
 
-      const nextRegistrations = registrations.filter(
-        (registration) => registration.token !== token,
-      );
+        const registrations = Array.isArray(existing.pushRegistrations)
+          ? existing.pushRegistrations.filter(
+              (registration) =>
+                registration &&
+                typeof registration === "object" &&
+                typeof registration.token === "string" &&
+                registration.token,
+            )
+          : existing.push &&
+            typeof existing.push === "object" &&
+            typeof existing.push.token === "string" &&
+            existing.push.token
+            ? [
+                {
+                  token: existing.push.token,
+                  platform: existing.push.platform,
+                  updatedAt: existing.push.updatedAt,
+                },
+              ]
+            : [];
 
-      if (nextRegistrations.length === registrations.length) {
-        return json({
+        const nextRegistrations = registrations.filter(
+          (registration) => registration.token !== token,
+        );
+
+        if (nextRegistrations.length === registrations.length) {
+          return {
+            ok: true,
+            removed: false,
+          };
+        }
+
+        const nextLegacyPush = nextRegistrations[0]
+          ? {
+              token: nextRegistrations[0].token,
+              platform: nextRegistrations[0].platform,
+              updatedAt: nextRegistrations[0].updatedAt,
+            }
+          : null;
+
+        const user = {
+          ...existing,
+          pushRegistrations: nextRegistrations,
+          push: nextLegacyPush,
+        };
+
+        await txn.put(key, user);
+
+        return {
           ok: true,
-          nickname,
-          removed: false,
-        });
+          removed: true,
+        };
+      });
+
+      if (result?.error) {
+        return json({
+          error: result.error,
+        }, result.status);
       }
-
-      const nextLegacyPush = nextRegistrations[0]
-        ? {
-            token: nextRegistrations[0].token,
-            platform: nextRegistrations[0].platform,
-            updatedAt: nextRegistrations[0].updatedAt,
-          }
-        : null;
-
-      const user = {
-        ...existing,
-        pushRegistrations: nextRegistrations,
-        push: nextLegacyPush,
-      };
-
-      await this.ctx.storage.put(key, user);
 
       return json({
         ok: true,
         nickname,
-        removed: true,
+        removed: result?.removed === true,
       });
     }
 
