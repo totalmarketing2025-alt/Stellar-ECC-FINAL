@@ -1078,66 +1078,118 @@ export class DirectoryStore {
         }, 401);
       }
 
-      await this.ctx.storage.delete(challengeKey);
+      const result = await this.ctx.storage.transaction(async (txn) => {
+        const currentUser = await txn.get(key);
 
-      const registrations = Array.isArray(existing.pushRegistrations)
-        ? existing.pushRegistrations.filter(
-            (registration) =>
-              registration &&
-              typeof registration === "object" &&
-              typeof registration.token === "string" &&
-              typeof registration.platform === "string" &&
-              typeof registration.deviceId === "number" &&
-              typeof registration.registrationId === "number",
-          )
-        : [];
+        if (!currentUser) {
+          return {
+            error: "User not found",
+            status: 404,
+          };
+        }
 
-      if (registrations.length === 0 &&
-          existing.push &&
-          typeof existing.push === "object" &&
-          typeof existing.push.token === "string" &&
-          typeof existing.push.platform === "string") {
-        registrations.push({
-          token: existing.push.token,
-          platform: existing.push.platform,
-          deviceId: existingBundle.deviceId,
-          registrationId: existingBundle.registrationId,
-          updatedAt: typeof existing.push.updatedAt === "number"
-              ? existing.push.updatedAt
-              : now,
-        });
-      }
+        const currentBundle = currentUser.bundle;
 
-      const nextRegistrations = registrations.filter(
-        (registration) =>
-          registration.deviceId !== existingBundle.deviceId ||
-          registration.registrationId !== existingBundle.registrationId ||
-          registration.platform !== platform,
-      );
+        if (!currentBundle ||
+            typeof currentBundle.identityKey !== "string" ||
+            typeof currentBundle.registrationId !== "number" ||
+            typeof currentBundle.deviceId !== "number" ||
+            currentBundle.identityKey !== existingBundle.identityKey ||
+            currentBundle.registrationId !== existingBundle.registrationId ||
+            currentBundle.deviceId !== existingBundle.deviceId) {
+          return {
+            error: "Push authorization unavailable",
+            status: 409,
+          };
+        }
 
-      const withoutDuplicateToken = nextRegistrations.filter(
-        (registration) => registration.token !== token,
-      );
+        const currentChallenge =
+          await txn.get(challengeKey);
 
-      withoutDuplicateToken.push({
-        token,
-        platform,
-        deviceId: existingBundle.deviceId,
-        registrationId: existingBundle.registrationId,
-        updatedAt: now,
-      });
+        if (!currentChallenge ||
+            currentChallenge.challenge !== challenge ||
+            typeof currentChallenge.expiresAt !== "number" ||
+            currentChallenge.expiresAt <= Date.now()) {
+          if (currentChallenge) {
+            await txn.delete(challengeKey);
+          }
 
-      const user = {
-        ...existing,
-        pushRegistrations: withoutDuplicateToken,
-        push: {
+          return {
+            error: "Invalid or expired push challenge",
+            status: 401,
+          };
+        }
+
+        const registrations = Array.isArray(currentUser.pushRegistrations)
+          ? currentUser.pushRegistrations.filter(
+              (registration) =>
+                registration &&
+                typeof registration === "object" &&
+                typeof registration.token === "string" &&
+                typeof registration.platform === "string" &&
+                typeof registration.deviceId === "number" &&
+                typeof registration.registrationId === "number",
+            )
+          : [];
+
+        if (registrations.length === 0 &&
+            currentUser.push &&
+            typeof currentUser.push === "object" &&
+            typeof currentUser.push.token === "string" &&
+            typeof currentUser.push.platform === "string") {
+          registrations.push({
+            token: currentUser.push.token,
+            platform: currentUser.push.platform,
+            deviceId: currentBundle.deviceId,
+            registrationId: currentBundle.registrationId,
+            updatedAt: typeof currentUser.push.updatedAt === "number"
+                ? currentUser.push.updatedAt
+                : now,
+          });
+        }
+
+        const nextRegistrations = registrations.filter(
+          (registration) =>
+            registration.deviceId !== currentBundle.deviceId ||
+            registration.registrationId !== currentBundle.registrationId ||
+            registration.platform !== platform,
+        );
+
+        const withoutDuplicateToken = nextRegistrations.filter(
+          (registration) => registration.token !== token,
+        );
+
+        withoutDuplicateToken.push({
           token,
           platform,
+          deviceId: currentBundle.deviceId,
+          registrationId: currentBundle.registrationId,
           updatedAt: now,
-        },
-      };
+        });
 
-      await this.ctx.storage.put(key, user);
+        const user = {
+          ...currentUser,
+          pushRegistrations: withoutDuplicateToken,
+          push: {
+            token,
+            platform,
+            updatedAt: now,
+          },
+        };
+
+        await txn.delete(challengeKey);
+        await txn.put(key, user);
+
+        return {
+          ok: true,
+        };
+      });
+
+      if (result?.error) {
+        return json({
+          error: result.error,
+        }, result.status);
+      }
 
       return json({
         ok: true,
