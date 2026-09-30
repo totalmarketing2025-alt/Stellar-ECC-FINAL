@@ -41,7 +41,9 @@ Future<void> stellarPushBackgroundMain() async {
 
   var completed = false;
 
-  Future<void> complete() async {
+  Future<void> complete({
+    bool success = true,
+  }) async {
     if (completed) {
       return;
     }
@@ -66,6 +68,7 @@ Future<void> stellarPushBackgroundMain() async {
     try {
       await backgroundChannel.invokeMethod(
         'backgroundComplete',
+        success,
       );
     } catch (error, stackTrace) {
       developer.log(
@@ -145,6 +148,7 @@ Future<void> stellarPushBackgroundMain() async {
     var processingQueue = Future<void>.value();
 
     var receivedAny = false;
+    var processingFailed = false;
 
     late final StreamSubscription<RelayDelivery> subscription;
 
@@ -250,8 +254,10 @@ Future<void> stellarPushBackgroundMain() async {
               // No processed marker and no Relay ACK are written when
               // decrypt/application processing fails. The queued envelope
               // therefore remains retryable.
+              processingFailed = true;
+
               developer.log(
-                'FIX5-D envelope processing failed; '
+                'FIX10 envelope processing failed; '
                 'leaving delivery queued for retry.',
                 name: 'stellar_ecc.push.background',
                 error: error,
@@ -273,7 +279,9 @@ Future<void> stellarPushBackgroundMain() async {
               await processingQueue;
             } finally {
               await subscription.cancel();
-              await complete();
+              await complete(
+                success: !processingFailed,
+              );
             }
           },
         );
@@ -331,6 +339,8 @@ Future<void> stellarPushBackgroundMain() async {
       stackTrace: stackTrace,
     );
 
-    await complete();
+    await complete(
+      success: false,
+    );
   }
 }

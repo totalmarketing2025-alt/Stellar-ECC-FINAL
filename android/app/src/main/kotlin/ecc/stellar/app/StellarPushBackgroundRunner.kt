@@ -51,9 +51,12 @@ object StellarPushBackgroundRunner {
 
                     channel.setMethodCallHandler { call, result ->
                         if (call.method == "backgroundComplete") {
+                            val backgroundSuccess =
+                                call.arguments as? Boolean ?: true
+
                             if (completed.compareAndSet(false, true)) {
-                                success.set(true)
-                                result.success(true)
+                                success.set(backgroundSuccess)
+                                result.success(backgroundSuccess)
                                 latch.countDown()
 
                                 try {
