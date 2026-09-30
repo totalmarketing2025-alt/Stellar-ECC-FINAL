@@ -47,15 +47,11 @@ class PushHandler {
   }
 
   Future<void> initialize() async {
-    final settings = await messaging.requestPermission(
+    await messaging.requestPermission(
       alert: true,
       badge: true,
       sound: false,
     );
-
-    if (settings.authorizationStatus == AuthorizationStatus.denied) {
-      return;
-    }
 
     unawaited(_registerCurrentTokenWithRetry());
 
