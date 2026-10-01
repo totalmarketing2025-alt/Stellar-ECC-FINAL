@@ -37,26 +37,58 @@ class MediaAttachmentService {
 
     final filePath = p.join(mediaDir.path, '$blobId.enc');
 
-    final secretKey = crypto.SecretKey(_randomBytes(32));
-    final secretKeyBytes = await secretKey.extractBytes();
-    await keyStore.writeSecret('media_key_$blobId', Uint8List.fromList(secretKeyBytes));
+    var keyStored = false;
+    var fileCreated = false;
 
-    final nonce = _randomBytes(12);
-    final secretBox = await _aesGcm.encrypt(rawBytes, secretKey: secretKey, nonce: nonce);
+    try {
+      final secretKey = crypto.SecretKey(_randomBytes(32));
+      final secretKeyBytes = await secretKey.extractBytes();
+      await keyStore.writeSecret(
+        'media_key_$blobId',
+        Uint8List.fromList(secretKeyBytes),
+      );
+      keyStored = true;
 
-    final file = File(filePath);
-    await file.writeAsBytes([...nonce, ...secretBox.cipherText, ...secretBox.mac.bytes]);
+      final nonce = _randomBytes(12);
+      final secretBox = await _aesGcm.encrypt(
+        rawBytes,
+        secretKey: secretKey,
+        nonce: nonce,
+      );
 
-    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    await db.mediaBlobDao.insert(
-      blobId: blobId,
-      messageId: messageId,
-      mimeType: mimeType,
-      filePath: filePath,
-      expiresAt: now + ttlSeconds,
-    );
+      final file = File(filePath);
+      await file.writeAsBytes([
+        ...nonce,
+        ...secretBox.cipherText,
+        ...secretBox.mac.bytes,
+      ]);
+      fileCreated = true;
 
-    return blobId;
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      await db.mediaBlobDao.insert(
+        blobId: blobId,
+        messageId: messageId,
+        mimeType: mimeType,
+        filePath: filePath,
+        expiresAt: now + ttlSeconds,
+      );
+
+      return blobId;
+    } catch (_) {
+      if (fileCreated) {
+        try {
+          await File(filePath).delete();
+        } catch (_) {}
+      }
+
+      if (keyStored) {
+        try {
+          await wipeAttachmentKey(blobId);
+        } catch (_) {}
+      }
+
+      rethrow;
+    }
   }
 
   Future<Uint8List> loadAttachment(String blobId, String filePath) async {

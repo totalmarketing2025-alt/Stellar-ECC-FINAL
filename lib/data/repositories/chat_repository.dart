@@ -183,14 +183,28 @@ class ChatRepository {
       throw StateError('Direct chat peer mapping is missing for $chatId');
     }
 
-    // Validate and build the exact network payload before creating any
-    // local message/blob state. This prevents oversized or malformed
-    // attachments from leaving orphaned local media records.
+    // Validate attachment arguments before creating any local
+    // message/blob state.
+    final hasAttachmentBytes = attachmentBytes != null;
+    final hasAttachmentMimeType = attachmentMimeType != null;
+
+    if (hasAttachmentBytes != hasAttachmentMimeType) {
+      throw StateError(
+        'Malformed attachment: bytes and MIME type must be provided together',
+      );
+    }
+
+    if (hasAttachmentBytes && mediaService == null) {
+      throw StateError(
+        'Attachment storage service is unavailable',
+      );
+    }
+
     final plaintextBytes =
-        attachmentBytes != null && attachmentMimeType != null
+        hasAttachmentBytes
         ? AttachmentPayload.encode(
-            mimeType: attachmentMimeType,
-            bytes: attachmentBytes,
+            mimeType: attachmentMimeType!,
+            bytes: attachmentBytes!,
           )
         : Uint8List.fromList(utf8.encode(plaintext));
 
