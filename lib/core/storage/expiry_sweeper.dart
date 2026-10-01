@@ -30,12 +30,11 @@ class ExpirySweeper {
   void stop() => _timer?.cancel();
 
   Future<void> sweepOnce() async {
-    final expiredMessages = await _db.messageDao.expired();
-    for (final row in expiredMessages) {
-      final messageId = row['message_id'] as String;
-      await _db.messageDao.secureDelete(messageId);
-    }
-
+    // Media must be cleaned before expired messages are deleted.
+    //
+    // message -> media_blob uses ON DELETE CASCADE, so deleting the
+    // message first would remove the media_blob row before we get a
+    // chance to shred the encrypted file and wipe its per-attachment key.
     final expiredMedia = await _db.mediaBlobDao.expired();
     for (final row in expiredMedia) {
       final path = row['file_path'] as String;
@@ -43,6 +42,12 @@ class ExpirySweeper {
       await _shredFile(path);
       await _mediaService?.wipeAttachmentKey(blobId);
       await _db.mediaBlobDao.delete(blobId);
+    }
+
+    final expiredMessages = await _db.messageDao.expired();
+    for (final row in expiredMessages) {
+      final messageId = row['message_id'] as String;
+      await _db.messageDao.secureDelete(messageId);
     }
   }
 
