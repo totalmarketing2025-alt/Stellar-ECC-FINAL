@@ -356,6 +356,11 @@ const RELAY_DELIVERY_PREFIX =
 const RELAY_SENDER_PREFIX =
   "STELLAR_RELAY_SENDER_V1:";
 
+const RELAY_CHUNK_PREFIX =
+  "STELLAR_RELAY_CHUNK_V1:";
+
+const RELAY_CHUNK_SIZE = 512 * 1024;
+
 const RELAY_ACK_PREFIX =
   "STELLAR_RELAY_ACK_V1:";
 
@@ -391,7 +396,9 @@ export class RelayRoom {
         sender TEXT,
         envelope BLOB NOT NULL,
         created_at INTEGER NOT NULL,
-        expires_at INTEGER NOT NULL
+        expires_at INTEGER NOT NULL,
+        chunked INTEGER NOT NULL DEFAULT 0,
+        chunk_count INTEGER NOT NULL DEFAULT 0
       )
     `);
 
@@ -399,15 +406,36 @@ export class RelayRoom {
       `PRAGMA table_info(relay_queue)`,
     );
 
-    const hasSenderColumn = Array.from(columns).some(
-      (column) => column.name === "sender",
+    const columnNames = Array.from(columns).map(
+      (column) => column.name,
     );
 
-    if (!hasSenderColumn) {
+    if (!columnNames.includes("sender")) {
       this.ctx.storage.sql.exec(
         `ALTER TABLE relay_queue ADD COLUMN sender TEXT`,
       );
     }
+
+    if (!columnNames.includes("chunked")) {
+      this.ctx.storage.sql.exec(
+        `ALTER TABLE relay_queue ADD COLUMN chunked INTEGER NOT NULL DEFAULT 0`,
+      );
+    }
+
+    if (!columnNames.includes("chunk_count")) {
+      this.ctx.storage.sql.exec(
+        `ALTER TABLE relay_queue ADD COLUMN chunk_count INTEGER NOT NULL DEFAULT 0`,
+      );
+    }
+
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS relay_queue_chunks (
+        delivery_id INTEGER NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        chunk BLOB NOT NULL,
+        PRIMARY KEY (delivery_id, chunk_index)
+      )
+    `);
   }
 
   async queueEnvelope(recipient, sender, message) {
@@ -430,23 +458,84 @@ export class RelayRoom {
     const createdAt = Date.now();
     const expiresAt = createdAt + ttlSeconds * 1000;
 
-    await this.ctx.storage.sql.exec(
+    const chunked = bytes.length > RELAY_CHUNK_SIZE;
+    const chunkCount = chunked
+      ? Math.ceil(bytes.length / RELAY_CHUNK_SIZE)
+      : 0;
+
+    /*
+     * Keep the legacy single-BLOB row for small envelopes.
+     *
+     * Large envelopes are represented by one logical parent row
+     * plus <=512 KiB child BLOB rows. This stays below the
+     * Durable Objects SQLite 2 MiB row/BLOB limit.
+     */
+    this.ctx.storage.sql.exec(
       `INSERT INTO relay_queue
-        (recipient, sender, envelope, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?)`,
+        (
+          recipient,
+          sender,
+          envelope,
+          created_at,
+          expires_at,
+          chunked,
+          chunk_count
+        )
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       recipient,
       sender,
-      bytes,
+      chunked ? new Uint8Array(0) : bytes,
       createdAt,
       expiresAt,
+      chunked ? 1 : 0,
+      chunkCount,
     );
+
+    const row = this.ctx.storage.sql
+      .exec(`SELECT last_insert_rowid() AS id`)
+      .one();
+
+    const deliveryId = Number(row.id);
+
+    if (!chunked) {
+      return deliveryId;
+    }
+
+    for (
+      let chunkIndex = 0;
+      chunkIndex < chunkCount;
+      chunkIndex++
+    ) {
+      const start = chunkIndex * RELAY_CHUNK_SIZE;
+      const end = Math.min(
+        start + RELAY_CHUNK_SIZE,
+        bytes.length,
+      );
+
+      this.ctx.storage.sql.exec(
+        `INSERT INTO relay_queue_chunks
+          (delivery_id, chunk_index, chunk)
+         VALUES (?, ?, ?)`,
+        deliveryId,
+        chunkIndex,
+        bytes.slice(start, end),
+      );
+    }
+
+    return deliveryId;
   }
 
   async flushQueue(ws, recipient) {
     const now = Date.now();
 
     const result = this.ctx.storage.sql.exec(
-      `SELECT id, sender, envelope, expires_at
+      `SELECT
+         id,
+         sender,
+         envelope,
+         expires_at,
+         chunked,
+         chunk_count
        FROM relay_queue
        WHERE recipient = ?
        ORDER BY id ASC`,
@@ -457,23 +546,27 @@ export class RelayRoom {
       try {
         if (Number(row.expires_at) <= now) {
           this.ctx.storage.sql.exec(
+            `DELETE FROM relay_queue_chunks
+             WHERE delivery_id = ?`,
+            row.id,
+          );
+
+          this.ctx.storage.sql.exec(
             `DELETE FROM relay_queue
              WHERE id = ? AND recipient = ?`,
             row.id,
             recipient,
           );
+
           continue;
         }
-
-        const envelope = new Uint8Array(row.envelope);
 
         /*
          * IMPORTANT:
          * Queue rows are NOT deleted here.
-         *
-         * The client receives a delivery id first and then
-         * the opaque Signal envelope. The row is deleted only
-         * after the authenticated client sends ACK.
+         * The client ACKs only after the complete logical
+         * envelope has been reconstructed, decrypted and
+         * processed locally.
          */
         ws.send(
           `${RELAY_DELIVERY_PREFIX}${row.id}`,
@@ -488,7 +581,53 @@ export class RelayRoom {
           );
         }
 
-        ws.send(envelope);
+        if (Number(row.chunked) === 1) {
+          const chunks = this.ctx.storage.sql.exec(
+            `SELECT chunk_index, chunk
+             FROM relay_queue_chunks
+             WHERE delivery_id = ?
+             ORDER BY chunk_index ASC`,
+            row.id,
+          );
+
+          const expectedCount = Number(row.chunk_count);
+
+          let index = 0;
+
+          for (const chunkRow of chunks) {
+            if (index >= expectedCount) {
+              throw new Error(
+                `Too many chunks for delivery ${row.id}`,
+              );
+            }
+
+            if (Number(chunkRow.chunk_index) !== index) {
+              throw new Error(
+                `Missing chunk ${index} for delivery ${row.id}`,
+              );
+            }
+
+            ws.send(
+              `${RELAY_CHUNK_PREFIX}${row.id}:${index}:${expectedCount}`,
+            );
+
+            ws.send(
+              new Uint8Array(chunkRow.chunk),
+            );
+
+            index++;
+          }
+
+          if (index !== expectedCount) {
+            throw new Error(
+              `Incomplete chunk set for delivery ${row.id}`,
+            );
+          }
+        } else {
+          ws.send(
+            new Uint8Array(row.envelope),
+          );
+        }
       } catch (_) {
         break;
       }
@@ -890,6 +1029,12 @@ export class RelayRoom {
        * ACK is scoped to the authenticated recipient.
        * A peer cannot delete another peer's queued envelope.
        */
+      this.ctx.storage.sql.exec(
+        `DELETE FROM relay_queue_chunks
+         WHERE delivery_id = ?`,
+        deliveryId,
+      );
+
       this.ctx.storage.sql.exec(
         `DELETE FROM relay_queue
          WHERE id = ? AND recipient = ?`,

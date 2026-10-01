@@ -13,6 +13,7 @@ import '../../widgets/stellar_avatar.dart';
 import '../../widgets/message_bubble.dart';
 import '../../widgets/ttl_picker_sheet.dart';
 import '../../widgets/attachment_picker_sheet.dart';
+import '../../../core/media/attachment_payload.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.chatId});
@@ -154,6 +155,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final file = File(path);
     if (!await file.exists()) return;
+
+    final fileLength = await file.length();
+
+    if (fileLength > AttachmentPayload.maxBytes) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Attachment is too large. Maximum size is 8 MB.'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+      return;
+    }
+
     final bytes = await file.readAsBytes();
     final mimeType = _guessMimeType(path);
 

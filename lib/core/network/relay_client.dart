@@ -36,6 +36,21 @@ class _PendingRelayDelivery {
 
   final int? deliveryId;
   String? senderNickname;
+
+  String? chunkTransferId;
+  int? chunkCount;
+  int nextChunkIndex = 0;
+  final List<Uint8List> chunks = <Uint8List>[];
+
+  bool get isChunked =>
+      chunkTransferId != null &&
+      chunkCount != null &&
+      chunkCount! > 0;
+
+  bool get isComplete =>
+      isChunked &&
+      nextChunkIndex == chunkCount &&
+      chunks.length == chunkCount;
 }
 
 /// WebSocket client for the Stellar relay.
@@ -77,6 +92,9 @@ class RelayClient {
 
   static const _senderPrefix =
       'STELLAR_RELAY_SENDER_V1:';
+
+  static const _chunkPrefix =
+      'STELLAR_RELAY_CHUNK_V1:';
 
   static const _ackPrefix =
       'STELLAR_RELAY_ACK_V1:';
@@ -179,6 +197,59 @@ class RelayClient {
           if (data is List<int>) {
             final bytes = Uint8List.fromList(data);
 
+            _PendingRelayDelivery? chunkedPending;
+
+            for (final pending in _pendingDeliveries) {
+              if (pending.isChunked &&
+                  pending.nextChunkIndex <
+                      (pending.chunkCount ?? 0)) {
+                chunkedPending = pending;
+                break;
+              }
+            }
+
+            if (chunkedPending != null) {
+              chunkedPending.chunks.add(bytes);
+              chunkedPending.nextChunkIndex++;
+
+              if (chunkedPending.isComplete) {
+                final totalLength = chunkedPending.chunks.fold<int>(
+                  0,
+                  (sum, chunk) => sum + chunk.length,
+                );
+
+                final reassembled = Uint8List(totalLength);
+                var offset = 0;
+
+                for (final chunk in chunkedPending.chunks) {
+                  reassembled.setRange(
+                    offset,
+                    offset + chunk.length,
+                    chunk,
+                  );
+                  offset += chunk.length;
+                }
+
+                _pendingDeliveries.remove(chunkedPending);
+
+                (_incomingController ??=
+                        StreamController<Uint8List>.broadcast())
+                    .add(reassembled);
+
+                (_incomingDeliveryController ??=
+                        StreamController<RelayDelivery>.broadcast())
+                    .add(
+                  RelayDelivery(
+                    bytes: reassembled,
+                    deliveryId: chunkedPending.deliveryId,
+                    senderNickname: chunkedPending.senderNickname,
+                  ),
+                );
+              }
+
+              return;
+            }
+
             final pending =
                 _pendingDeliveries.isEmpty
                     ? null
@@ -259,6 +330,83 @@ class RelayClient {
                     ),
                   );
                 }
+              }
+
+              return;
+            }
+
+            if (data.startsWith(_chunkPrefix)) {
+              final raw = data.substring(_chunkPrefix.length);
+              final parts = raw.split(':');
+
+              if (parts.length != 3) {
+                return;
+              }
+
+              final transferId = parts[0].trim();
+              final chunkIndex = int.tryParse(parts[1]);
+              final chunkCount = int.tryParse(parts[2]);
+
+              if (transferId.isEmpty ||
+                  chunkIndex == null ||
+                  chunkCount == null ||
+                  chunkIndex < 0 ||
+                  chunkCount <= 0 ||
+                  chunkIndex >= chunkCount) {
+                return;
+              }
+
+              _PendingRelayDelivery? target;
+
+              for (final candidate in _pendingDeliveries) {
+                if (candidate.chunkTransferId == transferId) {
+                  target = candidate;
+                  break;
+                }
+              }
+
+              if (target == null) {
+                /*
+                 * Queued deliveries already have a delivery prefix.
+                 * The transfer id is the same logical delivery id.
+                 */
+                for (var i = _pendingDeliveries.length - 1;
+                    i >= 0;
+                    i--) {
+                  final candidate = _pendingDeliveries[i];
+
+                  if (candidate.chunkTransferId == null &&
+                      candidate.deliveryId?.toString() ==
+                          transferId) {
+                    target = candidate;
+                    break;
+                  }
+                }
+              }
+
+              if (target == null) {
+                /*
+                 * Chunk transfers are currently used for queued
+                 * deliveries and must be correlated to their
+                 * explicit delivery id.
+                 *
+                 * Never attach an unexpected chunk stream to an
+                 * arbitrary pending delivery.
+                 */
+                return;
+              }
+
+              if (target.chunkTransferId == null) {
+                target.chunkTransferId = transferId;
+                target.chunkCount = chunkCount;
+                target.nextChunkIndex = 0;
+                target.chunks.clear();
+              }
+
+              if (target.chunkTransferId != transferId ||
+                  target.chunkCount != chunkCount ||
+                  target.nextChunkIndex != chunkIndex) {
+                return;
               }
 
               return;
