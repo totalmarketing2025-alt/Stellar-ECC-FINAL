@@ -353,6 +353,9 @@ const RELAY_AUTH_OK =
 const RELAY_DELIVERY_PREFIX =
   "STELLAR_RELAY_DELIVERY_V1:";
 
+const RELAY_SENDER_PREFIX =
+  "STELLAR_RELAY_SENDER_V1:";
+
 const RELAY_ACK_PREFIX =
   "STELLAR_RELAY_ACK_V1:";
 
@@ -385,14 +388,29 @@ export class RelayRoom {
       CREATE TABLE IF NOT EXISTS relay_queue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         recipient TEXT NOT NULL,
+        sender TEXT,
         envelope BLOB NOT NULL,
         created_at INTEGER NOT NULL,
         expires_at INTEGER NOT NULL
       )
     `);
+
+    const columns = this.ctx.storage.sql.exec(
+      `PRAGMA table_info(relay_queue)`,
+    );
+
+    const hasSenderColumn = Array.from(columns).some(
+      (column) => column.name === "sender",
+    );
+
+    if (!hasSenderColumn) {
+      this.ctx.storage.sql.exec(
+        `ALTER TABLE relay_queue ADD COLUMN sender TEXT`,
+      );
+    }
   }
 
-  async queueEnvelope(recipient, message) {
+  async queueEnvelope(recipient, sender, message) {
     const bytes =
       typeof message === "string"
         ? new TextEncoder().encode(message)
@@ -413,20 +431,11 @@ export class RelayRoom {
     const expiresAt = createdAt + ttlSeconds * 1000;
 
     await this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS relay_queue (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        recipient TEXT NOT NULL,
-        envelope BLOB NOT NULL,
-        created_at INTEGER NOT NULL,
-        expires_at INTEGER NOT NULL
-      )`,
-    );
-
-    await this.ctx.storage.sql.exec(
       `INSERT INTO relay_queue
-        (recipient, envelope, created_at, expires_at)
-       VALUES (?, ?, ?, ?)`,
+        (recipient, sender, envelope, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?)`,
       recipient,
+      sender,
       bytes,
       createdAt,
       expiresAt,
@@ -437,7 +446,7 @@ export class RelayRoom {
     const now = Date.now();
 
     const result = this.ctx.storage.sql.exec(
-      `SELECT id, envelope, expires_at
+      `SELECT id, sender, envelope, expires_at
        FROM relay_queue
        WHERE recipient = ?
        ORDER BY id ASC`,
@@ -469,6 +478,15 @@ export class RelayRoom {
         ws.send(
           `${RELAY_DELIVERY_PREFIX}${row.id}`,
         );
+
+        if (
+          typeof row.sender === "string" &&
+          row.sender
+        ) {
+          ws.send(
+            `${RELAY_SENDER_PREFIX}${row.sender}`,
+          );
+        }
 
         ws.send(envelope);
       } catch (_) {
@@ -960,6 +978,23 @@ export class RelayRoom {
       return;
     }
 
+    const senderAttachment = ws.deserializeAttachment();
+
+    if (
+      senderAttachment?.authenticated !== true ||
+      senderAttachment?.authState !== "authenticated"
+    ) {
+      return;
+    }
+
+    const sender = String(senderAttachment?.peer || "")
+      .trim()
+      .toLowerCase();
+
+    if (!sender) {
+      return;
+    }
+
     for (const peer of this.ctx.getWebSockets()) {
       if (peer === ws) {
         continue;
@@ -974,6 +1009,10 @@ export class RelayRoom {
           attachment.authState === "authenticated" &&
           attachment.peer === recipient
         ) {
+          peer.send(
+            `${RELAY_SENDER_PREFIX}${sender}`,
+          );
+
           peer.send(message);
           return;
         }
@@ -982,7 +1021,11 @@ export class RelayRoom {
       }
     }
 
-    await this.queueEnvelope(recipient, message);
+    await this.queueEnvelope(
+      recipient,
+      sender,
+      message,
+    );
 
     // Push notification must never block or break relay delivery.
     // The envelope is already safely queued before FCM is attempted.

@@ -66,6 +66,7 @@ class RelayListener {
           // This is the single Signal decrypt path.
           final decrypted = await _chatRepository.decryptEnvelope(
             rawEnvelope: bytes,
+            senderNickname: delivery.senderNickname,
           );
 
           // Attachments are binary payloads. Detect them before attempting

@@ -317,9 +317,30 @@ class ChatRepository {
       Uint8List plaintextBytes,
     })
   >
-  decryptEnvelope({required Uint8List rawEnvelope}) async {
+  decryptEnvelope({
+    required Uint8List rawEnvelope,
+    String? senderNickname,
+  }) async {
     final envelope = Envelope.decode(rawEnvelope);
-    final peers = await _knownDirectPeers();
+
+    final normalizedSender = senderNickname?.trim().toLowerCase();
+    final knownPeers = await _knownDirectPeers();
+
+    final peers =
+        normalizedSender != null && normalizedSender.isNotEmpty
+            ? <({String chatId, String peerName, int peerDeviceId})>[
+                (
+                  chatId:
+                      await findDirectChatId(
+                        peerName: normalizedSender,
+                        peerDeviceId: 1,
+                      ) ??
+                      'direct_$normalizedSender',
+                  peerName: normalizedSender,
+                  peerDeviceId: 1,
+                ),
+              ]
+            : knownPeers;
 
     if (peers.isEmpty) {
       throw StateError(
@@ -328,7 +349,7 @@ class ChatRepository {
     }
 
     late final String chatId;
-    late final String senderNickname;
+    late final String authenticatedSenderNickname;
     late final SignalProtocolAddress senderAddress;
     late final Uint8List plaintextBytes;
 
@@ -357,7 +378,7 @@ class ChatRepository {
         }
 
         chatId = peer.chatId;
-        senderNickname = peer.peerName;
+        authenticatedSenderNickname = peer.peerName;
         senderAddress = address;
         plaintextBytes = decrypted;
         lastError = null;
@@ -376,7 +397,7 @@ class ChatRepository {
     return (
       envelope: envelope,
       chatId: chatId,
-      senderNickname: senderNickname,
+      senderNickname: authenticatedSenderNickname,
       senderAddress: senderAddress,
       plaintextBytes: plaintextBytes,
     );
@@ -446,9 +467,28 @@ class ChatRepository {
         : utf8.decode(plaintextBytes);
     final messageId = _uuid.v4();
 
-    final chatRow = await db.chatDao.byId(chatId);
+    var chatRow = await db.chatDao.byId(chatId);
+
     if (chatRow == null) {
-      throw StateError('Direct chat not found for $senderNickname');
+      await createDirectChat(
+        chatId: chatId,
+        displayName: senderNickname,
+        peerName: senderNickname,
+        peerDeviceId: senderAddress.getDeviceId(),
+      );
+
+      chatRow = await db.chatDao.byId(chatId);
+
+      if (chatRow == null) {
+        throw StateError(
+          'Unable to create direct chat for $senderNickname',
+        );
+      }
+
+      print(
+        'INCOMING_CHAT_AUTO_CREATED: '
+        'chatId=$chatId peer=$senderNickname',
+      );
     }
 
     final ttl = chatRow['default_ttl_sec'] as int;

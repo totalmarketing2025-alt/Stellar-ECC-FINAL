@@ -13,12 +13,29 @@ class RelayDelivery {
   const RelayDelivery({
     required this.bytes,
     required this.deliveryId,
+    required this.senderNickname,
   });
 
   final Uint8List bytes;
 
   /// Non-null only for a queued relay delivery.
   final int? deliveryId;
+
+  /// Authenticated sender identity supplied by the relay.
+  ///
+  /// This is routing metadata only. The encrypted envelope remains
+  /// responsible for cryptographic authentication.
+  final String? senderNickname;
+}
+
+class _PendingRelayDelivery {
+  _PendingRelayDelivery({
+    this.deliveryId,
+    this.senderNickname,
+  });
+
+  final int? deliveryId;
+  String? senderNickname;
 }
 
 /// WebSocket client for the Stellar relay.
@@ -38,7 +55,8 @@ class RelayClient {
   StreamController<Uint8List>? _incomingController;
   StreamController<RelayDelivery>? _incomingDeliveryController;
 
-  final List<int> _pendingDeliveryIds = <int>[];
+  final List<_PendingRelayDelivery> _pendingDeliveries =
+      <_PendingRelayDelivery>[];
 
   bool _manuallyDisconnected = false;
   int _backoffMs = 500;
@@ -56,6 +74,9 @@ class RelayClient {
 
   static const _deliveryPrefix =
       'STELLAR_RELAY_DELIVERY_V1:';
+
+  static const _senderPrefix =
+      'STELLAR_RELAY_SENDER_V1:';
 
   static const _ackPrefix =
       'STELLAR_RELAY_ACK_V1:';
@@ -134,7 +155,7 @@ class RelayClient {
 
       _channel = connectedChannel;
       _ready = false;
-      _pendingDeliveryIds.clear();
+      _pendingDeliveries.clear();
 
       print('RELAY_DEBUG: BEFORE_READY peer=$peer');
       await connectedChannel.ready;
@@ -158,10 +179,10 @@ class RelayClient {
           if (data is List<int>) {
             final bytes = Uint8List.fromList(data);
 
-            final deliveryId =
-                _pendingDeliveryIds.isEmpty
+            final pending =
+                _pendingDeliveries.isEmpty
                     ? null
-                    : _pendingDeliveryIds.removeAt(0);
+                    : _pendingDeliveries.removeAt(0);
 
             (_incomingController ??=
                     StreamController<Uint8List>.broadcast())
@@ -172,7 +193,8 @@ class RelayClient {
                 .add(
               RelayDelivery(
                 bytes: bytes,
-                deliveryId: deliveryId,
+                deliveryId: pending?.deliveryId,
+                senderNickname: pending?.senderNickname,
               ),
             );
           } else if (data is String) {
@@ -198,7 +220,45 @@ class RelayClient {
               );
 
               if (deliveryId != null && deliveryId > 0) {
-                _pendingDeliveryIds.add(deliveryId);
+                _pendingDeliveries.add(
+                  _PendingRelayDelivery(
+                    deliveryId: deliveryId,
+                  ),
+                );
+              }
+
+              return;
+            }
+
+            if (data.startsWith(_senderPrefix)) {
+              final sender = data
+                  .substring(_senderPrefix.length)
+                  .trim()
+                  .toLowerCase();
+
+              if (sender.isNotEmpty) {
+                _PendingRelayDelivery? target;
+
+                for (var i = _pendingDeliveries.length - 1;
+                    i >= 0;
+                    i--) {
+                  final candidate = _pendingDeliveries[i];
+
+                  if (candidate.senderNickname == null) {
+                    target = candidate;
+                    break;
+                  }
+                }
+
+                if (target != null) {
+                  target.senderNickname = sender;
+                } else {
+                  _pendingDeliveries.add(
+                    _PendingRelayDelivery(
+                      senderNickname: sender,
+                    ),
+                  );
+                }
               }
 
               return;
