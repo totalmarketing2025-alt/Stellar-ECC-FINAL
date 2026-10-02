@@ -16,6 +16,7 @@ class Message {
     this.status = MessageStatus.sending,
     this.reactions = const [],
     this.mediaBlobId,
+    this.mediaMimeType,
   });
 
   final String messageId;
@@ -30,6 +31,7 @@ class Message {
   final MessageStatus status;
   final List<Reaction> reactions;
   final String? mediaBlobId;
+  final String? mediaMimeType;
 
   Duration get timeUntilExpiry => expiresAt.difference(DateTime.now());
   bool get isExpired => timeUntilExpiry.isNegative;
@@ -53,6 +55,7 @@ class Message {
       status: status ?? this.status,
       reactions: reactions ?? this.reactions,
       mediaBlobId: mediaBlobId,
+      mediaMimeType: mediaMimeType,
     );
   }
 
@@ -72,6 +75,7 @@ class Message {
           : DateTime.fromMillisecondsSinceEpoch((row['read_at'] as int) * 1000),
       replyToId: row['reply_to_id'] as String?,
       mediaBlobId: row['media_blob_id'] as String?,
+      mediaMimeType: row['media_mime_type'] as String?,
       status: MessageStatus.values.firstWhere(
         (s) => s.name == row['status'],
         orElse: () => MessageStatus.sent,

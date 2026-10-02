@@ -96,20 +96,54 @@ class MediaAttachmentService {
   }
 
   Future<Uint8List> loadAttachment(String blobId, String filePath) async {
-    final keyBytes = await keyStore.readSecret('media_key_$blobId');
-    if (keyBytes == null) {
-      throw StateError('Media key for $blobId not found — attachment may already be expired/shredded');
+    try {
+      final keyBytes = await keyStore.readSecret('media_key_$blobId');
+      if (keyBytes == null) {
+        throw StateError('Attachment unavailable');
+      }
+
+      if (keyBytes.length != 32) {
+        throw StateError('Attachment unavailable');
+      }
+
+      final file = File(filePath);
+      if (!await file.exists()) {
+        throw StateError('Attachment unavailable');
+      }
+
+      final fileBytes = await file.readAsBytes();
+
+      // nonce (12) + MAC (16) + ciphertext (at least 0)
+      if (fileBytes.length < 28) {
+        throw StateError('Attachment unavailable');
+      }
+
+      final secretKey = crypto.SecretKey(keyBytes);
+
+      final nonce = fileBytes.sublist(0, 12);
+      final mac = fileBytes.sublist(fileBytes.length - 16);
+      final cipherText = fileBytes.sublist(12, fileBytes.length - 16);
+
+      final secretBox = crypto.SecretBox(
+        cipherText,
+        nonce: nonce,
+        mac: crypto.Mac(mac),
+      );
+
+      final decrypted = await _aesGcm.decrypt(
+        secretBox,
+        secretKey: secretKey,
+      );
+
+      return Uint8List.fromList(decrypted);
+    } catch (e) {
+      if (e is StateError) {
+        rethrow;
+      }
+
+      // Normalize file and AES-GCM failures to a safe UI-facing error.
+      throw StateError('Attachment unavailable');
     }
-    final secretKey = crypto.SecretKey(keyBytes);
-
-    final fileBytes = await File(filePath).readAsBytes();
-    final nonce = fileBytes.sublist(0, 12);
-    final mac = fileBytes.sublist(fileBytes.length - 16);
-    final cipherText = fileBytes.sublist(12, fileBytes.length - 16);
-
-    final secretBox = crypto.SecretBox(cipherText, nonce: nonce, mac: crypto.Mac(mac));
-    final decrypted = await _aesGcm.decrypt(secretBox, secretKey: secretKey);
-    return Uint8List.fromList(decrypted);
   }
 
   /// Called by ExpirySweeper alongside file shredding, to also remove the

@@ -484,7 +484,13 @@ class MessageDao {
                FROM media_blob mb
                WHERE mb.message_id = m.message_id
                LIMIT 1
-             ) AS media_blob_id
+             ) AS media_blob_id,
+             (
+               SELECT mime_type
+               FROM media_blob mb
+               WHERE mb.message_id = m.message_id
+               LIMIT 1
+             ) AS media_mime_type
       FROM message m
       WHERE m.chat_id = ? AND m.expires_at > ?
       ORDER BY m.sent_at ASC

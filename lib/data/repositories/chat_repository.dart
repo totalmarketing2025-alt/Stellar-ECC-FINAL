@@ -84,7 +84,17 @@ class ChatRepository {
       throw StateError('Attachment $blobId not found');
     }
 
+    final expiresAt = row['expires_at'] as int;
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    if (expiresAt <= now) {
+      throw StateError('Attachment expired');
+    }
+
     final filePath = row['file_path'] as String;
+    if (filePath.isEmpty) {
+      throw StateError('Attachment unavailable');
+    }
+
     return service.loadAttachment(blobId, filePath);
   }
 

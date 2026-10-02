@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/stellar_theme.dart';
 import '../../domain/models/message.dart';
@@ -9,10 +10,12 @@ import 'expiry_ring.dart';
 class _AttachmentPreview extends StatefulWidget {
   const _AttachmentPreview({
     required this.blobId,
+    required this.mimeType,
     required this.onLoadAttachment,
   });
 
   final String blobId;
+  final String? mimeType;
   final Future<Uint8List> Function(String blobId) onLoadAttachment;
 
   @override
@@ -28,18 +31,112 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
     _attachmentFuture = widget.onLoadAttachment(widget.blobId);
   }
 
+  bool get _isImage =>
+      widget.mimeType?.toLowerCase().startsWith('image/') == true;
+
+  String _extensionForMime(String? mimeType) {
+    switch (mimeType?.toLowerCase()) {
+      case 'image/jpeg':
+        return 'jpg';
+      case 'image/png':
+        return 'png';
+      case 'image/gif':
+        return 'gif';
+      case 'image/webp':
+        return 'webp';
+      case 'image/heic':
+        return 'heic';
+      case 'image/heif':
+        return 'heif';
+      case 'video/mp4':
+        return 'mp4';
+      case 'video/quicktime':
+        return 'mov';
+      case 'application/pdf':
+        return 'pdf';
+      default:
+        return 'bin';
+    }
+  }
+
+  Future<void> _saveAttachment(BuildContext context) async {
+    final bytes = await widget.onLoadAttachment(widget.blobId);
+    if (!context.mounted) return;
+
+    final extension = _extensionForMime(widget.mimeType);
+    final fileName = 'attachment_${widget.blobId}.$extension';
+
+    await FilePicker.platform.saveFile(
+      dialogTitle: 'Save attachment',
+      fileName: fileName,
+      bytes: bytes,
+      mimeType: widget.mimeType ?? 'application/octet-stream',
+    );
+  }
+
+  Widget _saveButton(BuildContext context) {
+    return IconButton(
+      tooltip: 'Save attachment',
+      icon: const Icon(Icons.download),
+      onPressed: () async {
+        try {
+          await _saveAttachment(context);
+        } catch (_) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Unable to save attachment'),
+            ),
+          );
+        }
+      },
+    );
+  }
+
   @override
   void didUpdateWidget(covariant _AttachmentPreview oldWidget) {
     super.didUpdateWidget(oldWidget);
 
     if (oldWidget.blobId != widget.blobId ||
-        oldWidget.onLoadAttachment != widget.onLoadAttachment) {
+        oldWidget.onLoadAttachment != widget.onLoadAttachment ||
+        oldWidget.mimeType != widget.mimeType) {
       _attachmentFuture = widget.onLoadAttachment(widget.blobId);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!_isImage) {
+      final mime = widget.mimeType?.toLowerCase();
+
+      final IconData icon;
+      final String label;
+
+      if (mime == 'application/pdf') {
+        icon = Icons.picture_as_pdf;
+        label = 'PDF attachment';
+      } else if (mime?.startsWith('video/') == true) {
+        icon = Icons.videocam;
+        label = 'Video attachment';
+      } else {
+        icon = Icons.attach_file;
+        label = 'File attachment';
+      }
+
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 28),
+            const SizedBox(width: 10),
+            Text(label),
+            _saveButton(context),
+          ],
+        ),
+      );
+    }
+
     return FutureBuilder<Uint8List>(
       future: _attachmentFuture,
       builder: (context, snapshot) {
@@ -47,30 +144,42 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
           return const SizedBox(
             width: 180,
             height: 120,
-            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            child: Center(
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
           );
         }
 
         if (snapshot.hasData) {
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.memory(
-              snapshot.data!,
-              width: 180,
-              height: 180,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const Padding(
-                padding: EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.attach_file, size: 22),
-                    SizedBox(width: 8),
-                    Text('Attachment'),
-                  ],
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.memory(
+                  snapshot.data!,
+                  width: 180,
+                  height: 180,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.broken_image, size: 22),
+                        SizedBox(width: 8),
+                        Text('Attachment unavailable'),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: _saveButton(context),
+              ),
+            ],
           );
         }
 
@@ -79,9 +188,9 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.attach_file, size: 22),
+              Icon(Icons.broken_image, size: 22),
               SizedBox(width: 8),
-              Text('Attachment'),
+              Text('Attachment unavailable'),
             ],
           ),
         );
@@ -159,6 +268,7 @@ class MessageBubble extends StatelessWidget {
                   if (message.mediaBlobId != null)
                     _AttachmentPreview(
                       blobId: message.mediaBlobId!,
+                      mimeType: message.mediaMimeType,
                       onLoadAttachment: onLoadAttachment,
                     )
                   else
