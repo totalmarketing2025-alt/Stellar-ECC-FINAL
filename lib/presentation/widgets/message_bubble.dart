@@ -97,7 +97,6 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
     super.didUpdateWidget(oldWidget);
 
     if (oldWidget.blobId != widget.blobId ||
-        oldWidget.onLoadAttachment != widget.onLoadAttachment ||
         oldWidget.mimeType != widget.mimeType) {
       _attachmentFuture = widget.onLoadAttachment(widget.blobId);
     }
