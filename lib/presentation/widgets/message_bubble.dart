@@ -70,7 +70,6 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
       dialogTitle: 'Save attachment',
       fileName: fileName,
       bytes: bytes,
-      mimeType: widget.mimeType ?? 'application/octet-stream',
     );
   }
 
