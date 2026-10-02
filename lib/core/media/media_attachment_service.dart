@@ -43,11 +43,13 @@ class MediaAttachmentService {
     try {
       final secretKey = crypto.SecretKey(_randomBytes(32));
       final secretKeyBytes = await secretKey.extractBytes();
+      // Mark the resource as rollback-owned before the async write.
+      // A storage implementation may persist the key and still throw.
+      keyStored = true;
       await keyStore.writeSecret(
         'media_key_$blobId',
         Uint8List.fromList(secretKeyBytes),
       );
-      keyStored = true;
 
       final nonce = _randomBytes(12);
       final secretBox = await _aesGcm.encrypt(
@@ -57,12 +59,14 @@ class MediaAttachmentService {
       );
 
       final file = File(filePath);
+      // Mark the path as rollback-owned before the async write.
+      // This also cleans up a partial file if writeAsBytes throws.
+      fileCreated = true;
       await file.writeAsBytes([
         ...nonce,
         ...secretBox.cipherText,
         ...secretBox.mac.bytes,
       ]);
-      fileCreated = true;
 
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       await db.mediaBlobDao.insert(
