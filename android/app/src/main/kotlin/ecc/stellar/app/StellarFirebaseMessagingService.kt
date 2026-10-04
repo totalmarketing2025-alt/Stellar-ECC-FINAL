@@ -182,6 +182,27 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        // Token registration remains separate from call contents.
+
+        if (token.isBlank()) {
+            return
+        }
+
+        // FCM can rotate the registration token while Flutter is not
+        // running. Wake the existing authenticated Flutter registration
+        // path so Directory is updated with the new token.
+        try {
+            scheduleBackgroundMessageSync()
+
+            Log.d(
+                "StellarFCM",
+                "FIX4 FCM token refresh queued for authenticated registration"
+            )
+        } catch (error: Throwable) {
+            Log.e(
+                "StellarFCM",
+                "FIX4 failed to schedule token refresh registration",
+                error
+            )
+        }
     }
 }

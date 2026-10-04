@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/firebase_options.dart';
 import 'envelope.dart';
 import 'relay_client.dart';
+import 'push_handler.dart';
 import '../../data/repositories/chat_repository.dart';
 import '../storage/database.dart';
 import '../storage/providers.dart';
@@ -35,6 +36,11 @@ Future<void> stellarPushBackgroundMain() async {
   StellarDatabase? database;
   ProviderContainer? container;
   RelayClient? relayClient;
+
+  // FIX4:
+  // Keep token-registration failure separate so the native
+  // WorkManager job can retry when FCM registration fails.
+  var tokenRegistrationFailed = false;
 
   Timer? idleTimer;
   Timer? hardTimeout;
@@ -160,6 +166,48 @@ Future<void> stellarPushBackgroundMain() async {
     final chatRepository =
         container!.read(chatRepositoryProvider);
 
+    // ----------------------------------------------------------
+    // FIX4:
+    // FCM may rotate its token while the Flutter application is
+    // not running. Register the current token through the same
+    // challenge + Signal identity signature path used by the
+    // foreground PushHandler.
+    //
+    // This is deliberately done before relay synchronization so
+    // a newly issued FCM token is persisted in Directory even when
+    // the token-refresh callback arrived while the app was closed.
+    // ----------------------------------------------------------
+    try {
+      final pushHandler = PushHandler(
+        relayClient: relayClient!,
+        messaging: FirebaseMessaging.instance,
+        directoryClient: container!.read(
+          directoryClientProvider,
+        ),
+        sessionManager: container!.read(
+          sessionManagerProvider,
+        ),
+        getLocalNickname: () async => nickname,
+      );
+
+      await pushHandler.registerCurrentToken();
+
+      developer.log(
+        'FIX4 FCM token registration completed.',
+        name: 'stellar_ecc.push.background',
+      );
+    } catch (error, stackTrace) {
+      tokenRegistrationFailed = true;
+
+      developer.log(
+        'FIX4 FCM token registration failed; '
+        'background job will request a retry.',
+        name: 'stellar_ecc.push.background',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
     var processingQueue = Future<void>.value();
 
     var receivedAny = false;
@@ -274,7 +322,8 @@ Future<void> stellarPushBackgroundMain() async {
             } finally {
               await subscription.cancel();
               await complete(
-                success: !processingFailed,
+                success: !processingFailed &&
+                    !tokenRegistrationFailed,
               );
             }
           },
@@ -305,7 +354,9 @@ Future<void> stellarPushBackgroundMain() async {
           try {
             await subscription.cancel();
           } finally {
-            await complete();
+            await complete(
+              success: !tokenRegistrationFailed,
+            );
           }
         }
       },
