@@ -367,7 +367,7 @@ Future<void> stellarPushBackgroundMain() async {
     // Never leave the headless isolate running indefinitely.
     // ----------------------------------------------------------
     hardTimeout = Timer(
-      const Duration(seconds: 15),
+      const Duration(seconds: 45),
       () {
         // Native StellarPushBackgroundRunner owns the real hard cutoff.
         // Never await processingQueue here: a stuck queue must not block

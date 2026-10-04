@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 object StellarPushBackgroundRunner {
 
     private const val CHANNEL = "ecc.stellar.app/push_background"
-    private const val TIMEOUT_SECONDS = 15L
+    private const val TIMEOUT_SECONDS = 45L
 
     private const val MESSAGE_CHANNEL = "stellar_messages"
     private const val MESSAGE_ID_BASE = 1001
