@@ -218,50 +218,26 @@ Future<void> stellarPushBackgroundMain() async {
                 rawEnvelope: bytes,
               );
 
-              final plaintext = utf8.decode(
-                decrypted.plaintextBytes,
-                allowMalformed: false,
+              await chatRepository
+                  .receiveDecryptedEnvelope(
+                decrypted: decrypted,
               );
 
-              const callPrefix =
-                  'STELLAR_CALL_V1:';
+              // Call signaling is transport-only and is handled by the
+              // native FirebaseMessagingService / Telecom path.
+              // A Signal-decrypted envelope is always a normal chat
+              // message and must never be interpreted as a call signal.
+              await showLocalMessageNotification();
 
-              if (plaintext.startsWith(callPrefix)) {
-                // Call wake-up itself is handled by the native
-                // FirebaseMessagingService / Telecom path.
-                //
-                // Do not route UI/call navigation from the headless
-                // isolate. The envelope was successfully decrypted, so
-                // persist the dedupe marker before acknowledging Relay.
-                developer.log(
-                  'FIX5-D call envelope received in background; '
-                  'UI routing skipped.',
-                  name: 'stellar_ecc.push.background',
-                );
+              developer.log(
+                'Background envelope application processing completed.',
+                name: 'stellar_ecc.push.background',
+              );
 
-                await database!.messageDao
-                    .markEnvelopeProcessed(
-                  envelope.deliveryToken,
-                );
-              } else {
-                await chatRepository
-                    .receiveDecryptedEnvelope(
-                  decrypted: decrypted,
-                );
-
-                // Notify only after successful decrypt + persistence.
-                await showLocalMessageNotification();
-
-                developer.log(
-                  'FIX5-D envelope application processing completed.',
-                  name: 'stellar_ecc.push.background',
-                );
-
-                await database!.messageDao
-                    .markEnvelopeProcessed(
-                  envelope.deliveryToken,
-                );
-              }
+              await database!.messageDao
+                  .markEnvelopeProcessed(
+                envelope.deliveryToken,
+              );
 
               if (deliveryId != null) {
                 await relayClient!.acknowledgeDelivery(
