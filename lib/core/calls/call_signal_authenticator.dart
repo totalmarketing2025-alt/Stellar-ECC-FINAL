@@ -58,7 +58,7 @@ class CallSignalAuthenticator {
 
     try {
       return Curve.verifySignature(
-        identityKey.ecKey,
+        Curve.decodePoint(identityKey.serialize(), 0),
         Uint8List.fromList(utf8.encode(message)),
         signature,
       );
