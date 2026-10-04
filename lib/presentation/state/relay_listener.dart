@@ -14,6 +14,12 @@ import '../../core/calls/call_signal_authenticator.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 import 'app_providers.dart';
 
+enum _CallSignalRouteResult {
+  accepted,
+  rejected,
+  retry,
+}
+
 class RelayListener {
   RelayListener({
     required this.ref,
@@ -102,12 +108,12 @@ class RelayListener {
               return;
             }
 
-            final processed = await _routePlaintextCallSignal(
+            final result = await _routePlaintextCallSignal(
               plaintext: plaintextCall,
               senderNickname: senderNickname,
             );
 
-            if (!processed) {
+            if (result == _CallSignalRouteResult.retry) {
               return;
             }
 
@@ -219,7 +225,7 @@ class RelayListener {
     });
   }
 
-  Future<bool> _routePlaintextCallSignal({
+  Future<_CallSignalRouteResult> _routePlaintextCallSignal({
     required String plaintext,
     required String senderNickname,
   }) async {
@@ -229,9 +235,7 @@ class RelayListener {
       );
 
       if (raw is! Map) {
-        throw StateError(
-          'Invalid Stellar plaintext call signal payload',
-        );
+        return _CallSignalRouteResult.rejected;
       }
 
       final signal = <String, dynamic>{
@@ -243,34 +247,31 @@ class RelayListener {
 
       if (signatureValue is! String ||
           signatureValue.trim().isEmpty) {
-        throw StateError(
-          'Missing Stellar call signal signature',
-        );
+        return _CallSignalRouteResult.rejected;
       }
 
-      final signature = base64Decode(signatureValue);
+      Uint8List signature;
+      try {
+        signature = Uint8List.fromList(base64Decode(signatureValue));
+      } catch (_) {
+        return _CallSignalRouteResult.rejected;
+      }
 
       if (signature.length != 64) {
-        throw StateError(
-          'Invalid Stellar call signal signature length',
-        );
+        return _CallSignalRouteResult.rejected;
       }
 
       final sender = senderNickname.trim().toLowerCase();
 
       if (sender.isEmpty) {
-        throw StateError(
-          'Missing Stellar call signal sender',
-        );
+        return _CallSignalRouteResult.rejected;
       }
 
       final localNickname =
           ref.read(localNicknameProvider)?.trim().toLowerCase();
 
       if (localNickname == null || localNickname.isEmpty) {
-        throw StateError(
-          'Local nickname is unavailable for call signature verification',
-        );
+        return _CallSignalRouteResult.retry;
       }
 
       IdentityKey? identityKey =
@@ -328,11 +329,11 @@ class RelayListener {
 
       if (!verified) {
         print(
-          'CALL_SIGNAL_PLAINTEXT_REJECTED: '
+          'CALL_SIGNAL_PERMANENT_REJECT: '
           'invalid identity signature '
           'sender=$sender',
         );
-        return false;
+        return _CallSignalRouteResult.rejected;
       }
 
       final type = signal['type'];
@@ -341,35 +342,25 @@ class RelayListener {
       final chatId = signal['chatId'];
 
       if (type is! String || type.isEmpty) {
-        throw StateError(
-          'Missing Stellar call signal type',
-        );
+        return _CallSignalRouteResult.rejected;
       }
 
       if (callId is! String || callId.isEmpty) {
-        throw StateError(
-          'Missing Stellar callId',
-        );
+        return _CallSignalRouteResult.rejected;
       }
 
       if (chatId is! String || chatId.isEmpty) {
-        throw StateError(
-          'Missing Stellar call chatId',
-        );
+        return _CallSignalRouteResult.rejected;
       }
 
       if (kind != 'voice' && kind != 'video') {
-        throw StateError(
-          'Invalid Stellar call kind',
-        );
+        return _CallSignalRouteResult.rejected;
       }
 
       final sentAt = signal['sentAt'];
 
       if (sentAt is! int) {
-        throw StateError(
-          'Missing Stellar call sentAt',
-        );
+        return _CallSignalRouteResult.rejected;
       }
 
       /*
@@ -402,12 +393,12 @@ class RelayListener {
 
       if (_acceptedCallSignals.containsKey(replayKey)) {
         print(
-          'CALL_SIGNAL_REPLAY_REJECTED: '
-          'sender=$sender '
+          'CALL_SIGNAL_PERMANENT_REJECT: '
+          'replay sender=$sender '
           'callId=$callId '
           'type=$type',
         );
-        return false;
+        return _CallSignalRouteResult.rejected;
       }
 
       if (_acceptedCallSignals.length >= _maxAcceptedCallSignals) {
@@ -448,11 +439,11 @@ class RelayListener {
         'remote=$sender',
       );
 
-      return true;
+      return _CallSignalRouteResult.accepted;
     } catch (e, stackTrace) {
       print('CALL_SIGNAL_AUTH_ERROR: $e');
       print('CALL_SIGNAL_AUTH_STACK: $stackTrace');
-      return false;
+      return _CallSignalRouteResult.retry;
     }
   }
 
