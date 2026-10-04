@@ -153,30 +153,17 @@ class RelayListener {
               ref.invalidate(chatMessagesProvider(message.chatId));
             }
           } else {
-            final plaintext = utf8.decode(
-              decrypted.plaintextBytes,
-              allowMalformed: false,
+            // Signal-decrypted envelopes are normal chat messages.
+            // Call signaling is transport-only and is handled exclusively
+            // by _routePlaintextCallSignal() before Signal decryption.
+            final message =
+                await _chatRepository.receiveDecryptedEnvelope(
+              decrypted: decrypted,
             );
 
-            if (plaintext.startsWith(_callPrefix)) {
-              final callProcessed = await _routeCallSignal(
-                decrypted: decrypted,
-                plaintext: plaintext,
-              );
-
-              if (!callProcessed) {
-                return;
-              }
-            } else {
-              final message =
-                  await _chatRepository.receiveDecryptedEnvelope(
-                decrypted: decrypted,
-              );
-
-              if (message != null) {
-                ref.invalidate(chatListProvider);
-                ref.invalidate(chatMessagesProvider(message.chatId));
-              }
+            if (message != null) {
+              ref.invalidate(chatListProvider);
+              ref.invalidate(chatMessagesProvider(message.chatId));
             }
           }
 
@@ -465,65 +452,6 @@ class RelayListener {
     } catch (e, stackTrace) {
       print('CALL_SIGNAL_AUTH_ERROR: $e');
       print('CALL_SIGNAL_AUTH_STACK: $stackTrace');
-      return false;
-    }
-  }
-
-  Future<bool> _routeCallSignal({
-    required dynamic decrypted,
-    required String plaintext,
-  }) async {
-    try {
-      final raw = jsonDecode(plaintext.substring(_callPrefix.length));
-
-      if (raw is! Map) {
-        throw StateError('Invalid Stellar call signal payload');
-      }
-
-      final signal = <String, dynamic>{
-        for (final entry in raw.entries) entry.key.toString(): entry.value,
-      };
-
-      final type = signal['type'];
-      final callId = signal['callId'];
-      final kind = signal['kind'];
-
-      if (type is! String || type.isEmpty) {
-        throw StateError('Missing Stellar call signal type');
-      }
-
-      if (callId is! String || callId.isEmpty) {
-        throw StateError('Missing Stellar callId');
-      }
-
-      if (kind != 'voice' && kind != 'video') {
-        throw StateError('Invalid Stellar call kind');
-      }
-
-      final session = CallSession(
-        callId: callId,
-        chatId: decrypted.chatId,
-        kind: kind == 'video' ? CallKind.video : CallKind.voice,
-        state: type == 'offer' ? CallState.ringing : CallState.connecting,
-        remoteNickname: decrypted.senderNickname,
-      );
-
-      ref
-          .read(callSignalRouterProvider)
-          .dispatch(session: session, type: type, payload: signal);
-
-      print(
-        'CALL_SIGNAL_ROUTED: '
-        'type=$type '
-        'callId=$callId '
-        'kind=$kind '
-        'remote=${decrypted.senderNickname}',
-      );
-
-      return true;
-    } catch (e, stackTrace) {
-      print('CALL_SIGNAL_ERROR: $e');
-      print('CALL_SIGNAL_STACK: $stackTrace');
       return false;
     }
   }
