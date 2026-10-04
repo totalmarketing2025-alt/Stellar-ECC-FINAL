@@ -12,6 +12,7 @@ import '../network/directory_client.dart';
 import '../network/relay_client.dart';
 import '../../domain/models/call_session.dart';
 import 'call_platform_bridge.dart';
+import 'call_signal_authenticator.dart';
 
 enum CallDirection { outgoing, incoming }
 
@@ -350,32 +351,43 @@ class CallService {
       throw StateError('Call session identity is not initialized');
     }
 
+    final identityKeyPair =
+        await sessionManager.identityStore.getIdentityKeyPair();
+
     final payload = <String, dynamic>{
       ...signal,
       'callId': callId,
       'chatId': _chatId,
       'kind': callKind == CallKind.video ? 'video' : 'voice',
+      'sentAt': DateTime.now().millisecondsSinceEpoch,
+      'recipient': remoteNickname.trim().toLowerCase(),
+    };
+
+    final signature = CallSignalAuthenticator.sign(
+      identityKeyPair: identityKeyPair,
+      recipient: remoteNickname.trim().toLowerCase(),
+      payload: payload,
+    );
+
+    final authenticatedPayload = <String, dynamic>{
+      ...payload,
+      'signature': base64Encode(signature),
     };
 
     final plaintext = Uint8List.fromList(
-      utf8.encode('$_signalPrefix${jsonEncode(payload)}'),
+      utf8.encode(
+        '$_signalPrefix${jsonEncode(authenticatedPayload)}',
+      ),
     );
 
-    final address = SignalProtocolAddress(remoteNickname, 1);
-
-    final ciphertext = await sessionManager.encryptForSend(address, plaintext);
-
-    final deliveryToken = Uint8List.fromList(
-      List<int>.generate(16, (_) => Random.secure().nextInt(256)),
+    // Call signaling intentionally bypasses the message E2E layer.
+    // The payload remains plaintext at the relay transport layer,
+    // but is cryptographically authenticated with the local
+    // Signal identity key.
+    await relayClient.sendCallSignal(
+      recipient: remoteNickname,
+      plaintext: plaintext,
     );
-
-    final envelope = Envelope(
-      deliveryToken: deliveryToken,
-      recipientRoute: remoteNickname,
-      ciphertext: Uint8List.fromList(ciphertext.serialize()),
-    );
-
-    await relayClient.send(envelope.encode());
 
     if (signal['type'] == 'offer') {
       await relayClient.sendCallWake(

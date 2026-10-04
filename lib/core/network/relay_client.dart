@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
@@ -7,6 +8,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as ws_status;
 
 import 'directory_client.dart';
+import 'envelope.dart';
 import '../crypto/signal_stores.dart';
 
 class RelayDelivery {
@@ -615,6 +617,27 @@ class RelayClient {
     }
 
     channel.sink.add(envelopeBytes);
+  }
+
+  Future<void> sendCallSignal({
+    required String recipient,
+    required Uint8List plaintext,
+  }) async {
+    final deliveryToken = Uint8List.fromList(
+      List<int>.generate(
+        16,
+        (_) => Random.secure().nextInt(256),
+      ),
+    );
+
+    final envelope = Envelope(
+      deliveryToken: deliveryToken,
+      recipientRoute: recipient,
+      ciphertext: plaintext,
+      relayTtlSeconds: 120,
+    );
+
+    await send(envelope.encode());
   }
 
   Future<void> sendCallWake({
