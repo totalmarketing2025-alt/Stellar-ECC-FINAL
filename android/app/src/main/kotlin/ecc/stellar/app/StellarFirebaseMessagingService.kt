@@ -108,7 +108,8 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
                     this,
                     callId,
                     remote,
-                    kind
+                    kind,
+                    chatId
                 )
             } catch (_: Throwable) {
                 // Do not crash the FCM service if notification setup also fails.

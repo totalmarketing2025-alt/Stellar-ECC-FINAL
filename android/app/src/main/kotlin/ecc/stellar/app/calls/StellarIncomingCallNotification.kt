@@ -19,7 +19,8 @@ object StellarIncomingCallNotification {
         context: Context,
         callId: String,
         remoteNickname: String,
-        kind: String
+        kind: String,
+        chatId: String?
     ) {
         val manager =
             context.getSystemService(Context.NOTIFICATION_SERVICE)
@@ -59,6 +60,12 @@ object StellarIncomingCallNotification {
                 StellarCallManager.EXTRA_CALL_KIND,
                 kind
             )
+            if (!chatId.isNullOrBlank()) {
+                putExtra(
+                    StellarCallManager.EXTRA_CHAT_ID,
+                    chatId
+                )
+            }
         }
 
         val answer = Intent(
@@ -75,6 +82,12 @@ object StellarIncomingCallNotification {
                 StellarCallManager.EXTRA_CALL_KIND,
                 kind
             )
+            if (!chatId.isNullOrBlank()) {
+                putExtra(
+                    StellarCallManager.EXTRA_CHAT_ID,
+                    chatId
+                )
+            }
         }
 
         val reject = Intent(
@@ -91,6 +104,12 @@ object StellarIncomingCallNotification {
                 StellarCallManager.EXTRA_CALL_KIND,
                 kind
             )
+            if (!chatId.isNullOrBlank()) {
+                putExtra(
+                    StellarCallManager.EXTRA_CHAT_ID,
+                    chatId
+                )
+            }
         }
 
         val fullScreenPending = PendingIntent.getActivity(
