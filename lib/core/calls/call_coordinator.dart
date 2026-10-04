@@ -26,6 +26,7 @@ class CallCoordinator {
   CallSession? _activeSession;
   CallSignal? _lastSignal;
   CallPlatformAction? _pendingPlatformAction;
+  final List<CallSignal> _pendingIncomingIceSignals = [];
 
   final StreamController<CallSession?> _sessionController =
       StreamController<CallSession?>.broadcast();
@@ -174,6 +175,7 @@ class CallCoordinator {
     final session = signal.session;
 
     if (signal.type == 'offer') {
+      _pendingIncomingIceSignals.clear();
       _ringTimeout?.cancel();
 
       _activeSession = session.copyWith(
@@ -231,6 +233,15 @@ class CallCoordinator {
 
     _lastSignal = signal;
 
+    // ICE candidates can arrive before the user answers an incoming call.
+    // CallService has no peer connection until start(incoming) is called,
+    // so keep these signals at coordinator level until the call is answered.
+    if (signal.type == 'ice-candidate' &&
+        _activeSession?.state == CallState.ringing) {
+      _pendingIncomingIceSignals.add(signal);
+      return;
+    }
+
     switch (signal.type) {
       case 'answer':
       case 'ice-candidate':
@@ -242,6 +253,7 @@ class CallCoordinator {
 
       case 'reject':
       case 'end':
+        _pendingIncomingIceSignals.clear();
         _ringTimeout?.cancel();
 
         _activeSession = _activeSession?.copyWith(
@@ -338,6 +350,17 @@ class CallCoordinator {
             remoteNickname: remoteNickname,
             signal: signal.payload,
           );
+
+          final pendingIceSignals =
+              List<CallSignal>.from(_pendingIncomingIceSignals);
+          _pendingIncomingIceSignals.clear();
+
+          for (final pendingSignal in pendingIceSignals) {
+            await _callService.handleSignal(
+              remoteNickname: remoteNickname,
+              signal: pendingSignal.payload,
+            );
+          }
         } catch (error) {
           _activeSession = _activeSession?.copyWith(
             state: CallState.failed,
