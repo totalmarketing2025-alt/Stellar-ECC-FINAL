@@ -390,12 +390,21 @@ class CallService {
     );
 
     if (signal['type'] == 'offer') {
-      await relayClient.sendCallWake(
-        recipient: remoteNickname,
-        callId: callId,
-        kind: callKind == CallKind.video ? 'video' : 'voice',
-        chatId: _chatId,
-      );
+      try {
+        await relayClient.sendCallWake(
+          recipient: remoteNickname,
+          callId: callId,
+          kind: callKind == CallKind.video ? 'video' : 'voice',
+          chatId: _chatId,
+        );
+      } catch (error, stackTrace) {
+        // CALL_WAKE is a background wake mechanism. The authenticated
+        // call offer has already been sent through the relay above, so
+        // a wake delivery failure must not tear down an otherwise valid
+        // outgoing call session.
+        print('CALL_WAKE_FAILED: $error');
+        print('CALL_WAKE_STACK: $stackTrace');
+      }
     }
   }
 
