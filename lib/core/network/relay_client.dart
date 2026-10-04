@@ -72,6 +72,13 @@ class RelayClient {
   StreamController<Uint8List>? _incomingController;
   StreamController<RelayDelivery>? _incomingDeliveryController;
 
+  // Broadcast streams drop events when there are no listeners.
+  // Keep a small bounded delivery buffer during startup so a valid
+  // relay delivery cannot be lost before RelayListener subscribes.
+  static const _maxBufferedIncomingDeliveries = 64;
+  final List<RelayDelivery> _bufferedIncomingDeliveries =
+      <RelayDelivery>[];
+
   final List<_PendingRelayDelivery> _pendingDeliveries =
       <_PendingRelayDelivery>[];
 
@@ -113,8 +120,47 @@ class RelayClient {
 
   Stream<RelayDelivery> get incomingDelivery =>
       (_incomingDeliveryController ??=
-              StreamController<RelayDelivery>.broadcast())
+              StreamController<RelayDelivery>.broadcast(
+                onListen: _flushBufferedIncomingDeliveries,
+              ))
           .stream;
+
+  void _emitIncomingDelivery(RelayDelivery delivery) {
+    final controller = _incomingDeliveryController ??=
+        StreamController<RelayDelivery>.broadcast(
+          onListen: _flushBufferedIncomingDeliveries,
+        );
+
+    if (!controller.hasListener) {
+      if (_bufferedIncomingDeliveries.length >=
+          _maxBufferedIncomingDeliveries) {
+        _bufferedIncomingDeliveries.removeAt(0);
+      }
+
+      _bufferedIncomingDeliveries.add(delivery);
+      return;
+    }
+
+    controller.add(delivery);
+  }
+
+  void _flushBufferedIncomingDeliveries() {
+    final controller = _incomingDeliveryController;
+
+    if (controller == null ||
+        !controller.hasListener ||
+        _bufferedIncomingDeliveries.isEmpty) {
+      return;
+    }
+
+    final buffered =
+        List<RelayDelivery>.from(_bufferedIncomingDeliveries);
+    _bufferedIncomingDeliveries.clear();
+
+    for (final delivery in buffered) {
+      controller.add(delivery);
+    }
+  }
 
   bool get isConnected => _channel != null && _ready == true;
   bool? _ready;
@@ -238,9 +284,7 @@ class RelayClient {
                         StreamController<Uint8List>.broadcast())
                     .add(reassembled);
 
-                (_incomingDeliveryController ??=
-                        StreamController<RelayDelivery>.broadcast())
-                    .add(
+                _emitIncomingDelivery(
                   RelayDelivery(
                     bytes: reassembled,
                     deliveryId: chunkedPending.deliveryId,
@@ -261,9 +305,7 @@ class RelayClient {
                     StreamController<Uint8List>.broadcast())
                 .add(bytes);
 
-            (_incomingDeliveryController ??=
-                    StreamController<RelayDelivery>.broadcast())
-                .add(
+            _emitIncomingDelivery(
               RelayDelivery(
                 bytes: bytes,
                 deliveryId: pending?.deliveryId,
