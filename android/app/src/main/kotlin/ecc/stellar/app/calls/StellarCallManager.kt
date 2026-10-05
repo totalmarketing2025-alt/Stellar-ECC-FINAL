@@ -224,7 +224,8 @@ class StellarConnectionService : ConnectionService() {
             this,
             callId,
             remote,
-            kind
+            kind,
+            connection.chatId.ifBlank { null }
         )
 
         return connection
