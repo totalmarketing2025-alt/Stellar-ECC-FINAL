@@ -369,6 +369,8 @@ const RELAY_ACK_OK_PREFIX =
 
 const RELAY_AUTH_TTL_MS = 60 * 1000;
 
+const MODERATION_AUTH_TTL_MS = 60 * 1000;
+
 function createRelayChallenge() {
   const bytes = crypto.getRandomValues(
     new Uint8Array(32),
@@ -381,6 +383,84 @@ function validRelayPeer(peer) {
   return (
     typeof peer === "string" &&
     /^[a-z0-9_.-]{1,64}$/.test(peer)
+  );
+}
+
+function createModerationChallenge() {
+  const bytes = crypto.getRandomValues(
+    new Uint8Array(32),
+  );
+
+  return base64UrlEncode(bytes);
+}
+
+function createModerationSessionToken() {
+  const bytes = crypto.getRandomValues(
+    new Uint8Array(32),
+  );
+
+  return base64UrlEncode(bytes);
+}
+
+function createModerationAdminChallenge() {
+  const bytes = crypto.getRandomValues(
+    new Uint8Array(32),
+  );
+
+  return base64UrlEncode(bytes);
+}
+
+async function verifyModerationAdminProof({
+  challenge,
+  proof,
+  secret,
+}) {
+  if (
+    typeof challenge !== "string" ||
+    challenge.length === 0 ||
+    typeof proof !== "string" ||
+    proof.length === 0 ||
+    typeof secret !== "string" ||
+    secret.length === 0
+  ) {
+    return false;
+  }
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    {
+      name: "HMAC",
+      hash: "SHA-256",
+    },
+    false,
+    ["verify"],
+  );
+
+  let signature;
+
+  try {
+    signature = Uint8Array.from(
+      atob(
+        proof
+          .replace(/-/g, "+")
+          .replace(/_/g, "/")
+          .padEnd(
+            proof.length + ((4 - (proof.length % 4)) % 4),
+            "=",
+          ),
+      ),
+      (char) => char.charCodeAt(0),
+    );
+  } catch (_) {
+    return false;
+  }
+
+  return crypto.subtle.verify(
+    "HMAC",
+    key,
+    signature,
+    new TextEncoder().encode(challenge),
   );
 }
 
@@ -1194,6 +1274,863 @@ export class RelayRoom {
   }
 }
 
+
+export class ModerationRoom {
+  constructor(ctx, env) {
+    this.ctx = ctx;
+    this.env = env;
+
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS moderation_messages (
+        message_id TEXT PRIMARY KEY,
+        sender TEXT NOT NULL,
+        recipient TEXT NOT NULL,
+        chat_id TEXT,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        content_type TEXT NOT NULL,
+        plaintext TEXT NOT NULL,
+        attachment_mime_type TEXT
+      )
+    `);
+
+    try {
+      this.ctx.storage.sql.exec(
+        `ALTER TABLE moderation_messages
+         ADD COLUMN attachment_mime_type TEXT`,
+      );
+    } catch (error) {
+      if (!String(error).toLowerCase().includes("duplicate column")) {
+        throw error;
+      }
+    }
+  }
+
+  async authenticateModerationSession(request) {
+    const authorization =
+      request.headers.get("Authorization") || "";
+
+    const prefix = "Bearer ";
+
+    if (!authorization.startsWith(prefix)) {
+      return null;
+    }
+
+    const token = authorization.slice(prefix.length);
+
+    if (!token) {
+      return null;
+    }
+
+    const sessionKey =
+      `moderation-session:${token}`;
+
+    const session =
+      await this.ctx.storage.get(sessionKey);
+
+    if (!session) {
+      return null;
+    }
+
+    if (
+      typeof session.expiresAt !== "number" ||
+      session.expiresAt <= Date.now()
+    ) {
+      await this.ctx.storage.delete(sessionKey);
+      return null;
+    }
+
+    if (
+      typeof session.nickname !== "string" ||
+      typeof session.deviceId !== "number" ||
+      typeof session.registrationId !== "number"
+    ) {
+      return null;
+    }
+
+    return session;
+  }
+
+  async authenticateModerationAdminSession(request) {
+    const authorization =
+      request.headers.get("Authorization") || "";
+
+    const prefix = "Bearer ";
+
+    if (!authorization.startsWith(prefix)) {
+      return null;
+    }
+
+    const token = authorization.slice(prefix.length);
+
+    if (!token) {
+      return null;
+    }
+
+    const sessionKey =
+      `moderation-admin-session:${token}`;
+
+    const session =
+      await this.ctx.storage.get(sessionKey);
+
+    if (!session) {
+      return null;
+    }
+
+    if (
+      typeof session.expiresAt !== "number" ||
+      session.expiresAt <= Date.now()
+    ) {
+      await this.ctx.storage.delete(sessionKey);
+      return null;
+    }
+
+    if (session.role !== "admin") {
+      return null;
+    }
+
+    return session;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+
+    if (
+      request.method === "GET" &&
+      url.pathname === "/v1/moderation/admin/messages"
+    ) {
+      const session =
+        await this.authenticateModerationAdminSession(request);
+
+      if (!session) {
+        return Response.json(
+          { error: "Unauthorized" },
+          { status: 401 },
+        );
+      }
+
+      const limitValue = Number(url.searchParams.get("limit"));
+      const limit =
+        Number.isInteger(limitValue) && limitValue > 0
+          ? Math.min(limitValue, 100)
+          : 50;
+
+      const offsetValue = Number(url.searchParams.get("offset"));
+      const offset =
+        Number.isInteger(offsetValue) && offsetValue >= 0
+          ? offsetValue
+          : 0;
+
+      const rows = this.ctx.storage.sql
+        .exec(
+          `SELECT
+             message_id,
+             sender,
+             recipient,
+             chat_id,
+             created_at,
+             expires_at,
+             content_type,
+             plaintext,
+             attachment_mime_type
+           FROM moderation_messages
+           WHERE expires_at > ?
+           ORDER BY created_at DESC
+           LIMIT ? OFFSET ?`,
+          Date.now(),
+          limit,
+          offset,
+        )
+        .toArray();
+
+      return Response.json({
+        messages: rows,
+      });
+    }
+
+
+    if (
+      request.method === "POST" &&
+      url.pathname === "/v1/moderation/admin/challenge"
+    ) {
+      const challenge = createModerationAdminChallenge();
+      const expiresAt =
+        Date.now() + MODERATION_AUTH_TTL_MS;
+
+      await this.ctx.storage.put(
+        `moderation-admin-auth-challenge:${challenge}`,
+        {
+          challenge,
+          expiresAt,
+        },
+      );
+
+      return Response.json({
+        challenge,
+        expiresAt,
+      });
+    }
+
+    if (
+      request.method === "POST" &&
+      url.pathname === "/v1/moderation/auth/challenge"
+    ) {
+      const challenge = createModerationChallenge();
+      const expiresAt = Date.now() + MODERATION_AUTH_TTL_MS;
+
+      await this.ctx.storage.put(
+        `moderation-auth-challenge:${challenge}`,
+        {
+          challenge,
+          expiresAt,
+        },
+      );
+
+      return Response.json({
+        challenge,
+        expiresAt,
+      });
+    }
+
+    if (
+      request.method === "POST" &&
+      url.pathname === "/v1/moderation/admin/verify"
+    ) {
+      const adminSecret =
+        this.env.MODERATION_ADMIN_SECRET;
+
+      if (
+        typeof adminSecret !== "string" ||
+        adminSecret.length === 0
+      ) {
+        return Response.json(
+          { error: "Moderation admin authentication unavailable" },
+          { status: 503 },
+        );
+      }
+
+      let body;
+
+      try {
+        body = await request.json();
+      } catch (_) {
+        return Response.json(
+          { error: "Invalid JSON" },
+          { status: 400 },
+        );
+      }
+
+      if (
+        !body ||
+        typeof body !== "object" ||
+        Array.isArray(body)
+      ) {
+        return Response.json(
+          { error: "Request body must be a JSON object" },
+          { status: 400 },
+        );
+      }
+
+      const challenge =
+        typeof body.challenge === "string"
+          ? body.challenge
+          : "";
+
+      const proof =
+        typeof body.proof === "string"
+          ? body.proof
+          : "";
+
+      if (!challenge || !proof) {
+        return Response.json(
+          { error: "Invalid moderation admin auth request" },
+          { status: 400 },
+        );
+      }
+
+      const challengeKey =
+        `moderation-admin-auth-challenge:${challenge}`;
+
+      const challengeState =
+        await this.ctx.storage.get(challengeKey);
+
+      if (!challengeState) {
+        return Response.json(
+          { error: "Invalid or expired challenge" },
+          { status: 401 },
+        );
+      }
+
+        if (
+          typeof challengeState.expiresAt !== "number" ||
+          challengeState.expiresAt <= Date.now()
+        ) {
+          await this.ctx.storage.delete(challengeKey);
+
+          return Response.json(
+            { error: "Invalid or expired challenge" },
+            { status: 401 },
+          );
+        }
+
+        const sessionToken =
+          createModerationSessionToken();
+
+        const expiresAt =
+          Date.now() + MODERATION_AUTH_TTL_MS;
+
+        await this.ctx.storage.put(
+          `moderation-admin-session:${sessionToken}`,
+          {
+            role: "admin",
+            expiresAt,
+          },
+        );
+
+        return Response.json({
+          token: sessionToken,
+          expiresAt,
+        });
+      }
+
+    if (
+      request.method === "POST" &&
+      url.pathname === "/v1/moderation/auth/verify"
+    ) {
+      const directoryUrl = this.env.DIRECTORY_URL;
+      const sharedSecret = this.env.RELAY_SHARED_SECRET;
+
+      if (!directoryUrl || !sharedSecret) {
+        return Response.json(
+          { error: "Moderation authentication unavailable" },
+          { status: 503 },
+        );
+      }
+
+      let body;
+
+      try {
+        body = await request.json();
+      } catch (_) {
+        return Response.json(
+          { error: "Invalid JSON" },
+          { status: 400 },
+        );
+      }
+
+      if (
+        !body ||
+        typeof body !== "object" ||
+        Array.isArray(body)
+      ) {
+        return Response.json(
+          { error: "Request body must be a JSON object" },
+          { status: 400 },
+        );
+      }
+
+      const nickname =
+        typeof body.nickname === "string"
+          ? body.nickname.trim().toLowerCase()
+          : "";
+
+      const deviceId = Number(body.deviceId);
+      const registrationId = Number(body.registrationId);
+
+      const challenge =
+        typeof body.challenge === "string"
+          ? body.challenge
+          : "";
+
+      const signature =
+        typeof body.signature === "string"
+          ? body.signature
+          : "";
+
+      if (
+        !/^[a-z0-9_.-]{1,64}$/.test(nickname) ||
+        !Number.isInteger(deviceId) ||
+        deviceId <= 0 ||
+        !Number.isInteger(registrationId) ||
+        registrationId <= 0 ||
+        !challenge ||
+        !signature
+      ) {
+        return Response.json(
+          { error: "Invalid moderation auth request" },
+          { status: 400 },
+        );
+      }
+
+      const challengeKey =
+        `moderation-auth-challenge:${challenge}`;
+
+      const challengeState =
+        await this.ctx.storage.get(challengeKey);
+
+      if (!challengeState) {
+        return Response.json(
+          { error: "Invalid or expired challenge" },
+          { status: 401 },
+        );
+      }
+
+      if (
+        typeof challengeState.expiresAt !== "number" ||
+        challengeState.expiresAt <= Date.now()
+      ) {
+        await this.ctx.storage.delete(challengeKey);
+
+        return Response.json(
+          { error: "Invalid or expired challenge" },
+          { status: 401 },
+        );
+      }
+
+      if (challengeState.challenge !== challenge) {
+        return Response.json(
+          { error: "Invalid challenge" },
+          { status: 401 },
+        );
+      }
+
+      let verificationResponse;
+
+      try {
+        verificationResponse = await fetch(
+          `${directoryUrl}/v1/internal/moderation-auth`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${sharedSecret}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              nickname,
+              deviceId,
+              registrationId,
+              challenge,
+              signature,
+            }),
+          },
+        );
+      } catch (_) {
+        return Response.json(
+          { error: "Moderation identity verification unavailable" },
+          { status: 503 },
+        );
+      }
+
+      if (!verificationResponse.ok) {
+        const bodyText =
+          await verificationResponse.text();
+
+        return Response.json(
+          {
+            error:
+              bodyText || "Moderation identity verification failed",
+          },
+          { status: verificationResponse.status },
+        );
+      }
+
+      await this.ctx.storage.delete(challengeKey);
+
+      const sessionToken =
+        createModerationSessionToken();
+
+      const sessionExpiresAt =
+        Date.now() + MODERATION_AUTH_TTL_MS;
+
+      await this.ctx.storage.put(
+        `moderation-session:${sessionToken}`,
+        {
+          nickname,
+          deviceId,
+          registrationId,
+          expiresAt: sessionExpiresAt,
+        },
+      );
+
+      return Response.json({
+        ok: true,
+        token: sessionToken,
+        expiresAt: sessionExpiresAt,
+      });
+    }
+
+    const attachmentPrefix = "/v1/messages/";
+    const attachmentSuffix = "/attachment";
+
+    if (
+      request.method === "POST" &&
+      url.pathname.startsWith(attachmentPrefix) &&
+      url.pathname.endsWith(attachmentSuffix)
+    ) {
+      const messageId = decodeURIComponent(
+        url.pathname.slice(
+          attachmentPrefix.length,
+          -attachmentSuffix.length,
+        ),
+      );
+
+      return this.storeAttachment(request, messageId);
+    }
+
+    if (request.method !== "POST") {
+      return new Response("Method Not Allowed", {
+        status: 405,
+        headers: {
+          Allow: "POST",
+        },
+      });
+    }
+
+    const session =
+      await this.authenticateModerationSession(request);
+
+    if (!session) {
+      return Response.json(
+        { error: "Unauthorized" },
+        { status: 401 },
+      );
+    }
+
+    let body;
+
+    try {
+      body = await request.json();
+    } catch (_) {
+      return Response.json(
+        { error: "Invalid JSON" },
+        { status: 400 },
+      );
+    }
+
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return Response.json(
+        { error: "Request body must be a JSON object" },
+        { status: 400 },
+      );
+    }
+
+    const requiredStrings = [
+      "messageId",
+      "sender",
+      "recipient",
+      "contentType",
+      "plaintext",
+    ];
+
+    for (const field of requiredStrings) {
+      if (
+        typeof body[field] !== "string" ||
+        body[field].length === 0
+      ) {
+        return Response.json(
+          { error: `Invalid ${field}` },
+          { status: 400 },
+        );
+      }
+    }
+
+    if (body.sender !== session.nickname) {
+      return Response.json(
+        { error: "Sender does not match authenticated identity" },
+        { status: 403 },
+      );
+    }
+
+    if (
+      body.messageId.length > 256 ||
+      body.sender.length > 256 ||
+      body.recipient.length > 256 ||
+      body.contentType.length > 128
+    ) {
+      return Response.json(
+        { error: "Metadata field too long" },
+        { status: 400 },
+      );
+    }
+
+    if (body.plaintext.length > 256 * 1024) {
+      return Response.json(
+        { error: "Plaintext too large" },
+        { status: 413 },
+      );
+    }
+
+    if (
+      !Number.isInteger(body.createdAt) ||
+      body.createdAt < 0
+    ) {
+      return Response.json(
+        { error: "Invalid message timestamp" },
+        { status: 400 },
+      );
+    }
+
+    const receivedAt = Date.now();
+    const expiresAt =
+      receivedAt + 7 * 24 * 60 * 60 * 1000;
+
+    const chatId =
+      body.chatId == null
+        ? null
+        : typeof body.chatId === "string" && body.chatId.length <= 256
+          ? body.chatId
+          : null;
+
+    if (body.chatId != null && chatId == null) {
+      return Response.json(
+        { error: "Invalid chatId" },
+        { status: 400 },
+      );
+    }
+
+    const result = this.ctx.storage.sql.exec(
+      `
+        INSERT INTO moderation_messages (
+          message_id,
+          sender,
+          recipient,
+          chat_id,
+          created_at,
+          expires_at,
+          content_type,
+          plaintext,
+          attachment_mime_type
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(message_id) DO NOTHING
+      `,
+      body.messageId,
+      body.sender,
+      body.recipient,
+      chatId,
+      body.createdAt,
+      expiresAt,
+      body.contentType,
+      body.plaintext,
+      body.attachmentMimeType ?? null,
+    );
+
+    if (result.rowsWritten === 0) {
+      await this.scheduleNextAlarm();
+
+      return Response.json(
+        { ok: true, stored: false, duplicate: true },
+        { status: 200 },
+      );
+    }
+
+    await this.scheduleNextAlarm();
+
+    return Response.json(
+      { ok: true, stored: true },
+      { status: 201 },
+    );
+  }
+
+  async storeAttachment(request, messageId) {
+    const session =
+      await this.authenticateModerationSession(request);
+
+    if (!session) {
+      return Response.json(
+        { error: "Unauthorized" },
+        { status: 401 },
+      );
+    }
+
+    if (
+      typeof messageId !== "string" ||
+      messageId.length === 0 ||
+      messageId.length > 256
+    ) {
+      return Response.json(
+        { error: "Invalid messageId" },
+        { status: 400 },
+      );
+    }
+
+    const message = this.ctx.storage.sql
+      .exec(
+        `SELECT message_id, sender, attachment_mime_type, expires_at
+         FROM moderation_messages
+         WHERE message_id = ?`,
+        messageId,
+      )
+      .one();
+
+    if (!message) {
+      return Response.json(
+        { error: "Message not found" },
+        { status: 404 },
+      );
+    }
+
+    if (message.sender !== session.nickname) {
+      return Response.json(
+        { error: "Attachment does not belong to authenticated identity" },
+        { status: 403 },
+      );
+    }
+
+    if (
+      typeof message.expires_at !== "number" ||
+      message.expires_at <= Date.now()
+    ) {
+      return Response.json(
+        { error: "Message has expired" },
+        { status: 410 },
+      );
+    }
+
+    const contentType = request.headers.get("Content-Type");
+
+    if (
+      typeof message.attachment_mime_type !== "string" ||
+      message.attachment_mime_type.length === 0
+    ) {
+      return Response.json(
+        { error: "Message does not declare an attachment MIME type" },
+        { status: 400 },
+      );
+    }
+
+    if (contentType !== message.attachment_mime_type) {
+      return Response.json(
+        { error: "Attachment MIME type does not match message metadata" },
+        { status: 400 },
+      );
+    }
+
+    if (
+      typeof contentType !== "string" ||
+      contentType.length === 0 ||
+      contentType.length > 128
+    ) {
+      return Response.json(
+        { error: "Invalid attachment MIME type" },
+        { status: 400 },
+      );
+    }
+
+    const contentLength = request.headers.get("Content-Length");
+    const declaredLength =
+      contentLength == null ? null : Number(contentLength);
+
+    if (
+      declaredLength != null &&
+      (!Number.isSafeInteger(declaredLength) || declaredLength < 0)
+    ) {
+      return Response.json(
+        { error: "Invalid attachment size" },
+        { status: 400 },
+      );
+    }
+
+    if (
+      declaredLength != null &&
+      declaredLength > 8 * 1024 * 1024
+    ) {
+      return Response.json(
+        { error: "Attachment is too large. Maximum size is 8 MB." },
+        { status: 413 },
+      );
+    }
+
+    const body = request.body;
+
+    if (body == null) {
+      return Response.json(
+        { error: "Attachment body is required" },
+        { status: 400 },
+      );
+    }
+
+    const key = `messages/${messageId}/attachment`;
+
+    await this.env.MODERATION_ATTACHMENTS.put(key, body, {
+      httpMetadata: {
+        contentType,
+      },
+    });
+
+    return Response.json(
+      {
+        ok: true,
+        stored: true,
+        key,
+      },
+      { status: 201 },
+    );
+  }
+
+  async scheduleNextAlarm() {
+    const next = this.ctx.storage.sql
+      .exec(
+        `SELECT MIN(expires_at) AS next_expires_at
+         FROM moderation_messages
+         WHERE expires_at > ?`,
+        Date.now(),
+      )
+      .one();
+
+    if (
+      !next ||
+      next.next_expires_at == null
+    ) {
+      return;
+    }
+
+    const nextExpiresAt = Number(next.next_expires_at);
+    const currentAlarm = await this.ctx.storage.getAlarm();
+
+    if (
+      currentAlarm == null ||
+      nextExpiresAt < currentAlarm
+    ) {
+      await this.ctx.storage.setAlarm(nextExpiresAt);
+    }
+  }
+
+  async alarm() {
+    const now = Date.now();
+
+    const expired = this.ctx.storage.sql
+      .exec(
+        `SELECT message_id
+         FROM moderation_messages
+         WHERE expires_at <= ?`,
+        now,
+      )
+      .toArray();
+
+    for (const row of expired) {
+      const messageId = row.message_id;
+
+      if (
+        typeof messageId === "string" &&
+        messageId.length > 0
+      ) {
+        await this.env.MODERATION_ATTACHMENTS.delete(
+          `messages/${messageId}/attachment`,
+        );
+      }
+    }
+
+    this.ctx.storage.sql.exec(
+      `DELETE FROM moderation_messages
+       WHERE expires_at <= ?`,
+      now,
+    );
+
+    await this.scheduleNextAlarm();
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -1207,6 +2144,46 @@ export default {
           RELAY_SHARED_SECRET: Boolean(env.RELAY_SHARED_SECRET),
         },
       });
+    }
+
+    const isModerationAttachment =
+      url.pathname.startsWith("/v1/messages/") &&
+      url.pathname.endsWith("/attachment");
+
+    const isModerationAdminMessages =
+      url.pathname === "/v1/moderation/admin/messages";
+
+    if (
+      url.pathname === "/v1/messages" ||
+      url.pathname === "/v1/moderation/auth/challenge" ||
+      url.pathname === "/v1/moderation/auth/verify" ||
+      url.pathname === "/v1/moderation/admin/challenge" ||
+      url.pathname === "/v1/moderation/admin/verify" ||
+      isModerationAttachment ||
+      isModerationAdminMessages
+    ) {
+      const isAdminMessagesGet =
+        isModerationAdminMessages &&
+        request.method === "GET";
+
+      if (
+        !isAdminMessagesGet &&
+        request.method !== "POST"
+      ) {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: {
+            Allow: isModerationAdminMessages
+              ? "GET"
+              : "POST",
+          },
+        });
+      }
+
+      const id = env.MODERATION.idFromName("global");
+      const stub = env.MODERATION.get(id);
+
+      return stub.fetch(request);
     }
 
     if (url.pathname !== "/v1/connect") {

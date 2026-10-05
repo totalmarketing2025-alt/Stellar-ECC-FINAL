@@ -10,6 +10,7 @@ import '../../core/crypto/group_crypto.dart';
 import '../../core/network/relay_client.dart';
 import '../../core/network/directory_client.dart';
 import '../../core/media/media_attachment_service.dart';
+import '../../core/moderation/moderation_client.dart';
 import '../../core/calls/call_signal_router.dart';
 import '../../core/calls/call_coordinator.dart';
 import '../../core/calls/call_platform_bridge.dart';
@@ -22,6 +23,8 @@ const _relayUrl =
     'wss://stellar-ecc-final.totalmarketing2025.workers.dev/v1/connect';
 const _directoryUrl =
     'https://stellar-ecc-directory.totalmarketing2025.workers.dev';
+const _moderationUrl =
+    'https://stellar-ecc-final.totalmarketing2025.workers.dev';
 
 final platformKeyStoreProvider = Provider<PlatformKeyStore>(
   (ref) => PlatformKeyStore(),
@@ -42,6 +45,17 @@ final sessionManagerProvider = Provider<SessionManager>((ref) {
     signedPreKeyStore: StellarSignedPreKeyStore(db),
     sessionStore: StellarSessionStore(db),
   );
+});
+
+final moderationClientProvider = Provider<ModerationClient>((ref) {
+  final client = ModerationClient(
+    baseUrl: _moderationUrl,
+    identityStore: ref.watch(identityKeyStoreProvider),
+  );
+
+  ref.onDispose(client.dispose);
+
+  return client;
 });
 
 final directoryClientProvider = Provider<DirectoryClient>((ref) {
@@ -180,6 +194,7 @@ final chatRepositoryProvider = Provider<ChatRepository>((ref) {
     directoryClient: ref.watch(directoryClientProvider),
     localNickname: nickname,
     mediaService: ref.watch(mediaAttachmentServiceProvider),
+    moderationClient: ref.watch(moderationClientProvider),
   );
 });
 

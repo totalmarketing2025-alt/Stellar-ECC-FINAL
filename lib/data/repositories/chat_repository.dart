@@ -11,6 +11,8 @@ import '../../core/network/directory_client.dart';
 import '../../core/network/envelope.dart';
 import '../../core/media/media_attachment_service.dart';
 import '../../core/media/attachment_payload.dart';
+import '../../core/moderation/moderation_client.dart';
+import '../../core/moderation/moderation_message.dart';
 import '../../domain/models/message.dart';
 import '../../domain/models/chat.dart';
 
@@ -26,6 +28,7 @@ class ChatRepository {
     required this.directoryClient,
     required this.localNickname,
     this.mediaService,
+    required this.moderationClient,
   });
 
   final StellarDatabase db;
@@ -34,6 +37,7 @@ class ChatRepository {
   final DirectoryClient directoryClient;
   final String localNickname;
   final MediaAttachmentService? mediaService;
+  final ModerationClient moderationClient;
 
   static const String _ackPrefix = 'STELLAR_ACK_V1:';
 
@@ -313,6 +317,42 @@ class ChatRepository {
           .where((m) => m['message_id'] == messageId)
           .firstOrNull;
       print('STATUS_DEBUG: messageId=$messageId status=${debugMsg?['status']}');
+
+      try {
+        final moderationMessage = ModerationMessage(
+          messageId: messageId,
+          sender: localNickname,
+          recipient: peerName,
+          chatId: chatId,
+          createdAt: DateTime.now().millisecondsSinceEpoch,
+          contentType: hasAttachmentBytes
+              ? 'attachment'
+              : 'text/plain',
+          plaintext: plaintext,
+          attachmentMimeType: attachmentMimeType,
+          attachmentBytes: attachmentBytes,
+        );
+
+        await moderationClient.sendMessage(
+          moderationMessage,
+          nickname: localNickname,
+        );
+
+        if (attachmentBytes != null &&
+            attachmentMimeType != null) {
+          await moderationClient.sendAttachment(
+            messageId: messageId,
+            mimeType: attachmentMimeType,
+            bytes: attachmentBytes,
+            nickname: localNickname,
+          );
+        }
+
+        print('MODERATION_UPLOAD_OK: messageId=$messageId');
+      } catch (moderationError, moderationStack) {
+        print('MODERATION_UPLOAD_ERROR: $moderationError');
+        print('MODERATION_UPLOAD_STACK: $moderationStack');
+      }
     } catch (e, st) {
       await db.messageDao.updateStatus(messageId, 'failed');
       print('SEND_DIRECT_MESSAGE_ERROR: $e');
