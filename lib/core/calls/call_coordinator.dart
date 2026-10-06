@@ -63,6 +63,17 @@ class CallCoordinator {
         _sessionController.add(_activeSession);
         break;
 
+      case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
+        // WebRTC disconnected can be transient. Keep the session alive
+        // so a later Connected state can recover the active call.
+        if (session.state == CallState.connected) {
+          _activeSession = session.copyWith(
+            state: CallState.connecting,
+          );
+          _sessionController.add(_activeSession);
+        }
+        break;
+
       case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
         _activeSession = session.copyWith(
           state: CallState.failed,
@@ -79,6 +90,25 @@ class CallCoordinator {
         _activeSession = null;
         _lastSignal = null;
         _pendingPlatformAction = null;
+        _pendingIncomingIceSignals.clear();
+        _sessionController.add(null);
+        break;
+
+      case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
+        // The peer connection is already closed here. Do not call
+        // CallService.end() again because that would duplicate cleanup.
+        if (session.state != CallState.failed &&
+            session.state != CallState.ended) {
+          _activeSession = session.copyWith(
+            state: CallState.ended,
+          );
+          _sessionController.add(_activeSession);
+        }
+
+        _activeSession = null;
+        _lastSignal = null;
+        _pendingPlatformAction = null;
+        _pendingIncomingIceSignals.clear();
         _sessionController.add(null);
         break;
 

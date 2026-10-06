@@ -60,6 +60,10 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     _sessionSubscription = coordinator.sessionStream.listen((session) {
       if (!mounted) return;
       if (session == null) {
+        if (_session?.state == CallState.ended ||
+            _session?.state == CallState.failed) {
+          return;
+        }
         setState(() {
           _session = null;
         });

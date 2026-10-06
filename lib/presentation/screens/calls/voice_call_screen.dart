@@ -58,6 +58,10 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
         return;
       }
       if (session == null) {
+        if (_session?.state == CallState.ended ||
+            _session?.state == CallState.failed) {
+          return;
+        }
         setState(() {
           _session = null;
         });
