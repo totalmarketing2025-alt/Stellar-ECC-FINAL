@@ -50,9 +50,25 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     final coordinator = ref.read(callCoordinatorProvider);
     _callCoordinator = coordinator;
 
-    _session = coordinator.activeSession;
+    final active = coordinator.activeSession;
+    if (active != null &&
+        active.chatId == widget.chatId &&
+        active.kind == CallKind.video) {
+      _session = active;
+    }
+
     _sessionSubscription = coordinator.sessionStream.listen((session) {
       if (!mounted) return;
+      if (session == null) {
+        setState(() {
+          _session = null;
+        });
+        return;
+      }
+      if (session.chatId != widget.chatId ||
+          session.kind != CallKind.video) {
+        return;
+      }
       setState(() {
         _session = session;
       });

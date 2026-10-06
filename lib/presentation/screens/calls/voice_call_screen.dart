@@ -64,7 +64,8 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
         return;
       }
 
-      if (session.chatId != widget.chatId) {
+      if (session.chatId != widget.chatId ||
+          session.kind != CallKind.voice) {
         return;
       }
 
