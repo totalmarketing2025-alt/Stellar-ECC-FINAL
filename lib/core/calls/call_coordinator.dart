@@ -166,6 +166,10 @@ class CallCoordinator {
     return _callService.switchCamera();
   }
 
+  Future<void> setSpeakerphone(bool enabled) {
+    return _callService.setSpeakerphone(enabled);
+  }
+
   void start() {
     _subscription ??= _signalRouter.incoming.listen(_handleSignal);
     _platformSubscription ??=

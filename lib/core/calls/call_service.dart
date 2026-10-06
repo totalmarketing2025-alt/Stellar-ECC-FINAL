@@ -488,6 +488,10 @@ class CallService {
     }
   }
 
+  Future<void> setSpeakerphone(bool enabled) async {
+    await Helper.setSpeakerphoneOn(enabled);
+  }
+
   Future<void> switchCamera() async {
     final tracks = _localStream?.getVideoTracks() ?? <MediaStreamTrack>[];
 

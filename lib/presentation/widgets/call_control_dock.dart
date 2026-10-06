@@ -43,12 +43,11 @@ class CallControlDock extends StatelessWidget {
             active: muted,
             onTap: onToggleMute,
           ),
-          if (!showCameraControls)
-            _DockButton(
-              icon: speakerOn ? Icons.volume_up : Icons.volume_down,
-              active: speakerOn,
-              onTap: onToggleSpeaker,
-            ),
+          _DockButton(
+            icon: speakerOn ? Icons.volume_up : Icons.volume_down,
+            active: speakerOn,
+            onTap: onToggleSpeaker,
+          ),
           if (showCameraControls) ...[
             _DockButton(
               icon: cameraOff ? Icons.videocam_off : Icons.videocam,
