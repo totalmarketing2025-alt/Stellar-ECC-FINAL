@@ -114,7 +114,7 @@ class CallCoordinator {
         callId: callId,
         chatId: chatId,
         kind: video ? CallKind.video : CallKind.voice,
-        state: CallState.connecting,
+        state: CallState.ringing,
         remoteNickname: remoteNickname,
       );
 
@@ -249,11 +249,14 @@ class CallCoordinator {
 
     switch (signal.type) {
       case 'answer':
-      case 'ice-candidate':
         _activeSession = _activeSession?.copyWith(
           state: CallState.connecting,
         );
         _sessionController.add(_activeSession);
+        break;
+
+      case 'ice-candidate':
+        // Keep outgoing UI in Ringing until the remote peer answers.
         break;
 
       case 'reject':
