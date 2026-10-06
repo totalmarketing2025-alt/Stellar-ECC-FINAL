@@ -106,6 +106,17 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
 
       if (mounted) setState(() {});
     } catch (error) {
+      if (mounted) {
+        setState(() {
+          _session = CallSession(
+            callId: _session?.callId ?? '',
+            chatId: widget.chatId,
+            kind: CallKind.video,
+            state: CallState.failed,
+            remoteNickname: remoteNickname,
+          );
+        });
+      }
       print('VIDEO_CALL_START_FAILED: $error');
     }
   }
