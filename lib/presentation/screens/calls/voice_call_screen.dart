@@ -31,8 +31,9 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
   CallCoordinator? _callCoordinator;
   bool _muted = false;
   bool _speakerOn = false;
-  String _stateLabel = 'Connecting…';
+  CallSession? _session;
   StreamSubscription<CallSession?>? _sessionSubscription;
+  Timer? _elapsedTicker;
 
   @override
   void initState() {
@@ -52,24 +53,41 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
       remote: _remoteRenderer,
     );
 
-    if (widget.incoming) {
-      final active = coordinator.activeSession;
-      if (active != null && active.chatId == widget.chatId) {
-        _stateLabel = active.state == CallState.connected
-            ? 'Encrypted call in progress'
-            : 'Connecting…';
-      } else {
-        _sessionSubscription = coordinator.sessionStream.listen((session) {
-          if (!mounted || session == null || session.chatId != widget.chatId) {
-            return;
-          }
-          setState(() {
-            _stateLabel = session.state == CallState.connected
-                ? 'Encrypted call in progress'
-                : 'Connecting…';
-          });
-        });
+    void handleSession(CallSession? session) {
+      if (!mounted) {
+        return;
       }
+      if (session == null) {
+        setState(() {
+          _session = null;
+        });
+        return;
+      }
+
+      if (session.chatId != widget.chatId) {
+        return;
+      }
+
+      setState(() {
+        _session = session;
+      });
+    }
+
+    _sessionSubscription = coordinator.sessionStream.listen(handleSession);
+
+    final active = coordinator.activeSession;
+    if (active != null && active.chatId == widget.chatId) {
+      handleSession(active);
+    }
+
+    _elapsedTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _session?.state != CallState.connected) {
+        return;
+      }
+      setState(() {});
+    });
+
+    if (widget.incoming) {
       return;
     }
 
@@ -83,13 +101,17 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
         chatId: widget.chatId,
         video: false,
       );
-
-      if (mounted) {
-        setState(() => _stateLabel = 'Encrypted call in progress');
-      }
     } catch (error) {
       if (mounted) {
-        setState(() => _stateLabel = 'Call failed');
+        setState(() {
+          _session = CallSession(
+            callId: _session?.callId ?? '',
+            chatId: widget.chatId,
+            kind: CallKind.voice,
+            state: CallState.failed,
+            remoteNickname: remoteNickname,
+          );
+        });
       }
       print('VOICE_CALL_START_FAILED: $error');
     }
@@ -97,6 +119,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
 
   @override
   void dispose() {
+    _elapsedTicker?.cancel();
     _sessionSubscription?.cancel();
     _localRenderer.dispose();
     _remoteRenderer.dispose();
@@ -105,24 +128,39 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final session = _session;
+    final identity = session?.remoteNickname?.isNotEmpty == true
+        ? session!.remoteNickname!
+        : widget.chatId;
+    final stateLabel = _stateLabel(session);
+
     return Scaffold(
       backgroundColor: StellarColors.bgPrimary,
       body: SafeArea(
         child: Column(
           children: [
             const SizedBox(height: 48),
-            StellarAvatar(seed: widget.chatId, label: widget.chatId, size: 120),
+            StellarAvatar(seed: identity, label: identity, size: 120),
             const SizedBox(height: 24),
-            Text(widget.chatId, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
+            Text(identity, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Icon(Icons.lock, size: 14, color: StellarColors.success),
                 const SizedBox(width: 6),
-                Text(_stateLabel, style: const TextStyle(color: StellarColors.textSecondary)),
+                Text(stateLabel, style: const TextStyle(color: StellarColors.textSecondary)),
               ],
             ),
+            const SizedBox(height: 8),
+            if (session?.state == CallState.connected)
+              Text(
+                _formatElapsed(session!.elapsed),
+                style: const TextStyle(
+                  color: StellarColors.textSecondary,
+                  fontSize: 14,
+                ),
+              ),
             const Spacer(),
             TextButton.icon(
               onPressed: () => _showSafetyNumberCompare(context),
@@ -148,6 +186,34 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
         ),
       ),
     );
+  }
+
+  String _stateLabel(CallSession? session) {
+    switch (session?.state) {
+      case CallState.ringing:
+        return 'Ringing…';
+      case CallState.connecting:
+        return 'Connecting…';
+      case CallState.connected:
+        return 'Encrypted call in progress';
+      case CallState.ended:
+        return 'Call ended';
+      case CallState.failed:
+        return 'Call failed';
+      case null:
+        return 'Connecting…';
+    }
+  }
+
+  String _formatElapsed(Duration duration) {
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+
+    if (hours > 0) {
+      return '$hours:$minutes:$seconds';
+    }
+    return '$minutes:$seconds';
   }
 
   void _showSafetyNumberCompare(BuildContext context) {

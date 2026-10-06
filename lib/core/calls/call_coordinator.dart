@@ -57,6 +57,7 @@ class CallCoordinator {
       case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
         _activeSession = session.copyWith(
           state: CallState.connected,
+          connectedAt: session.connectedAt ?? DateTime.now(),
         );
         _sessionController.add(_activeSession);
         break;
