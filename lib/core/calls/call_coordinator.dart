@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../domain/models/call_session.dart';
@@ -97,29 +98,27 @@ class CallCoordinator {
       throw StateError('Another call is already active');
     }
 
+    final callId = _generateCallId();
+
+    _activeSession = CallSession(
+      callId: callId,
+      chatId: chatId,
+      kind: video ? CallKind.video : CallKind.voice,
+      state: CallState.ringing,
+      remoteNickname: remoteNickname,
+    );
+
+    _lastSignal = null;
+    _sessionController.add(_activeSession);
+
     try {
       await _callService.start(
         remoteNickname: remoteNickname,
         direction: CallDirection.outgoing,
         video: video,
-        chatId: chatId,
-      );
-
-      final callId = _callService.callId;
-      if (callId == null || callId.isEmpty) {
-        throw StateError('Outgoing call did not initialize callId');
-      }
-
-      _activeSession = CallSession(
         callId: callId,
         chatId: chatId,
-        kind: video ? CallKind.video : CallKind.voice,
-        state: CallState.ringing,
-        remoteNickname: remoteNickname,
       );
-
-      _lastSignal = null;
-      _sessionController.add(_activeSession);
     } catch (_) {
       await _callService.end();
       _activeSession = null;
@@ -127,6 +126,14 @@ class CallCoordinator {
       _sessionController.add(null);
       rethrow;
     }
+  }
+
+  String _generateCallId() {
+    final random = Random.secure();
+
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+
+    return bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
   }
 
   Future<void> endActiveCall() async {
