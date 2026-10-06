@@ -370,7 +370,26 @@ class CallCoordinator {
       return;
     }
 
-    final remoteNickname = session.remoteNickname ?? action.remoteNickname;
+    final expectedKind =
+        session.kind == CallKind.video ? 'video' : 'voice';
+    if (action.kind != expectedKind) {
+      return;
+    }
+
+    final sessionRemoteNickname = session.remoteNickname;
+    if (sessionRemoteNickname != null &&
+        sessionRemoteNickname.isNotEmpty &&
+        action.remoteNickname != sessionRemoteNickname) {
+      return;
+    }
+
+    if (action.chatId != null &&
+        action.chatId!.isNotEmpty &&
+        action.chatId != session.chatId) {
+      return;
+    }
+
+    final remoteNickname = sessionRemoteNickname ?? action.remoteNickname;
     if (remoteNickname.isEmpty) {
       return;
     }
