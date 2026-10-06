@@ -33,9 +33,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void initState() {
     super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _markChatRead();
+    });
+
     _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       ref.invalidate(chatMessagesProvider(widget.chatId));
+      ref.invalidate(chatListProvider);
     });
+  }
+
+  Future<void> _markChatRead() async {
+    try {
+      await ref.read(chatRepositoryProvider).markChatRead(widget.chatId);
+      ref.invalidate(chatListProvider);
+    } catch (_) {
+      // Read-state failure must not break the chat UI.
+    }
   }
 
   @override
@@ -129,6 +144,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               },
             ),
           ),
+          if ((chat?.unreadCount ?? 0) > 0)
+            _NewMessagesBanner(
+              count: chat!.unreadCount,
+              onTap: () async {
+                await _markChatRead();
+                if (mounted && _scrollController.hasClients) {
+                  await _scrollController.animateTo(
+                    0,
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeOut,
+                  );
+                }
+              },
+            ),
           if (_replyingTo != null) _ReplyPreview(
             message: _replyingTo!,
             onCancel: () => setState(() => _replyingTo = null),
@@ -274,6 +303,55 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
     if (selected != null) setState(() => _perMessageTtlOverride = selected);
+  }
+}
+
+class _NewMessagesBanner extends StatelessWidget {
+  const _NewMessagesBanner({
+    required this.count,
+    required this.onTap,
+  });
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Material(
+        color: StellarColors.bgElevated,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.mark_chat_unread_outlined,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  count == 1 ? 'New message' : '$count new messages',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Icon(
+                  Icons.keyboard_arrow_down,
+                  size: 18,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

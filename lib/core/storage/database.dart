@@ -396,7 +396,9 @@ class ChatDao {
     );
   }
 
-  Future<List<Map<String, Object?>>> all() async {
+  Future<List<Map<String, Object?>>> all({
+    String? localNickname,
+  }) async {
     return _db.select('''
       SELECT
         c.*,
@@ -415,12 +417,23 @@ class ChatDao {
             AND m.expires_at > ?
           ORDER BY m.sent_at DESC
           LIMIT 1
-        ) AS last_message_at
+        ) AS last_message_at,
+        (
+          SELECT COUNT(*)
+          FROM message m
+          WHERE m.chat_id = c.chat_id
+            AND m.expires_at > ?
+            AND m.read_at IS NULL
+            AND (? IS NULL OR LOWER(m.sender_id) != LOWER(?))
+        ) AS unread_count
       FROM chat c
       ORDER BY COALESCE(last_message_at, c.created_at) DESC
     ''', [
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      localNickname,
+      localNickname,
     ]);
   }
 
@@ -575,6 +588,27 @@ class MessageDao {
     _db.execute(
       'UPDATE message SET status = ?, read_at = ? WHERE message_id = ?',
       ['read', DateTime.now().millisecondsSinceEpoch ~/ 1000, messageId],
+    );
+  }
+
+  Future<void> markChatRead({
+    required String chatId,
+    required String localNickname,
+  }) async {
+    _db.execute(
+      '''
+      UPDATE message
+      SET status = ?, read_at = ?
+      WHERE chat_id = ?
+        AND read_at IS NULL
+        AND LOWER(sender_id) != LOWER(?)
+      ''',
+      [
+        'read',
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        chatId,
+        localNickname,
+      ],
     );
   }
 

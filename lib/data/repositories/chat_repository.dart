@@ -64,13 +64,22 @@ class ChatRepository {
   final _uuid = const Uuid();
 
   Future<List<Chat>> loadChats() async {
-    final rows = await db.chatDao.all();
+    final rows = await db.chatDao.all(
+      localNickname: localNickname,
+    );
     return rows.map(Chat.fromRow).toList();
   }
 
   Future<List<Message>> loadMessages(String chatId) async {
     final rows = await db.messageDao.forChat(chatId);
     return rows.map(Message.fromRow).toList();
+  }
+
+  Future<void> markChatRead(String chatId) async {
+    await db.messageDao.markChatRead(
+      chatId: chatId,
+      localNickname: localNickname,
+    );
   }
 
   Future<void> deleteMessage(String messageId) async {
