@@ -282,16 +282,18 @@ class CallCoordinator {
       return;
     }
 
-    _lastSignal = signal;
-
     // ICE candidates can arrive before the user answers an incoming call.
     // CallService has no peer connection until start(incoming) is called,
     // so keep these signals at coordinator level until the call is answered.
+    // Do not overwrite _lastSignal here: it must remain the original offer
+    // so the platform Answer action can still consume it.
     if (signal.type == 'ice-candidate' &&
         _activeSession?.state == CallState.ringing) {
       _pendingIncomingIceSignals.add(signal);
       return;
     }
+
+    _lastSignal = signal;
 
     switch (signal.type) {
       case 'answer':
