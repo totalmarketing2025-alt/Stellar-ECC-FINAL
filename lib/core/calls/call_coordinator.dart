@@ -475,23 +475,6 @@ class CallCoordinator {
     }
   }
 
-  CallSignal? accept() {
-    final signal = _lastSignal;
-
-    if (_activeSession == null || signal == null) {
-      return null;
-    }
-
-    _ringTimeout?.cancel();
-
-    _activeSession = _activeSession?.copyWith(
-      state: CallState.connecting,
-    );
-    _sessionController.add(_activeSession);
-
-    return signal;
-  }
-
   void rejectLocally() {
     _ringTimeout?.cancel();
 
