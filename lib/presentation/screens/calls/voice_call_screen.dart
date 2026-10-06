@@ -175,7 +175,11 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
                 setState(() => _muted = !_muted);
                 _callCoordinator?.toggleMute(_muted);
               },
-              onToggleSpeaker: () => setState(() => _speakerOn = !_speakerOn),
+              onToggleSpeaker: () {
+                final next = !_speakerOn;
+                setState(() => _speakerOn = next);
+                _callCoordinator?.setSpeakerphone(next);
+              },
               onEndCall: () {
                 _callCoordinator?.endActiveCall();
                 context.pop();
