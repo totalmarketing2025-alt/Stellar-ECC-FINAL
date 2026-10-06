@@ -187,6 +187,15 @@ class CallCoordinator {
     final session = signal.session;
 
     if (signal.type == 'offer') {
+      final activeSession = _activeSession;
+
+      // Never let a new offer overwrite an already active call.
+      // A valid incoming offer is accepted only when there is no
+      // active session yet.
+      if (activeSession != null) {
+        return;
+      }
+
       _pendingIncomingIceSignals.clear();
       _ringTimeout?.cancel();
 
