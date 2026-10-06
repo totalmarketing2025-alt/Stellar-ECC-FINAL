@@ -425,7 +425,9 @@ class ChatRepository {
       try {
         Uint8List decrypted;
 
-        try {
+        // First-contact messages are X3DH PreKeySignalMessages.
+        // Established sessions use regular SignalMessage.
+        if (await sessionManager.hasSession(address)) {
           final signalMessage = SignalMessage.fromSerialized(
             envelope.ciphertext,
           );
@@ -433,7 +435,7 @@ class ChatRepository {
             address,
             signalMessage,
           );
-        } catch (_) {
+        } else {
           final preKeyMessage = PreKeySignalMessage(envelope.ciphertext);
           decrypted = await sessionManager.decryptReceived(
             address,
