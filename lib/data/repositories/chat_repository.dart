@@ -51,6 +51,8 @@ class ChatRepository {
 
   late final ModerationOutboxService moderationOutbox;
 
+  Future<void> dispose() => moderationOutbox.dispose();
+
   static const String _ackPrefix = 'STELLAR_ACK_V1:';
 
   Uint8List _encodeDeliveryAck(Uint8List deliveryToken) {

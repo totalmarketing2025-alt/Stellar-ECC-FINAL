@@ -199,7 +199,7 @@ final chatRepositoryProvider = Provider<ChatRepository>((ref) {
       'localNicknameProvider must be set before chatRepositoryProvider is used',
     );
   }
-  return ChatRepository(
+  final repository = ChatRepository(
     db: ref.watch(databaseProvider),
     sessionManager: ref.watch(sessionManagerProvider),
     relayClient: ref.watch(relayClientProvider),
@@ -208,6 +208,10 @@ final chatRepositoryProvider = Provider<ChatRepository>((ref) {
     mediaService: ref.watch(mediaAttachmentServiceProvider),
     moderationClient: ref.watch(moderationClientProvider),
   );
+
+  ref.onDispose(repository.dispose);
+
+  return repository;
 });
 
 /// Chat list — refreshed on demand via `ref.invalidate(chatListProvider)`

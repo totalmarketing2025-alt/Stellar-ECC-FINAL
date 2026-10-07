@@ -544,14 +544,6 @@ class MessageDao {
     );
   }
 
-  Future<Map<String, Object?>?> byMessageId(String messageId) async {
-    final rows = _db.select(
-      'SELECT * FROM media_blob WHERE message_id = ? LIMIT 1',
-      [messageId],
-    );
-    return rows.isEmpty ? null : rows.first;
-  }
-
   Future<List<Map<String, Object?>>> expired() async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     return _db.select('SELECT message_id FROM message WHERE expires_at <= ?', [now]);
@@ -702,6 +694,14 @@ class MediaBlobDao {
     final rows = _db.select(
       'SELECT * FROM media_blob WHERE blob_id = ? LIMIT 1',
       [blobId],
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  Future<Map<String, Object?>?> byMessageId(String messageId) async {
+    final rows = _db.select(
+      'SELECT * FROM media_blob WHERE message_id = ? LIMIT 1',
+      [messageId],
     );
     return rows.isEmpty ? null : rows.first;
   }
