@@ -28,6 +28,9 @@ class CallCoordinator {
   CallSignal? _lastSignal;
   CallPlatformAction? _pendingPlatformAction;
   final List<CallSignal> _pendingIncomingIceSignals = [];
+  final Map<String, List<CallSignal>> _pendingPreOfferIceSignals = {};
+
+  static const int _maxPendingPreOfferIceSignals = 128;
 
   final StreamController<CallSession?> _sessionController =
       StreamController<CallSession?>.broadcast();
@@ -188,6 +191,7 @@ class CallCoordinator {
     _activeSession = null;
     _lastSignal = null;
     _pendingPlatformAction = null;
+    _pendingPreOfferIceSignals.clear();
     _sessionController.add(null);
   }
 
@@ -226,8 +230,14 @@ class CallCoordinator {
         return;
       }
 
-      _pendingIncomingIceSignals.clear();
       _ringTimeout?.cancel();
+
+      final preOfferIceSignals =
+          _pendingPreOfferIceSignals.remove(session.callId) ?? const [];
+
+      _pendingIncomingIceSignals
+        ..clear()
+        ..addAll(preOfferIceSignals);
 
       _activeSession = session.copyWith(
         state: CallState.ringing,
@@ -272,6 +282,7 @@ class CallCoordinator {
         _activeSession = null;
         _lastSignal = null;
         _pendingPlatformAction = null;
+        _pendingPreOfferIceSignals.remove(session.callId);
         _sessionController.add(null);
       });
 
@@ -279,6 +290,20 @@ class CallCoordinator {
     }
 
     if (_activeSession?.callId != session.callId) {
+      if (signal.type == 'ice-candidate') {
+        final pending =
+            _pendingPreOfferIceSignals.putIfAbsent(
+          session.callId,
+          () => <CallSignal>[],
+        );
+
+        if (pending.length < _maxPendingPreOfferIceSignals) {
+          pending.add(signal);
+        }
+
+        return;
+      }
+
       return;
     }
 
@@ -310,6 +335,7 @@ class CallCoordinator {
       case 'reject':
       case 'end':
         _pendingIncomingIceSignals.clear();
+        _pendingPreOfferIceSignals.remove(session.callId);
         _ringTimeout?.cancel();
 
         _activeSession = _activeSession?.copyWith(
