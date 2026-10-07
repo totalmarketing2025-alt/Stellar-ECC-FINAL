@@ -1573,6 +1573,22 @@ export class ModerationRoom {
           );
         }
 
+        const validProof =
+          await verifyModerationAdminProof({
+            challenge,
+            proof,
+            secret: adminSecret,
+          });
+
+        if (!validProof) {
+          return Response.json(
+            { error: "Invalid moderation admin proof" },
+            { status: 401 },
+          );
+        }
+
+        await this.ctx.storage.delete(challengeKey);
+
         const sessionToken =
           createModerationSessionToken();
 
