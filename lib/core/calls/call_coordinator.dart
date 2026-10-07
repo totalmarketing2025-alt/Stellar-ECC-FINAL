@@ -496,31 +496,6 @@ class CallCoordinator {
     }
   }
 
-  void rejectLocally() {
-    _ringTimeout?.cancel();
-
-    final session = _activeSession;
-    final remoteNickname = session?.remoteNickname;
-
-    if (remoteNickname != null && remoteNickname.isNotEmpty) {
-      unawaited(_callService.reject(remoteNickname));
-    } else {
-      unawaited(_callService.end());
-    }
-
-    if (_activeSession != null) {
-      _activeSession = _activeSession?.copyWith(
-        state: CallState.ended,
-      );
-      _sessionController.add(_activeSession);
-    }
-
-    _activeSession = null;
-    _lastSignal = null;
-    _pendingPlatformAction = null;
-    _sessionController.add(null);
-  }
-
   void clear() {
     _ringTimeout?.cancel();
 
