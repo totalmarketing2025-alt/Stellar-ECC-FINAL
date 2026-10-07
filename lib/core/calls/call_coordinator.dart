@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../domain/models/call_session.dart';
@@ -62,6 +63,17 @@ class CallCoordinator {
         _sessionController.add(_activeSession);
         break;
 
+      case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
+        // WebRTC disconnected can be transient. Keep the session alive
+        // so a later Connected state can recover the active call.
+        if (session.state == CallState.connected) {
+          _activeSession = session.copyWith(
+            state: CallState.connecting,
+          );
+          _sessionController.add(_activeSession);
+        }
+        break;
+
       case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
         _activeSession = session.copyWith(
           state: CallState.failed,
@@ -78,6 +90,25 @@ class CallCoordinator {
         _activeSession = null;
         _lastSignal = null;
         _pendingPlatformAction = null;
+        _pendingIncomingIceSignals.clear();
+        _sessionController.add(null);
+        break;
+
+      case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
+        // The peer connection is already closed here. Do not call
+        // CallService.end() again because that would duplicate cleanup.
+        if (session.state != CallState.failed &&
+            session.state != CallState.ended) {
+          _activeSession = session.copyWith(
+            state: CallState.ended,
+          );
+          _sessionController.add(_activeSession);
+        }
+
+        _activeSession = null;
+        _lastSignal = null;
+        _pendingPlatformAction = null;
+        _pendingIncomingIceSignals.clear();
         _sessionController.add(null);
         break;
 
@@ -97,29 +128,27 @@ class CallCoordinator {
       throw StateError('Another call is already active');
     }
 
+    final callId = _generateCallId();
+
+    _activeSession = CallSession(
+      callId: callId,
+      chatId: chatId,
+      kind: video ? CallKind.video : CallKind.voice,
+      state: CallState.ringing,
+      remoteNickname: remoteNickname,
+    );
+
+    _lastSignal = null;
+    _sessionController.add(_activeSession);
+
     try {
       await _callService.start(
         remoteNickname: remoteNickname,
         direction: CallDirection.outgoing,
         video: video,
-        chatId: chatId,
-      );
-
-      final callId = _callService.callId;
-      if (callId == null || callId.isEmpty) {
-        throw StateError('Outgoing call did not initialize callId');
-      }
-
-      _activeSession = CallSession(
         callId: callId,
         chatId: chatId,
-        kind: video ? CallKind.video : CallKind.voice,
-        state: CallState.ringing,
-        remoteNickname: remoteNickname,
       );
-
-      _lastSignal = null;
-      _sessionController.add(_activeSession);
     } catch (_) {
       await _callService.end();
       _activeSession = null;
@@ -127,6 +156,14 @@ class CallCoordinator {
       _sessionController.add(null);
       rethrow;
     }
+  }
+
+  String _generateCallId() {
+    final random = Random.secure();
+
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+
+    return bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
   }
 
   Future<void> endActiveCall() async {
@@ -180,6 +217,15 @@ class CallCoordinator {
     final session = signal.session;
 
     if (signal.type == 'offer') {
+      final activeSession = _activeSession;
+
+      // Never let a new offer overwrite an already active call.
+      // A valid incoming offer is accepted only when there is no
+      // active session yet.
+      if (activeSession != null) {
+        return;
+      }
+
       _pendingIncomingIceSignals.clear();
       _ringTimeout?.cancel();
 
@@ -236,16 +282,18 @@ class CallCoordinator {
       return;
     }
 
-    _lastSignal = signal;
-
     // ICE candidates can arrive before the user answers an incoming call.
     // CallService has no peer connection until start(incoming) is called,
     // so keep these signals at coordinator level until the call is answered.
+    // Do not overwrite _lastSignal here: it must remain the original offer
+    // so the platform Answer action can still consume it.
     if (signal.type == 'ice-candidate' &&
         _activeSession?.state == CallState.ringing) {
       _pendingIncomingIceSignals.add(signal);
       return;
     }
+
+    _lastSignal = signal;
 
     switch (signal.type) {
       case 'answer':
@@ -324,7 +372,26 @@ class CallCoordinator {
       return;
     }
 
-    final remoteNickname = session.remoteNickname ?? action.remoteNickname;
+    final expectedKind =
+        session.kind == CallKind.video ? 'video' : 'voice';
+    if (action.kind != expectedKind) {
+      return;
+    }
+
+    final sessionRemoteNickname = session.remoteNickname;
+    if (sessionRemoteNickname != null &&
+        sessionRemoteNickname.isNotEmpty &&
+        action.remoteNickname != sessionRemoteNickname) {
+      return;
+    }
+
+    if (action.chatId != null &&
+        action.chatId!.isNotEmpty &&
+        action.chatId != session.chatId) {
+      return;
+    }
+
+    final remoteNickname = sessionRemoteNickname ?? action.remoteNickname;
     if (remoteNickname.isEmpty) {
       return;
     }
@@ -427,48 +494,6 @@ class CallCoordinator {
         _sessionController.add(null);
         break;
     }
-  }
-
-  CallSignal? accept() {
-    final signal = _lastSignal;
-
-    if (_activeSession == null || signal == null) {
-      return null;
-    }
-
-    _ringTimeout?.cancel();
-
-    _activeSession = _activeSession?.copyWith(
-      state: CallState.connecting,
-    );
-    _sessionController.add(_activeSession);
-
-    return signal;
-  }
-
-  void rejectLocally() {
-    _ringTimeout?.cancel();
-
-    final session = _activeSession;
-    final remoteNickname = session?.remoteNickname;
-
-    if (remoteNickname != null && remoteNickname.isNotEmpty) {
-      unawaited(_callService.reject(remoteNickname));
-    } else {
-      unawaited(_callService.end());
-    }
-
-    if (_activeSession != null) {
-      _activeSession = _activeSession?.copyWith(
-        state: CallState.ended,
-      );
-      _sessionController.add(_activeSession);
-    }
-
-    _activeSession = null;
-    _lastSignal = null;
-    _pendingPlatformAction = null;
-    _sessionController.add(null);
   }
 
   void clear() {

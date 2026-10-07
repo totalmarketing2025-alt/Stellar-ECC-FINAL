@@ -58,13 +58,18 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
         return;
       }
       if (session == null) {
+        if (_session?.state == CallState.ended ||
+            _session?.state == CallState.failed) {
+          return;
+        }
         setState(() {
           _session = null;
         });
         return;
       }
 
-      if (session.chatId != widget.chatId) {
+      if (session.chatId != widget.chatId ||
+          session.kind != CallKind.voice) {
         return;
       }
 
@@ -175,7 +180,11 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
                 setState(() => _muted = !_muted);
                 _callCoordinator?.toggleMute(_muted);
               },
-              onToggleSpeaker: () => setState(() => _speakerOn = !_speakerOn),
+              onToggleSpeaker: () {
+                final next = !_speakerOn;
+                setState(() => _speakerOn = next);
+                _callCoordinator?.setSpeakerphone(next);
+              },
               onEndCall: () {
                 _callCoordinator?.endActiveCall();
                 context.pop();

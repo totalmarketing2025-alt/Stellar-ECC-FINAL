@@ -182,9 +182,14 @@ class CallService {
           break;
 
         case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
-        case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
         case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
           unawaited(platformBridge.setCallEnded(callId));
+          break;
+
+        case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
+          // A disconnected WebRTC state can be transient.
+          // Do not mark the native call as ended until the connection
+          // actually fails or closes.
           break;
 
         default:

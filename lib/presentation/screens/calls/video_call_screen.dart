@@ -50,9 +50,29 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     final coordinator = ref.read(callCoordinatorProvider);
     _callCoordinator = coordinator;
 
-    _session = coordinator.activeSession;
+    final active = coordinator.activeSession;
+    if (active != null &&
+        active.chatId == widget.chatId &&
+        active.kind == CallKind.video) {
+      _session = active;
+    }
+
     _sessionSubscription = coordinator.sessionStream.listen((session) {
       if (!mounted) return;
+      if (session == null) {
+        if (_session?.state == CallState.ended ||
+            _session?.state == CallState.failed) {
+          return;
+        }
+        setState(() {
+          _session = null;
+        });
+        return;
+      }
+      if (session.chatId != widget.chatId ||
+          session.kind != CallKind.video) {
+        return;
+      }
       setState(() {
         _session = session;
       });
@@ -86,6 +106,17 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
 
       if (mounted) setState(() {});
     } catch (error) {
+      if (mounted) {
+        setState(() {
+          _session = CallSession(
+            callId: _session?.callId ?? '',
+            chatId: widget.chatId,
+            kind: CallKind.video,
+            state: CallState.failed,
+            remoteNickname: remoteNickname,
+          );
+        });
+      }
       print('VIDEO_CALL_START_FAILED: $error');
     }
   }
