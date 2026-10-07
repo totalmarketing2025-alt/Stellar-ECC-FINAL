@@ -87,6 +87,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
         ),
         actions: [
+          const _StellarConnectionIndicator(),
           IconButton(
             icon: const Icon(Icons.call_outlined),
             onPressed: () => context.push('/call/voice/${widget.chatId}'),
@@ -303,6 +304,82 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
     if (selected != null) setState(() => _perMessageTtlOverride = selected);
+  }
+}
+
+
+class _StellarConnectionIndicator extends ConsumerStatefulWidget {
+  const _StellarConnectionIndicator();
+
+  @override
+  ConsumerState<_StellarConnectionIndicator> createState() =>
+      _StellarConnectionIndicatorState();
+}
+
+class _StellarConnectionIndicatorState
+    extends ConsumerState<_StellarConnectionIndicator> {
+  Timer? _timer;
+  bool _online = false;
+  bool _pulse = true;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _updateStatus();
+
+    _timer = Timer.periodic(
+      const Duration(milliseconds: 650),
+      (_) => _updateStatus(),
+    );
+  }
+
+  void _updateStatus() {
+    if (!mounted) return;
+
+    final online = ref.read(relayClientProvider).isConnected;
+
+    setState(() {
+      if (online != _online) {
+        _pulse = true;
+      } else if (online) {
+        _pulse = !_pulse;
+      }
+
+      _online = online;
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _online
+        ? StellarColors.success.withOpacity(_pulse ? 0.98 : 0.48)
+        : StellarColors.textSecondary.withOpacity(0.30);
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, right: 2),
+      child: Center(
+        child: AnimatedOpacity(
+          opacity: _online ? (_pulse ? 1.0 : 0.58) : 0.52,
+          duration: const Duration(milliseconds: 280),
+          child: Text(
+            'S+V🔒',
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
