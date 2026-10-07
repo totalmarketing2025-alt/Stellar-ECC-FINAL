@@ -130,84 +130,182 @@ class CallService {
     String? callId,
     String? chatId,
   }) async {
-    _callId ??= callId ?? _generateCallId();
-    _chatId ??= chatId;
-    _callKind = video ? CallKind.video : CallKind.voice;
+    var phase = 'initialize';
 
-    _localStream = await navigator.mediaDevices.getUserMedia({
-      'audio': true,
-      'video': video
-          ? {'facingMode': 'user', 'width': 640, 'height': 480}
-          : false,
-    });
+    try {
+      _callId ??= callId ?? _generateCallId();
+      _chatId ??= chatId;
+      _callKind = video ? CallKind.video : CallKind.voice;
 
-    localRenderer?.srcObject = _localStream;
-
-    final iceConfiguration = await _buildIceConfiguration();
-    _peerConnection = await createPeerConnection(iceConfiguration);
-
-    for (final track in _localStream!.getTracks()) {
-      await _peerConnection!.addTrack(track, _localStream!);
-    }
-
-    _peerConnection!.onTrack = (RTCTrackEvent event) {
-      if (event.streams.isNotEmpty) {
-        _remoteStream = event.streams.first;
-        remoteRenderer?.srcObject = _remoteStream;
-      }
-    };
-
-    _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
-      unawaited(
-        _sendSignal(remoteNickname, {
-          'type': 'ice-candidate',
-          'candidate': candidate.toMap(),
-        }),
+      print(
+        'CALL_START_BEGIN: direction=$direction '
+        'video=$video callId=$_callId',
       );
-    };
 
-    _peerConnection!.onConnectionState = (RTCPeerConnectionState state) {
-      print('CALL_CONNECTION_STATE: $state');
-
-      onConnectionStateChanged?.call(state);
-
-      final callId = _callId;
-      if (callId == null || callId.isEmpty) {
-        return;
-      }
-
-      switch (state) {
-        case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
-          unawaited(platformBridge.setCallActive(callId));
-          break;
-
-        case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
-        case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
-          unawaited(platformBridge.setCallEnded(callId));
-          break;
-
-        case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
-          // A disconnected WebRTC state can be transient.
-          // Do not mark the native call as ended until the connection
-          // actually fails or closes.
-          break;
-
-        default:
-          break;
-      }
-    };
-
-    if (direction == CallDirection.outgoing) {
-      final offer = await _peerConnection!.createOffer();
-
-      await _peerConnection!.setLocalDescription(offer);
-
-      await _sendSignal(remoteNickname, {
-        'type': 'offer',
-        'sdp': offer.sdp,
-        'sdpType': offer.type,
+      phase = 'getUserMedia';
+      _localStream = await navigator.mediaDevices.getUserMedia({
+        'audio': true,
+        'video': video
+            ? {'facingMode': 'user', 'width': 640, 'height': 480}
+            : false,
       });
+
+      print('CALL_START_MEDIA_OK: callId=$_callId');
+
+      localRenderer?.srcObject = _localStream;
+
+      phase = 'buildIceConfiguration';
+      final iceConfiguration = await _buildIceConfiguration();
+
+      print('CALL_START_ICE_CONFIG_OK: callId=$_callId');
+
+      phase = 'createPeerConnection';
+      _peerConnection = await createPeerConnection(iceConfiguration);
+
+      print('CALL_START_PEER_OK: callId=$_callId');
+
+      phase = 'addLocalTracks';
+      for (final track in _localStream!.getTracks()) {
+        await _peerConnection!.addTrack(track, _localStream!);
+      }
+
+      print(
+        'CALL_START_TRACKS_OK: callId=$_callId '
+        'tracks=${_localStream!.getTracks().length}',
+      );
+
+      phase = 'attachPeerCallbacks';
+
+      _peerConnection!.onTrack = (RTCTrackEvent event) {
+        if (event.streams.isNotEmpty) {
+          _remoteStream = event.streams.first;
+          remoteRenderer?.srcObject = _remoteStream;
+        }
+      };
+
+      _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
+        unawaited(
+          _sendSignal(remoteNickname, {
+            'type': 'ice-candidate',
+            'candidate': candidate.toMap(),
+          }),
+        );
+      };
+
+      _peerConnection!.onConnectionState = (RTCPeerConnectionState state) {
+        print('CALL_CONNECTION_STATE: $state');
+
+        onConnectionStateChanged?.call(state);
+
+        final callId = _callId;
+        if (callId == null || callId.isEmpty) {
+          return;
+        }
+
+        switch (state) {
+          case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
+            unawaited(platformBridge.setCallActive(callId));
+            break;
+
+          case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
+          case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
+            unawaited(platformBridge.setCallEnded(callId));
+            break;
+
+          case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
+            // A disconnected WebRTC state can be transient.
+            // Do not mark the native call as ended until the connection
+            // actually fails or closes.
+            break;
+
+          default:
+            break;
+        }
+      };
+
+      print('CALL_START_CALLBACKS_OK: callId=$_callId');
+
+      if (direction == CallDirection.outgoing) {
+        phase = 'createOffer';
+        final offer = await _peerConnection!.createOffer();
+
+        print('CALL_START_OFFER_CREATED: callId=$_callId');
+
+        phase = 'setLocalDescription';
+        await _peerConnection!.setLocalDescription(offer);
+
+        print('CALL_START_LOCAL_DESCRIPTION_OK: callId=$_callId');
+
+        phase = 'sendOffer';
+        await _sendSignal(remoteNickname, {
+          'type': 'offer',
+          'sdp': offer.sdp,
+          'sdpType': offer.type,
+        });
+
+        print('CALL_START_OFFER_SENT: callId=$_callId');
+      }
+
+      print(
+        'CALL_START_SUCCESS: direction=$direction '
+        'callId=$_callId',
+      );
+    } catch (error, stackTrace) {
+      print(
+        'CALL_START_FAILED: phase=$phase '
+        'direction=$direction callId=$_callId error=$error',
+      );
+      print('CALL_START_STACK: $stackTrace');
+
+      await _cleanupAfterStartFailure();
+
+      rethrow;
     }
+  }
+
+  Future<void> _cleanupAfterStartFailure() async {
+    final failedCallId = _callId;
+
+    print(
+      'CALL_START_CLEANUP_BEGIN: callId=$failedCallId',
+    );
+
+    try {
+      await _localStream?.dispose();
+    } catch (error) {
+      print('CALL_START_CLEANUP_STREAM_FAILED: $error');
+    }
+
+    try {
+      await _peerConnection?.close();
+    } catch (error) {
+      print('CALL_START_CLEANUP_PEER_FAILED: $error');
+    }
+
+    if (failedCallId != null && failedCallId.isNotEmpty) {
+      try {
+        await platformBridge.setCallEnded(failedCallId);
+      } catch (error) {
+        print('CALL_START_CLEANUP_NATIVE_FAILED: $error');
+      }
+    }
+
+    localRenderer?.srcObject = null;
+    remoteRenderer?.srcObject = null;
+
+    _localStream = null;
+    _remoteStream = null;
+    _peerConnection = null;
+    _remoteDescriptionSet = false;
+    _pendingIceCandidates.clear();
+
+    _callId = null;
+    _chatId = null;
+    _callKind = null;
+
+    print(
+      'CALL_START_CLEANUP_DONE: callId=$failedCallId',
+    );
   }
 
   Future<void> handleSignal({
