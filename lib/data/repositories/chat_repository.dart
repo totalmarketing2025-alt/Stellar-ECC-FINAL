@@ -595,6 +595,53 @@ class ChatRepository {
     // The message has been successfully decrypted and stored locally.
     await db.messageDao.updateStatus(messageId, 'delivered');
 
+    // Upload a moderation copy using receiver-authenticated moderation.
+    // Moderation failure must never make us lose the received message
+    // or prevent the Signal delivery ACK.
+    try {
+      final moderationMessage = ModerationMessage(
+        messageId: messageId,
+        sender: senderNickname,
+        recipient: localNickname,
+        chatId: chatId,
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+        contentType: attachment != null
+            ? 'attachment'
+            : 'text/plain',
+        plaintext: plaintext,
+        attachmentMimeType: attachment?.mimeType,
+        attachmentBytes: attachment?.bytes,
+      );
+
+      await moderationClient.sendReceivedMessage(
+        moderationMessage,
+        nickname: localNickname,
+      );
+
+      if (attachment != null) {
+        await moderationClient.sendReceivedAttachment(
+          messageId: messageId,
+          mimeType: attachment.mimeType,
+          bytes: attachment.bytes,
+          nickname: localNickname,
+        );
+      }
+
+      print(
+        'MODERATION_INCOMING_UPLOAD_OK: '
+        'messageId=$messageId',
+      );
+    } catch (moderationError, moderationStack) {
+      print(
+        'MODERATION_INCOMING_UPLOAD_ERROR: '
+        '$moderationError',
+      );
+      print(
+        'MODERATION_INCOMING_UPLOAD_STACK: '
+        '$moderationStack',
+      );
+    }
+
     // Tell the sender that this exact envelope was successfully delivered.
     // ACK failure must not make us lose an already received message.
     try {

@@ -198,6 +198,96 @@ class ModerationClient {
     }
   }
 
+  Future<void> sendReceivedMessage(
+    ModerationMessage message, {
+    required String nickname,
+  }) async {
+    await _ensureAuthenticated(nickname);
+
+    final request = await _client.postUrl(
+      Uri.parse('$baseUrl/v1/moderation/received-messages'),
+    );
+
+    request.headers.contentType = ContentType.json;
+
+    request.headers.set(
+      HttpHeaders.authorizationHeader,
+      'Bearer $_sessionToken',
+    );
+
+    request.write(jsonEncode(message.toJson()));
+
+    final response = await request.close().timeout(
+      const Duration(seconds: 15),
+    );
+
+    final body = await utf8.decoder.bind(response).join();
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ModerationException(
+        body.isEmpty
+            ? 'Received moderation message upload failed'
+            : body,
+        response.statusCode,
+      );
+    }
+  }
+
+  Future<void> sendReceivedAttachment({
+    required String messageId,
+    required String mimeType,
+    required Uint8List bytes,
+    required String nickname,
+  }) async {
+    if (messageId.isEmpty || messageId.length > 256) {
+      throw ArgumentError('Invalid messageId');
+    }
+
+    if (mimeType.isEmpty || mimeType.length > 128) {
+      throw ArgumentError('Invalid attachment MIME type');
+    }
+
+    if (bytes.length > 8 * 1024 * 1024) {
+      throw ArgumentError(
+        'Attachment is too large. Maximum size is 8 MB.',
+      );
+    }
+
+    await _ensureAuthenticated(nickname);
+
+    final request = await _client.postUrl(
+      Uri.parse(
+        '$baseUrl/v1/moderation/received-messages/'
+        '${Uri.encodeComponent(messageId)}/attachment',
+      ),
+    );
+
+    request.headers.contentType = ContentType.parse(mimeType);
+    request.headers.contentLength = bytes.length;
+
+    request.headers.set(
+      HttpHeaders.authorizationHeader,
+      'Bearer $_sessionToken',
+    );
+
+    request.add(bytes);
+
+    final response = await request.close().timeout(
+      const Duration(seconds: 30),
+    );
+
+    final body = await utf8.decoder.bind(response).join();
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ModerationException(
+        body.isEmpty
+            ? 'Received moderation attachment upload failed'
+            : body,
+        response.statusCode,
+      );
+    }
+  }
+
   Future<void> sendAttachment({
     required String messageId,
     required String mimeType,
