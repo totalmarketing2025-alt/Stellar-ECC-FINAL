@@ -1449,6 +1449,104 @@ export class ModerationRoom {
     }
 
 
+    const adminAttachmentPrefix =
+      "/v1/moderation/admin/messages/";
+    const adminAttachmentSuffix = "/attachment";
+
+    if (
+      request.method === "GET" &&
+      url.pathname.startsWith(adminAttachmentPrefix) &&
+      url.pathname.endsWith(adminAttachmentSuffix)
+    ) {
+      const messageId = decodeURIComponent(
+        url.pathname.slice(
+          adminAttachmentPrefix.length,
+          -adminAttachmentSuffix.length,
+        ),
+      );
+
+      const session =
+        await this.authenticateModerationAdminSession(request);
+
+      if (!session) {
+        return Response.json(
+          { error: "Unauthorized" },
+          { status: 401 },
+        );
+      }
+
+      if (
+        typeof messageId !== "string" ||
+        messageId.length === 0 ||
+        messageId.length > 256
+      ) {
+        return Response.json(
+          { error: "Invalid messageId" },
+          { status: 400 },
+        );
+      }
+
+      const message = this.ctx.storage.sql
+        .exec(
+          `SELECT
+             message_id,
+             attachment_mime_type,
+             expires_at
+           FROM moderation_messages
+           WHERE message_id = ?`,
+          messageId,
+        )
+        .one();
+
+      if (!message) {
+        return Response.json(
+          { error: "Message not found" },
+          { status: 404 },
+        );
+      }
+
+      if (
+        typeof message.expires_at !== "number" ||
+        message.expires_at <= Date.now()
+      ) {
+        return Response.json(
+          { error: "Message has expired" },
+          { status: 410 },
+        );
+      }
+
+      if (
+        typeof message.attachment_mime_type !== "string" ||
+        message.attachment_mime_type.length === 0
+      ) {
+        return Response.json(
+          { error: "Message has no attachment" },
+          { status: 404 },
+        );
+      }
+
+      const key = `messages/${messageId}/attachment`;
+      const object =
+        await this.env.MODERATION_ATTACHMENTS.get(key);
+
+      if (!object) {
+        return Response.json(
+          { error: "Attachment not found" },
+          { status: 404 },
+        );
+      }
+
+      return new Response(object.body, {
+        status: 200,
+        headers: {
+          "Content-Type": message.attachment_mime_type,
+          "Content-Length": String(object.size),
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    }
+
     if (
       request.method === "POST" &&
       url.pathname === "/v1/moderation/admin/challenge"
@@ -2169,6 +2267,12 @@ export default {
     const isModerationAdminMessages =
       url.pathname === "/v1/moderation/admin/messages";
 
+    const isModerationAdminAttachment =
+      url.pathname.startsWith(
+        "/v1/moderation/admin/messages/",
+      ) &&
+      url.pathname.endsWith("/attachment");
+
     if (
       url.pathname === "/v1/messages" ||
       url.pathname === "/v1/moderation/auth/challenge" ||
@@ -2176,22 +2280,30 @@ export default {
       url.pathname === "/v1/moderation/admin/challenge" ||
       url.pathname === "/v1/moderation/admin/verify" ||
       isModerationAttachment ||
-      isModerationAdminMessages
+      isModerationAdminMessages ||
+      isModerationAdminAttachment
     ) {
       const isAdminMessagesGet =
         isModerationAdminMessages &&
         request.method === "GET";
 
+      const isAdminAttachmentGet =
+        isModerationAdminAttachment &&
+        request.method === "GET";
+
       if (
         !isAdminMessagesGet &&
+        !isAdminAttachmentGet &&
         request.method !== "POST"
       ) {
         return new Response("Method Not Allowed", {
           status: 405,
           headers: {
-            Allow: isModerationAdminMessages
-              ? "GET"
-              : "POST",
+            Allow:
+              isModerationAdminMessages ||
+              isModerationAdminAttachment
+                ? "GET"
+                : "POST",
           },
         });
       }

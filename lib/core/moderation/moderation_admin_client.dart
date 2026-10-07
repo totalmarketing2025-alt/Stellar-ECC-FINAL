@@ -163,6 +163,55 @@ class ModerationAdminClient {
         .toList();
   }
 
+  Future<Uint8List> fetchAttachment(String messageId) async {
+    if (!isAuthenticated) {
+      throw StateError(
+        "Moderation admin session is not authenticated",
+      );
+    }
+
+    if (messageId.isEmpty || messageId.length > 256) {
+      throw ArgumentError("Invalid moderation message ID");
+    }
+
+    final uri = Uri.parse(
+      "$baseUrl/v1/moderation/admin/messages/"
+      "${Uri.encodeComponent(messageId)}/attachment",
+    );
+
+    final response = await http.get(
+      uri,
+      headers: {
+        "Authorization": "Bearer $_token",
+      },
+    );
+
+    if (response.statusCode == 401) {
+      _token = null;
+      _expiresAt = null;
+      throw StateError("Moderation admin session expired");
+    }
+
+    if (response.statusCode != 200) {
+      String message =
+          "Attachment request failed (${response.statusCode})";
+
+      try {
+        final body =
+            jsonDecode(response.body) as Map<String, dynamic>;
+        final error = body["error"];
+
+        if (error is String && error.isNotEmpty) {
+          message = "$error (${response.statusCode})";
+        }
+      } catch (_) {}
+
+      throw StateError(message);
+    }
+
+    return response.bodyBytes;
+  }
+
   void logout() {
     _token = null;
     _expiresAt = null;

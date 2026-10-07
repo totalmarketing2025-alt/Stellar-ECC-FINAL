@@ -311,6 +311,78 @@ class _ModerationRoomScreenState
     );
   }
 
+  Future<void> _viewAttachment(
+    ModerationAdminMessage message,
+  ) async {
+    final mimeType = message.attachmentMimeType;
+
+    if (mimeType == null || mimeType.isEmpty) {
+      return;
+    }
+
+    final isImage = mimeType.toLowerCase().startsWith("image/");
+
+    if (!isImage) {
+      if (!mounted) return;
+
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text("Attachment"),
+          content: Text(
+            "Attachment is stored securely in the moderation "
+            "R2 bucket.\n\nMIME type: $mimeType",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("Close"),
+            ),
+          ],
+        ),
+      );
+
+      return;
+    }
+
+    try {
+      final bytes = await ref
+          .read(moderationAdminClientProvider)
+          .fetchAttachment(message.messageId);
+
+      if (!mounted) return;
+
+      await showDialog<void>(
+        context: context,
+        builder: (context) => Dialog(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 4,
+              child: Image.memory(
+                bytes,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text("Unable to render attachment"),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Attachment error: $e"),
+        ),
+      );
+    }
+  }
+
   Widget _buildMessageCard(ModerationAdminMessage message) {
     return Card(
       child: Padding(
@@ -355,11 +427,26 @@ class _ModerationRoomScreenState
                 "Chat: ${message.chatId}",
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-            if (message.attachmentMimeType != null)
+            if (message.attachmentMimeType != null) ...[
               Text(
                 "Attachment: ${message.attachmentMimeType}",
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+              const SizedBox(height: 6),
+              OutlinedButton.icon(
+                onPressed: _loading
+                    ? null
+                    : () => _viewAttachment(message),
+                icon: const Icon(Icons.attachment),
+                label: Text(
+                  message.attachmentMimeType!
+                          .toLowerCase()
+                          .startsWith("image/")
+                      ? "View attachment"
+                      : "View attachment info",
+                ),
+              ),
+            ],
             const SizedBox(height: 4),
             Text(
               "ID: ${message.messageId}",
