@@ -45,6 +45,12 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
 
+    if (!mounted) {
+      await _localRenderer.dispose();
+      await _remoteRenderer.dispose();
+      return;
+    }
+
     final coordinator = ref.read(callCoordinatorProvider);
     _callCoordinator = coordinator;
 
@@ -100,6 +106,10 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
         ? widget.chatId.substring('direct_'.length)
         : widget.chatId;
 
+    if (!mounted) {
+      return;
+    }
+
     try {
       await coordinator.startOutgoing(
         remoteNickname: remoteNickname,
@@ -126,6 +136,17 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
   void dispose() {
     _elapsedTicker?.cancel();
     _sessionSubscription?.cancel();
+
+    final coordinator = _callCoordinator;
+    final session = coordinator?.activeSession;
+
+    if (coordinator != null &&
+        session != null &&
+        session.chatId == widget.chatId &&
+        session.kind == CallKind.voice) {
+      unawaited(coordinator.endActiveCall());
+    }
+
     _localRenderer.dispose();
     _remoteRenderer.dispose();
     super.dispose();

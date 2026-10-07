@@ -47,6 +47,12 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
 
+    if (!mounted) {
+      await _localRenderer.dispose();
+      await _remoteRenderer.dispose();
+      return;
+    }
+
     final coordinator = ref.read(callCoordinatorProvider);
     _callCoordinator = coordinator;
 
@@ -97,6 +103,10 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
         ? widget.chatId.substring('direct_'.length)
         : widget.chatId;
 
+    if (!mounted) {
+      return;
+    }
+
     try {
       await coordinator.startOutgoing(
         remoteNickname: remoteNickname,
@@ -125,6 +135,17 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
   void dispose() {
     _sessionSubscription?.cancel();
     _elapsedTimer?.cancel();
+
+    final coordinator = _callCoordinator;
+    final session = coordinator?.activeSession;
+
+    if (coordinator != null &&
+        session != null &&
+        session.chatId == widget.chatId &&
+        session.kind == CallKind.video) {
+      unawaited(coordinator.endActiveCall());
+    }
+
     _localRenderer.dispose();
     _remoteRenderer.dispose();
     super.dispose();
