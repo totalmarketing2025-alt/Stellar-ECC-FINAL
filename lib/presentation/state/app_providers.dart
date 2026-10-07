@@ -11,6 +11,7 @@ import '../../core/network/relay_client.dart';
 import '../../core/network/directory_client.dart';
 import '../../core/media/media_attachment_service.dart';
 import '../../core/moderation/moderation_client.dart';
+import '../../core/moderation/moderation_admin_client.dart';
 import '../../core/calls/call_signal_router.dart';
 import '../../core/calls/call_coordinator.dart';
 import '../../core/calls/call_platform_bridge.dart';
@@ -45,6 +46,17 @@ final sessionManagerProvider = Provider<SessionManager>((ref) {
     signedPreKeyStore: StellarSignedPreKeyStore(db),
     sessionStore: StellarSessionStore(db),
   );
+});
+
+final moderationAdminClientProvider =
+    Provider<ModerationAdminClient>((ref) {
+  final client = ModerationAdminClient(
+    baseUrl: _moderationUrl,
+  );
+
+  ref.onDispose(client.logout);
+
+  return client;
 });
 
 final moderationClientProvider = Provider<ModerationClient>((ref) {

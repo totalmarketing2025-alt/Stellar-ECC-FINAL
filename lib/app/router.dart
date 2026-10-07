@@ -17,6 +17,7 @@ import '../presentation/screens/profile/profile_screen.dart';
 import '../presentation/screens/groups/group_management_screen.dart';
 import '../presentation/screens/groups/new_group_screen.dart';
 import '../presentation/screens/security/security_center_screen.dart';
+import '../presentation/screens/moderation/moderation_room_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -59,6 +60,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/group/new', builder: (c, s) => const NewGroupScreen()),
       GoRoute(path: '/security', builder: (c, s) => const SecurityCenterScreen()),
+      GoRoute(
+        path: '/moderation',
+        builder: (c, s) => const ModerationRoomScreen(),
+      ),
     ],
   );
 });
