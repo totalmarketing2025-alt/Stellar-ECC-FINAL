@@ -25,6 +25,7 @@ class StellarDatabase {
   late final MessageDao messageDao = MessageDao(_db);
   late final ReactionDao reactionDao = ReactionDao(_db);
   late final MediaBlobDao mediaBlobDao = MediaBlobDao(_db);
+  late final ModerationOutboxDao moderationOutboxDao = ModerationOutboxDao(_db);
 
   static Future<StellarDatabase> open() async {
     sqlite3_open.open.overrideFor(sqlite3_open.OperatingSystem.android, openCipherOnAndroid);
@@ -139,6 +140,29 @@ class StellarDatabase {
 
     // Signal protocol state — long-lived, no TTL, separate from the
     // ephemeral message tables above (Phase 2 §2A vs §2B distinction).
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS moderation_outbox (
+        message_id             TEXT PRIMARY KEY,
+        direction              TEXT NOT NULL,
+        sender                 TEXT NOT NULL,
+        recipient              TEXT NOT NULL,
+        chat_id                TEXT,
+        content_type           TEXT NOT NULL,
+        plaintext              TEXT NOT NULL,
+        attachment_mime_type   TEXT,
+        attachment_blob_id     TEXT,
+        created_at             INTEGER NOT NULL,
+        attempt_count          INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at        INTEGER NOT NULL,
+        last_error             TEXT
+      );
+    ''');
+
+    db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_moderation_outbox_due
+      ON moderation_outbox(next_attempt_at);
+    ''');
+
     db.execute('''
       CREATE TABLE IF NOT EXISTS trusted_identity (
         name      TEXT NOT NULL,
@@ -487,6 +511,14 @@ class MessageDao {
     );
   }
 
+  Future<Map<String, Object?>?> byId(String messageId) async {
+    final rows = _db.select(
+      'SELECT * FROM message WHERE message_id = ? LIMIT 1',
+      [messageId],
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
   Future<List<Map<String, Object?>>> forChat(String chatId) async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     return _db.select(
@@ -510,6 +542,14 @@ class MessageDao {
       ''',
       [chatId, now],
     );
+  }
+
+  Future<Map<String, Object?>?> byMessageId(String messageId) async {
+    final rows = _db.select(
+      'SELECT * FROM media_blob WHERE message_id = ? LIMIT 1',
+      [messageId],
+    );
+    return rows.isEmpty ? null : rows.first;
   }
 
   Future<List<Map<String, Object?>>> expired() async {
@@ -673,5 +713,105 @@ class MediaBlobDao {
 
   Future<void> delete(String blobId) async {
     _db.execute('DELETE FROM media_blob WHERE blob_id = ?', [blobId]);
+  }
+}
+
+class ModerationOutboxDao {
+  ModerationOutboxDao(this._db);
+
+  final Database _db;
+
+  Future<void> enqueue({
+    required String messageId,
+    required String direction,
+    required String sender,
+    required String recipient,
+    String? chatId,
+    required String contentType,
+    required String plaintext,
+    String? attachmentMimeType,
+    String? attachmentBlobId,
+    required int createdAt,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+    _db.execute(
+      '''
+      INSERT INTO moderation_outbox (
+        message_id, direction, sender, recipient, chat_id,
+        content_type, plaintext, attachment_mime_type,
+        attachment_blob_id, created_at, attempt_count,
+        next_attempt_at, last_error
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL)
+      ON CONFLICT(message_id) DO UPDATE SET
+        direction = excluded.direction,
+        sender = excluded.sender,
+        recipient = excluded.recipient,
+        chat_id = excluded.chat_id,
+        content_type = excluded.content_type,
+        plaintext = excluded.plaintext,
+        attachment_mime_type = excluded.attachment_mime_type,
+        attachment_blob_id = excluded.attachment_blob_id,
+        created_at = excluded.created_at
+      ''',
+      [
+        messageId,
+        direction,
+        sender,
+        recipient,
+        chatId,
+        contentType,
+        plaintext,
+        attachmentMimeType,
+        attachmentBlobId,
+        createdAt,
+        now,
+      ],
+    );
+  }
+
+  Future<List<Map<String, Object?>>> due({int limit = 10}) async {
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+    return _db.select(
+      '''
+      SELECT *
+      FROM moderation_outbox
+      WHERE next_attempt_at <= ?
+      ORDER BY next_attempt_at ASC, created_at ASC
+      LIMIT ?
+      ''',
+      [now, limit],
+    );
+  }
+
+  Future<void> retry({
+    required String messageId,
+    required int attemptCount,
+    required int nextAttemptAt,
+    String? lastError,
+  }) async {
+    _db.execute(
+      '''
+      UPDATE moderation_outbox
+      SET attempt_count = ?,
+          next_attempt_at = ?,
+          last_error = ?
+      WHERE message_id = ?
+      ''',
+      [
+        attemptCount,
+        nextAttemptAt,
+        lastError,
+        messageId,
+      ],
+    );
+  }
+
+  Future<void> delete(String messageId) async {
+    _db.execute(
+      'DELETE FROM moderation_outbox WHERE message_id = ?',
+      [messageId],
+    );
   }
 }

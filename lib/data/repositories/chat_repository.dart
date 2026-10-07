@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:convert';
 
@@ -13,6 +14,7 @@ import '../../core/media/media_attachment_service.dart';
 import '../../core/media/attachment_payload.dart';
 import '../../core/moderation/moderation_client.dart';
 import '../../core/moderation/moderation_message.dart';
+import '../../core/moderation/moderation_outbox_service.dart';
 import '../../domain/models/message.dart';
 import '../../domain/models/chat.dart';
 
@@ -29,7 +31,15 @@ class ChatRepository {
     required this.localNickname,
     this.mediaService,
     required this.moderationClient,
-  });
+  }) {
+    moderationOutbox = ModerationOutboxService(
+      db: db,
+      client: moderationClient,
+      mediaService: mediaService,
+      nickname: localNickname,
+    );
+    unawaited(moderationOutbox.start());
+  }
 
   final StellarDatabase db;
   final SessionManager sessionManager;
@@ -38,6 +48,8 @@ class ChatRepository {
   final String localNickname;
   final MediaAttachmentService? mediaService;
   final ModerationClient moderationClient;
+
+  late final ModerationOutboxService moderationOutbox;
 
   static const String _ackPrefix = 'STELLAR_ACK_V1:';
 
@@ -328,39 +340,29 @@ class ChatRepository {
       print('STATUS_DEBUG: messageId=$messageId status=${debugMsg?['status']}');
 
       try {
-        final moderationMessage = ModerationMessage(
+        final blob = await db.mediaBlobDao.byMessageId(messageId);
+
+        await db.moderationOutboxDao.enqueue(
           messageId: messageId,
+          direction: 'outgoing',
           sender: localNickname,
           recipient: peerName,
           chatId: chatId,
-          createdAt: DateTime.now().millisecondsSinceEpoch,
           contentType: hasAttachmentBytes
               ? 'attachment'
               : 'text/plain',
           plaintext: plaintext,
           attachmentMimeType: attachmentMimeType,
-          attachmentBytes: attachmentBytes,
+          attachmentBlobId: blob?['blob_id'] as String?,
+          createdAt: DateTime.now().millisecondsSinceEpoch,
         );
 
-        await moderationClient.sendMessage(
-          moderationMessage,
-          nickname: localNickname,
-        );
+        moderationOutbox.scheduleFlush();
 
-        if (attachmentBytes != null &&
-            attachmentMimeType != null) {
-          await moderationClient.sendAttachment(
-            messageId: messageId,
-            mimeType: attachmentMimeType,
-            bytes: attachmentBytes,
-            nickname: localNickname,
-          );
-        }
-
-        print('MODERATION_UPLOAD_OK: messageId=$messageId');
-      } catch (moderationError, moderationStack) {
-        print('MODERATION_UPLOAD_ERROR: $moderationError');
-        print('MODERATION_UPLOAD_STACK: $moderationStack');
+        print('MODERATION_OUTBOX_ENQUEUED: messageId=$messageId');
+      } catch (outboxError, outboxStack) {
+        print('MODERATION_OUTBOX_ENQUEUE_ERROR: $outboxError');
+        print('MODERATION_OUTBOX_ENQUEUE_STACK: $outboxStack');
       }
     } catch (e, st) {
       await db.messageDao.updateStatus(messageId, 'failed');
@@ -595,50 +597,43 @@ class ChatRepository {
     // The message has been successfully decrypted and stored locally.
     await db.messageDao.updateStatus(messageId, 'delivered');
 
-    // Upload a moderation copy using receiver-authenticated moderation.
-    // Moderation failure must never make us lose the received message
-    // or prevent the Signal delivery ACK.
+    // Persist a moderation copy in the encrypted outbox.
+    // Upload/retry happens asynchronously and must never block
+    // the local message or the Signal delivery ACK.
     try {
-      final moderationMessage = ModerationMessage(
+      final incomingBlob = attachment == null
+          ? null
+          : await db.mediaBlobDao.byMessageId(messageId);
+
+      await db.moderationOutboxDao.enqueue(
         messageId: messageId,
+        direction: 'incoming',
         sender: senderNickname,
         recipient: localNickname,
         chatId: chatId,
-        createdAt: DateTime.now().millisecondsSinceEpoch,
         contentType: attachment != null
             ? 'attachment'
             : 'text/plain',
         plaintext: plaintext,
         attachmentMimeType: attachment?.mimeType,
-        attachmentBytes: attachment?.bytes,
+        attachmentBlobId: incomingBlob?['blob_id'] as String?,
+        createdAt: DateTime.now().millisecondsSinceEpoch,
       );
 
-      await moderationClient.sendReceivedMessage(
-        moderationMessage,
-        nickname: localNickname,
-      );
-
-      if (attachment != null) {
-        await moderationClient.sendReceivedAttachment(
-          messageId: messageId,
-          mimeType: attachment.mimeType,
-          bytes: attachment.bytes,
-          nickname: localNickname,
-        );
-      }
+      moderationOutbox.scheduleFlush();
 
       print(
-        'MODERATION_INCOMING_UPLOAD_OK: '
+        'MODERATION_INCOMING_OUTBOX_ENQUEUED: '
         'messageId=$messageId',
       );
-    } catch (moderationError, moderationStack) {
+    } catch (outboxError, outboxStack) {
       print(
-        'MODERATION_INCOMING_UPLOAD_ERROR: '
-        '$moderationError',
+        'MODERATION_INCOMING_OUTBOX_ENQUEUE_ERROR: '
+        '$outboxError',
       );
       print(
-        'MODERATION_INCOMING_UPLOAD_STACK: '
-        '$moderationStack',
+        'MODERATION_INCOMING_OUTBOX_ENQUEUE_STACK: '
+        '$outboxStack',
       );
     }
 
