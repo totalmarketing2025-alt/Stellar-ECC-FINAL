@@ -10,6 +10,7 @@ import '../../core/crypto/session_manager.dart';
 import '../../core/network/relay_client.dart';
 import '../../core/network/directory_client.dart';
 import '../../core/network/envelope.dart';
+import '../../core/network/outgoing_transport_outbox_service.dart';
 import '../../core/media/media_attachment_service.dart';
 import '../../core/media/attachment_payload.dart';
 import '../../core/moderation/moderation_client.dart';
@@ -38,7 +39,15 @@ class ChatRepository {
       mediaService: mediaService,
       nickname: localNickname,
     );
+
+    transportOutbox = OutgoingTransportOutboxService(
+      db: db,
+      relayClient: relayClient,
+      onRelaySent: _onTransportRelaySent,
+    );
+
     unawaited(moderationOutbox.start());
+    unawaited(transportOutbox.start());
   }
 
   final StellarDatabase db;
@@ -50,8 +59,71 @@ class ChatRepository {
   final ModerationClient moderationClient;
 
   late final ModerationOutboxService moderationOutbox;
+  late final OutgoingTransportOutboxService transportOutbox;
 
-  Future<void> dispose() => moderationOutbox.dispose();
+  Future<void> dispose() async {
+    await transportOutbox.dispose();
+    await moderationOutbox.dispose();
+  }
+
+
+  Future<void> _onTransportRelaySent(String messageId) async {
+    final transportRow =
+        await db.transportOutboxDao.byId(messageId);
+
+    if (transportRow == null) {
+      return;
+    }
+
+    final messageRow = await db.messageDao.byId(messageId);
+
+    if (messageRow == null) {
+      throw StateError(
+        'Transport recovery source message missing: $messageId',
+      );
+    }
+
+    final chatId = messageRow['chat_id'] as String;
+    final plaintext = messageRow['body_plaintext'] as String? ?? '';
+
+    final recipientRoute =
+        transportRow['recipient_route'] as String;
+
+    final blob =
+        await db.mediaBlobDao.byMessageId(messageId);
+
+    final attachmentMimeType =
+        blob?['mime_type'] as String?;
+
+    await db.messageDao.updateStatus(
+      messageId,
+      'sent',
+    );
+
+    await db.moderationOutboxDao.enqueue(
+      messageId: messageId,
+      direction: 'outgoing',
+      sender: localNickname,
+      recipient: recipientRoute,
+      chatId: chatId,
+      contentType: attachmentMimeType != null
+          ? 'attachment'
+          : 'text/plain',
+      plaintext: plaintext,
+      attachmentMimeType: attachmentMimeType,
+      attachmentBlobId: blob?['blob_id'] as String?,
+      createdAt: messageRow['sent_at'] as int,
+    );
+
+    moderationOutbox.scheduleFlush();
+
+    await db.transportOutboxDao.delete(messageId);
+
+    print(
+      'TRANSPORT_OUTBOX_COMPLETE: '
+      'messageId=$messageId',
+    );
+  }
 
   static const String _ackPrefix = 'STELLAR_ACK_V1:';
 
@@ -330,42 +402,32 @@ class ChatRepository {
             peerName, // resolved server-side to an opaque route in production
         ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
       );
-      // 4. Send the opaque encrypted envelope through the relay.
+      // 4. Persist the opaque encrypted envelope BEFORE relay send.
+      //
+      // This closes the crash gap between relay.send() and moderation
+      // enqueue. The transport outbox contains ciphertext only.
+      final encodedEnvelope = envelope.encode();
+
+      await db.transportOutboxDao.enqueue(
+        messageId: messageId,
+        deliveryToken: deliveryToken,
+        recipientRoute: peerName,
+        envelopeBytes: encodedEnvelope,
+        createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      );
+
+      print(
+        'TRANSPORT_OUTBOX_ENQUEUED: '
+        'messageId=$messageId',
+      );
+
+      // 5. Send the exact persisted envelope.
       print('SEND_STEP_5_BEFORE_RELAY');
-      await relayClient.send(envelope.encode());
+      await relayClient.send(encodedEnvelope);
       print('SEND_STEP_6_AFTER_RELAY');
-      await db.messageDao.updateStatus(messageId, 'sent');
-      final debugRows = await db.messageDao.forChat(chatId);
-      final debugMsg = debugRows
-          .where((m) => m['message_id'] == messageId)
-          .firstOrNull;
-      print('STATUS_DEBUG: messageId=$messageId status=${debugMsg?['status']}');
 
-      try {
-        final blob = await db.mediaBlobDao.byMessageId(messageId);
-
-        await db.moderationOutboxDao.enqueue(
-          messageId: messageId,
-          direction: 'outgoing',
-          sender: localNickname,
-          recipient: peerName,
-          chatId: chatId,
-          contentType: hasAttachmentBytes
-              ? 'attachment'
-              : 'text/plain',
-          plaintext: plaintext,
-          attachmentMimeType: attachmentMimeType,
-          attachmentBlobId: blob?['blob_id'] as String?,
-          createdAt: DateTime.now().millisecondsSinceEpoch,
-        );
-
-        moderationOutbox.scheduleFlush();
-
-        print('MODERATION_OUTBOX_ENQUEUED: messageId=$messageId');
-      } catch (outboxError, outboxStack) {
-        print('MODERATION_OUTBOX_ENQUEUE_ERROR: $outboxError');
-        print('MODERATION_OUTBOX_ENQUEUE_STACK: $outboxStack');
-      }
+      await db.transportOutboxDao.markRelaySent(messageId);
+      await _onTransportRelaySent(messageId);
     } catch (e, st) {
       await db.messageDao.updateStatus(messageId, 'failed');
       print('SEND_DIRECT_MESSAGE_ERROR: $e');

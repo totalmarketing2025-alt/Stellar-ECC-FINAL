@@ -26,6 +26,7 @@ class StellarDatabase {
   late final ReactionDao reactionDao = ReactionDao(_db);
   late final MediaBlobDao mediaBlobDao = MediaBlobDao(_db);
   late final ModerationOutboxDao moderationOutboxDao = ModerationOutboxDao(_db);
+  late final TransportOutboxDao transportOutboxDao = TransportOutboxDao(_db);
 
   static Future<StellarDatabase> open() async {
     sqlite3_open.open.overrideFor(sqlite3_open.OperatingSystem.android, openCipherOnAndroid);
@@ -141,7 +142,21 @@ class StellarDatabase {
     // Signal protocol state — long-lived, no TTL, separate from the
     // ephemeral message tables above (Phase 2 §2A vs §2B distinction).
     db.execute('''
-      CREATE TABLE IF NOT EXISTS moderation_outbox (
+      CREATE TABLE IF NOT EXISTS transport_outbox (
+  message_id       TEXT PRIMARY KEY,
+  delivery_token   BLOB NOT NULL,
+  recipient_route  TEXT NOT NULL,
+  envelope_bytes   BLOB NOT NULL,
+  created_at       INTEGER NOT NULL,
+  state            TEXT NOT NULL,
+  attempt_count    INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at  INTEGER NOT NULL,
+  last_error       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_transport_outbox_due
+ON transport_outbox(next_attempt_at);
+
+CREATE TABLE IF NOT EXISTS moderation_outbox (
         message_id             TEXT PRIMARY KEY,
         direction              TEXT NOT NULL,
         sender                 TEXT NOT NULL,
@@ -811,6 +826,123 @@ class ModerationOutboxDao {
   Future<void> delete(String messageId) async {
     _db.execute(
       'DELETE FROM moderation_outbox WHERE message_id = ?',
+      [messageId],
+    );
+  }
+}
+
+
+class TransportOutboxDao {
+  TransportOutboxDao(this._db);
+
+  final Database _db;
+
+  Future<void> enqueue({
+    required String messageId,
+    required Uint8List deliveryToken,
+    required String recipientRoute,
+    required Uint8List envelopeBytes,
+    required int createdAt,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+    _db.execute(
+      '''
+      INSERT INTO transport_outbox (
+        message_id,
+        delivery_token,
+        recipient_route,
+        envelope_bytes,
+        created_at,
+        state,
+        attempt_count,
+        next_attempt_at,
+        last_error
+      ) VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, NULL)
+      ON CONFLICT(message_id) DO UPDATE SET
+        delivery_token = excluded.delivery_token,
+        recipient_route = excluded.recipient_route,
+        envelope_bytes = excluded.envelope_bytes,
+        created_at = excluded.created_at
+      ''',
+      [
+        messageId,
+        deliveryToken,
+        recipientRoute,
+        envelopeBytes,
+        createdAt,
+        now,
+      ],
+    );
+  }
+
+  Future<Map<String, Object?>?> byId(String messageId) async {
+    final rows = _db.select(
+      '''
+      SELECT *
+      FROM transport_outbox
+      WHERE message_id = ?
+      LIMIT 1
+      ''',
+      [messageId],
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  Future<List<Map<String, Object?>>> due({int limit = 10}) async {
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+    return _db.select(
+      '''
+      SELECT *
+      FROM transport_outbox
+      WHERE next_attempt_at <= ?
+        AND state IN ('pending', 'relay_sent')
+      ORDER BY next_attempt_at ASC, created_at ASC
+      LIMIT ?
+      ''',
+      [now, limit],
+    );
+  }
+
+  Future<void> markRelaySent(String messageId) async {
+    _db.execute(
+      '''
+      UPDATE transport_outbox
+      SET state = 'relay_sent',
+          last_error = NULL
+      WHERE message_id = ?
+      ''',
+      [messageId],
+    );
+  }
+
+  Future<void> retry({
+    required String messageId,
+    required int attemptCount,
+    required int nextAttemptAt,
+    String? lastError,
+  }) async {
+    _db.execute(
+      '''
+      UPDATE transport_outbox
+      SET attempt_count = ?,
+          next_attempt_at = ?,
+          last_error = ?
+      WHERE message_id = ?
+      ''',
+      [
+        attemptCount,
+        nextAttemptAt,
+        lastError,
+        messageId,
+      ],
+    );
+  }
+
+  Future<void> delete(String messageId) async {
+    _db.execute(
+      'DELETE FROM transport_outbox WHERE message_id = ?',
       [messageId],
     );
   }
