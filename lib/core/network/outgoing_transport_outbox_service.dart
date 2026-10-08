@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import '../storage/database.dart';
 import 'relay_client.dart';
