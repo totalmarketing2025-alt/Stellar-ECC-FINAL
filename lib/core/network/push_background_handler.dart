@@ -117,19 +117,21 @@ Future<void> stellarPushBackgroundMain() async {
     // ----------------------------------------------------------
     // Open the SAME SQLCipher database used by the application.
     // ----------------------------------------------------------
-    database = await StellarDatabase.open();
+    final db = await StellarDatabase.open();
+    database = db;
 
     // ----------------------------------------------------------
     // Create an isolated ProviderContainer using the same DB.
     // ----------------------------------------------------------
-    container = ProviderContainer(
+    final providerContainer = ProviderContainer(
       overrides: [
-        databaseProvider.overrideWithValue(database),
+        databaseProvider.overrideWithValue(db),
       ],
     );
+    container = providerContainer;
 
     final keyStore =
-        container.read(platformKeyStoreProvider);
+        providerContainer.read(platformKeyStoreProvider);
 
     final nicknameBytes =
         await keyStore.readSecret(
@@ -156,11 +158,12 @@ Future<void> stellarPushBackgroundMain() async {
     // Use the EXISTING RelayClient.
     // This automatically performs the Signal identity relay auth.
     // ----------------------------------------------------------
-    relayClient =
-        container.read(relayClientProvider);
+    final client =
+        providerContainer.read(relayClientProvider);
+    relayClient = client;
 
     final chatRepository =
-        container.read(chatRepositoryProvider);
+        providerContainer.read(chatRepositoryProvider);
 
     // ----------------------------------------------------------
     // FIX4:
@@ -175,7 +178,7 @@ Future<void> stellarPushBackgroundMain() async {
     // ----------------------------------------------------------
     try {
       final pushHandler = PushHandler(
-        relayClient: relayClient,
+        relayClient: client,
         messaging: FirebaseMessaging.instance,
         directoryClient: container.read(
           directoryClientProvider,
@@ -212,7 +215,7 @@ Future<void> stellarPushBackgroundMain() async {
     late final StreamSubscription<RelayDelivery> subscription;
 
     subscription =
-        relayClient!.incomingDelivery.listen(
+        client.incomingDelivery.listen(
       (delivery) {
         final bytes = delivery.bytes;
         final deliveryId = delivery.deliveryId;
@@ -234,7 +237,7 @@ Future<void> stellarPushBackgroundMain() async {
                   Envelope.decode(bytes);
 
               final alreadyProcessed =
-                  await database.messageDao
+                  await db.messageDao
                       .isProcessedEnvelope(
                     envelope.deliveryToken,
                   );
@@ -247,7 +250,7 @@ Future<void> stellarPushBackgroundMain() async {
                 );
 
                 if (deliveryId != null) {
-                  await relayClient.acknowledgeDelivery(
+                  await client.acknowledgeDelivery(
                     deliveryId,
                   );
                 }
@@ -278,13 +281,13 @@ Future<void> stellarPushBackgroundMain() async {
                 name: 'stellar_ecc.push.background',
               );
 
-              await database.messageDao
+              await db.messageDao
                   .markEnvelopeProcessed(
                 envelope.deliveryToken,
               );
 
               if (deliveryId != null) {
-                await relayClient.acknowledgeDelivery(
+                await client.acknowledgeDelivery(
                   deliveryId,
                 );
               }
