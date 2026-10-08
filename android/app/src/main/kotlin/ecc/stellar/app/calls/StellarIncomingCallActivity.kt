@@ -102,11 +102,23 @@ class StellarIncomingCallActivity : Activity() {
         kind: String,
         chatId: String?,
     ) {
+        val accent = Color.rgb(120, 170, 255)
+        val muted = Color.rgb(170, 180, 195)
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(48, 80, 48, 80)
-            setBackgroundColor(Color.BLACK)
+            setPadding(48, 64, 48, 64)
+            setBackgroundColor(Color.rgb(8, 10, 14))
+        }
+
+        val badge = TextView(this).apply {
+            text = "STELLAR ECC"
+            textSize = 13f
+            setTextColor(accent)
+            setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            letterSpacing = 0.18f
         }
 
         val title = TextView(this).apply {
@@ -115,23 +127,31 @@ class StellarIncomingCallActivity : Activity() {
             setTextColor(Color.WHITE)
             setTypeface(Typeface.DEFAULT, Typeface.BOLD)
             gravity = Gravity.CENTER
+            setPadding(0, 28, 0, 0)
         }
 
         val subtitle = TextView(this).apply {
             text = if (kind == "video") {
                 "Incoming video call"
             } else {
-                "Incoming call"
+                "Incoming encrypted call"
             }
-            textSize = 20f
-            setTextColor(Color.LTGRAY)
+            textSize = 17f
+            setTextColor(muted)
             gravity = Gravity.CENTER
-            setPadding(0, 24, 0, 80)
+            setPadding(0, 12, 0, 56)
         }
 
         val answer = Button(this).apply {
-            text = if (kind == "video") "Answer video call" else "Answer"
-            textSize = 18f
+            text = if (kind == "video") {
+                "Answer video call"
+            } else {
+                "Answer call"
+            }
+            textSize = 17f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.rgb(46, 125, 80))
+            isAllCaps = false
             setOnClickListener {
                 StellarIncomingCallNotification.cancel(
                     this@StellarIncomingCallActivity,
@@ -143,7 +163,10 @@ class StellarIncomingCallActivity : Activity() {
 
         val reject = Button(this).apply {
             text = "Decline"
-            textSize = 18f
+            textSize = 17f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.rgb(150, 55, 55))
+            isAllCaps = false
             setOnClickListener {
                 StellarIncomingCallNotification.cancel(
                     this@StellarIncomingCallActivity,
@@ -152,6 +175,14 @@ class StellarIncomingCallActivity : Activity() {
                 forwardAction("reject", callId, remote, kind, chatId)
             }
         }
+
+        root.addView(
+            badge,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
 
         root.addView(
             title,
@@ -173,9 +204,9 @@ class StellarIncomingCallActivity : Activity() {
             answer,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                64
             ).apply {
-                bottomMargin = 24
+                bottomMargin = 20
             }
         )
 
@@ -183,7 +214,7 @@ class StellarIncomingCallActivity : Activity() {
             reject,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                64
             )
         )
 

@@ -17,6 +17,7 @@ import '../presentation/screens/profile/profile_screen.dart';
 import '../presentation/screens/groups/group_management_screen.dart';
 import '../presentation/screens/groups/new_group_screen.dart';
 import '../presentation/screens/security/security_center_screen.dart';
+import '../presentation/screens/moderation/moderation_room_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -36,11 +37,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/call/voice/:chatId',
-        builder: (c, s) => VoiceCallScreen(chatId: s.pathParameters['chatId']!),
+        builder: (c, s) => VoiceCallScreen(
+          chatId: s.pathParameters['chatId']!,
+          incoming: s.uri.queryParameters['incoming'] == '1',
+        ),
       ),
       GoRoute(
         path: '/call/video/:chatId',
-        builder: (c, s) => VideoCallScreen(chatId: s.pathParameters['chatId']!),
+        builder: (c, s) => VideoCallScreen(
+          chatId: s.pathParameters['chatId']!,
+          incoming: s.uri.queryParameters['incoming'] == '1',
+        ),
       ),
       GoRoute(path: '/settings', builder: (c, s) => const SettingsScreen()),
       GoRoute(
@@ -53,6 +60,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/group/new', builder: (c, s) => const NewGroupScreen()),
       GoRoute(path: '/security', builder: (c, s) => const SecurityCenterScreen()),
+      GoRoute(
+        path: '/moderation',
+        builder: (c, s) => const ModerationRoomScreen(),
+      ),
     ],
   );
 });

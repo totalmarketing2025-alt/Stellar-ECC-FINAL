@@ -10,6 +10,8 @@ import '../../core/crypto/group_crypto.dart';
 import '../../core/network/relay_client.dart';
 import '../../core/network/directory_client.dart';
 import '../../core/media/media_attachment_service.dart';
+import '../../core/moderation/moderation_client.dart';
+import '../../core/moderation/moderation_admin_client.dart';
 import '../../core/calls/call_signal_router.dart';
 import '../../core/calls/call_coordinator.dart';
 import '../../core/calls/call_platform_bridge.dart';
@@ -22,6 +24,8 @@ const _relayUrl =
     'wss://stellar-ecc-final.totalmarketing2025.workers.dev/v1/connect';
 const _directoryUrl =
     'https://stellar-ecc-directory.totalmarketing2025.workers.dev';
+const _moderationUrl =
+    'https://stellar-ecc-final.totalmarketing2025.workers.dev';
 
 final platformKeyStoreProvider = Provider<PlatformKeyStore>(
   (ref) => PlatformKeyStore(),
@@ -44,6 +48,28 @@ final sessionManagerProvider = Provider<SessionManager>((ref) {
   );
 });
 
+final moderationAdminClientProvider =
+    Provider<ModerationAdminClient>((ref) {
+  final client = ModerationAdminClient(
+    baseUrl: _moderationUrl,
+  );
+
+  ref.onDispose(client.logout);
+
+  return client;
+});
+
+final moderationClientProvider = Provider<ModerationClient>((ref) {
+  final client = ModerationClient(
+    baseUrl: _moderationUrl,
+    identityStore: ref.watch(identityKeyStoreProvider),
+  );
+
+  ref.onDispose(client.dispose);
+
+  return client;
+});
+
 final directoryClientProvider = Provider<DirectoryClient>((ref) {
   final client = DirectoryClient(baseUrl: _directoryUrl);
 
@@ -53,7 +79,10 @@ final directoryClientProvider = Provider<DirectoryClient>((ref) {
 });
 
 final relayClientProvider = Provider<RelayClient>(
-  (ref) => RelayClient(relayUrl: _relayUrl),
+  (ref) => RelayClient(
+    relayUrl: _relayUrl,
+    identityStore: ref.watch(identityKeyStoreProvider),
+  ),
 );
 
 final callSignalRouterProvider = Provider<CallSignalRouter>((ref) {
@@ -69,10 +98,17 @@ final callPlatformBridgeProvider = Provider<CallPlatformBridge>((ref) {
 });
 
 final callServiceProvider = Provider<CallService>((ref) {
+  final nickname = ref.watch(localNicknameProvider);
+  if (nickname == null || nickname.isEmpty) {
+    throw StateError('localNicknameProvider must be set before callServiceProvider is used');
+  }
+
   final service = CallService(
     relayClient: ref.watch(relayClientProvider),
     sessionManager: ref.watch(sessionManagerProvider),
     platformBridge: ref.watch(callPlatformBridgeProvider),
+    directoryClient: ref.watch(directoryClientProvider),
+    localNickname: nickname,
   );
   ref.onDispose(service.end);
   return service;
@@ -163,14 +199,19 @@ final chatRepositoryProvider = Provider<ChatRepository>((ref) {
       'localNicknameProvider must be set before chatRepositoryProvider is used',
     );
   }
-  return ChatRepository(
+  final repository = ChatRepository(
     db: ref.watch(databaseProvider),
     sessionManager: ref.watch(sessionManagerProvider),
     relayClient: ref.watch(relayClientProvider),
     directoryClient: ref.watch(directoryClientProvider),
     localNickname: nickname,
     mediaService: ref.watch(mediaAttachmentServiceProvider),
+    moderationClient: ref.watch(moderationClientProvider),
   );
+
+  ref.onDispose(repository.dispose);
+
+  return repository;
 });
 
 /// Chat list — refreshed on demand via `ref.invalidate(chatListProvider)`

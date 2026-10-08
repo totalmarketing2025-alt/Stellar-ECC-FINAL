@@ -37,43 +37,113 @@ class MediaAttachmentService {
 
     final filePath = p.join(mediaDir.path, '$blobId.enc');
 
-    final secretKey = crypto.SecretKey(_randomBytes(32));
-    final secretKeyBytes = await secretKey.extractBytes();
-    await keyStore.writeSecret('media_key_$blobId', Uint8List.fromList(secretKeyBytes));
+    var keyStored = false;
+    var fileCreated = false;
 
-    final nonce = _randomBytes(12);
-    final secretBox = await _aesGcm.encrypt(rawBytes, secretKey: secretKey, nonce: nonce);
+    try {
+      final secretKey = crypto.SecretKey(_randomBytes(32));
+      final secretKeyBytes = await secretKey.extractBytes();
+      // Mark the resource as rollback-owned before the async write.
+      // A storage implementation may persist the key and still throw.
+      keyStored = true;
+      await keyStore.writeSecret(
+        'media_key_$blobId',
+        Uint8List.fromList(secretKeyBytes),
+      );
 
-    final file = File(filePath);
-    await file.writeAsBytes([...nonce, ...secretBox.cipherText, ...secretBox.mac.bytes]);
+      final nonce = _randomBytes(12);
+      final secretBox = await _aesGcm.encrypt(
+        rawBytes,
+        secretKey: secretKey,
+        nonce: nonce,
+      );
 
-    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    await db.mediaBlobDao.insert(
-      blobId: blobId,
-      messageId: messageId,
-      mimeType: mimeType,
-      filePath: filePath,
-      expiresAt: now + ttlSeconds,
-    );
+      final file = File(filePath);
+      // Mark the path as rollback-owned before the async write.
+      // This also cleans up a partial file if writeAsBytes throws.
+      fileCreated = true;
+      await file.writeAsBytes([
+        ...nonce,
+        ...secretBox.cipherText,
+        ...secretBox.mac.bytes,
+      ]);
 
-    return blobId;
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      await db.mediaBlobDao.insert(
+        blobId: blobId,
+        messageId: messageId,
+        mimeType: mimeType,
+        filePath: filePath,
+        expiresAt: now + ttlSeconds,
+      );
+
+      return blobId;
+    } catch (_) {
+      if (fileCreated) {
+        try {
+          await File(filePath).delete();
+        } catch (_) {}
+      }
+
+      if (keyStored) {
+        try {
+          await wipeAttachmentKey(blobId);
+        } catch (_) {}
+      }
+
+      rethrow;
+    }
   }
 
   Future<Uint8List> loadAttachment(String blobId, String filePath) async {
-    final keyBytes = await keyStore.readSecret('media_key_$blobId');
-    if (keyBytes == null) {
-      throw StateError('Media key for $blobId not found — attachment may already be expired/shredded');
+    try {
+      final keyBytes = await keyStore.readSecret('media_key_$blobId');
+      if (keyBytes == null) {
+        throw StateError('Attachment unavailable');
+      }
+
+      if (keyBytes.length != 32) {
+        throw StateError('Attachment unavailable');
+      }
+
+      final file = File(filePath);
+      if (!await file.exists()) {
+        throw StateError('Attachment unavailable');
+      }
+
+      final fileBytes = await file.readAsBytes();
+
+      // nonce (12) + MAC (16) + ciphertext (at least 0)
+      if (fileBytes.length < 28) {
+        throw StateError('Attachment unavailable');
+      }
+
+      final secretKey = crypto.SecretKey(keyBytes);
+
+      final nonce = fileBytes.sublist(0, 12);
+      final mac = fileBytes.sublist(fileBytes.length - 16);
+      final cipherText = fileBytes.sublist(12, fileBytes.length - 16);
+
+      final secretBox = crypto.SecretBox(
+        cipherText,
+        nonce: nonce,
+        mac: crypto.Mac(mac),
+      );
+
+      final decrypted = await _aesGcm.decrypt(
+        secretBox,
+        secretKey: secretKey,
+      );
+
+      return Uint8List.fromList(decrypted);
+    } catch (e) {
+      if (e is StateError) {
+        rethrow;
+      }
+
+      // Normalize file and AES-GCM failures to a safe UI-facing error.
+      throw StateError('Attachment unavailable');
     }
-    final secretKey = crypto.SecretKey(keyBytes);
-
-    final fileBytes = await File(filePath).readAsBytes();
-    final nonce = fileBytes.sublist(0, 12);
-    final mac = fileBytes.sublist(fileBytes.length - 16);
-    final cipherText = fileBytes.sublist(12, fileBytes.length - 16);
-
-    final secretBox = crypto.SecretBox(cipherText, nonce: nonce, mac: crypto.Mac(mac));
-    final decrypted = await _aesGcm.decrypt(secretBox, secretKey: secretKey);
-    return Uint8List.fromList(decrypted);
   }
 
   /// Called by ExpirySweeper alongside file shredding, to also remove the

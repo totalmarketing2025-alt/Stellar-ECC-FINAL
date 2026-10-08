@@ -42,6 +42,7 @@ class Chat {
           : DateTime.fromMillisecondsSinceEpoch(
               (row['last_message_at'] as int) * 1000,
             ),
+      unreadCount: (row['unread_count'] as int?) ?? 0,
       peerName: row['peer_name'] as String?,
       peerDeviceId: row['peer_device_id'] as int?,
     );

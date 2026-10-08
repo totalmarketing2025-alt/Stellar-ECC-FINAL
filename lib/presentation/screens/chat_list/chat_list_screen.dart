@@ -169,12 +169,19 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
 
     if (nickname == null || nickname.isEmpty || !mounted) return;
 
+    final peerName = nickname
+        .trim()
+        .replaceFirst(RegExp(r'^@'), '')
+        .toLowerCase();
+
+    if (peerName.isEmpty) return;
+
     final repo = ref.read(chatRepositoryProvider);
-    final chatId = 'direct_$nickname';
+    final chatId = 'direct_$peerName';
     await repo.createDirectChat(
       chatId: chatId,
-      displayName: nickname,
-      peerName: nickname,
+      displayName: peerName,
+      peerName: peerName,
       peerDeviceId: 1,
     );
     ref.invalidate(chatListProvider);

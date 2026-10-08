@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:convert';
 
@@ -9,8 +10,12 @@ import '../../core/crypto/session_manager.dart';
 import '../../core/network/relay_client.dart';
 import '../../core/network/directory_client.dart';
 import '../../core/network/envelope.dart';
+import '../../core/network/outgoing_transport_outbox_service.dart';
 import '../../core/media/media_attachment_service.dart';
 import '../../core/media/attachment_payload.dart';
+import '../../core/moderation/moderation_client.dart';
+import '../../core/moderation/moderation_message.dart';
+import '../../core/moderation/moderation_outbox_service.dart';
 import '../../domain/models/message.dart';
 import '../../domain/models/chat.dart';
 
@@ -26,7 +31,24 @@ class ChatRepository {
     required this.directoryClient,
     required this.localNickname,
     this.mediaService,
-  });
+    required this.moderationClient,
+  }) {
+    moderationOutbox = ModerationOutboxService(
+      db: db,
+      client: moderationClient,
+      mediaService: mediaService,
+      nickname: localNickname,
+    );
+
+    transportOutbox = OutgoingTransportOutboxService(
+      db: db,
+      relayClient: relayClient,
+      onRelaySent: _onTransportRelaySent,
+    );
+
+    unawaited(moderationOutbox.start());
+    unawaited(transportOutbox.start());
+  }
 
   final StellarDatabase db;
   final SessionManager sessionManager;
@@ -34,6 +56,74 @@ class ChatRepository {
   final DirectoryClient directoryClient;
   final String localNickname;
   final MediaAttachmentService? mediaService;
+  final ModerationClient moderationClient;
+
+  late final ModerationOutboxService moderationOutbox;
+  late final OutgoingTransportOutboxService transportOutbox;
+
+  Future<void> dispose() async {
+    await transportOutbox.dispose();
+    await moderationOutbox.dispose();
+  }
+
+
+  Future<void> _onTransportRelaySent(String messageId) async {
+    final transportRow =
+        await db.transportOutboxDao.byId(messageId);
+
+    if (transportRow == null) {
+      return;
+    }
+
+    final messageRow = await db.messageDao.byId(messageId);
+
+    if (messageRow == null) {
+      throw StateError(
+        'Transport recovery source message missing: $messageId',
+      );
+    }
+
+    final chatId = messageRow['chat_id'] as String;
+    final plaintext = messageRow['body_plaintext'] as String? ?? '';
+
+    final recipientRoute =
+        transportRow['recipient_route'] as String;
+
+    final blob =
+        await db.mediaBlobDao.byMessageId(messageId);
+
+    final attachmentMimeType =
+        blob?['mime_type'] as String?;
+
+    await db.messageDao.updateStatus(
+      messageId,
+      'sent',
+    );
+
+    await db.moderationOutboxDao.enqueue(
+      messageId: messageId,
+      direction: 'outgoing',
+      sender: localNickname,
+      recipient: recipientRoute,
+      chatId: chatId,
+      contentType: attachmentMimeType != null
+          ? 'attachment'
+          : 'text/plain',
+      plaintext: plaintext,
+      attachmentMimeType: attachmentMimeType,
+      attachmentBlobId: blob?['blob_id'] as String?,
+      createdAt: messageRow['sent_at'] as int,
+    );
+
+    moderationOutbox.scheduleFlush();
+
+    await db.transportOutboxDao.delete(messageId);
+
+    print(
+      'TRANSPORT_OUTBOX_COMPLETE: '
+      'messageId=$messageId',
+    );
+  }
 
   static const String _ackPrefix = 'STELLAR_ACK_V1:';
 
@@ -60,13 +150,22 @@ class ChatRepository {
   final _uuid = const Uuid();
 
   Future<List<Chat>> loadChats() async {
-    final rows = await db.chatDao.all();
+    final rows = await db.chatDao.all(
+      localNickname: localNickname,
+    );
     return rows.map(Chat.fromRow).toList();
   }
 
   Future<List<Message>> loadMessages(String chatId) async {
     final rows = await db.messageDao.forChat(chatId);
     return rows.map(Message.fromRow).toList();
+  }
+
+  Future<void> markChatRead(String chatId) async {
+    await db.messageDao.markChatRead(
+      chatId: chatId,
+      localNickname: localNickname,
+    );
   }
 
   Future<void> deleteMessage(String messageId) async {
@@ -84,7 +183,17 @@ class ChatRepository {
       throw StateError('Attachment $blobId not found');
     }
 
+    final expiresAt = row['expires_at'] as int;
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    if (expiresAt <= now) {
+      throw StateError('Attachment expired');
+    }
+
     final filePath = row['file_path'] as String;
+    if (filePath.isEmpty) {
+      throw StateError('Attachment unavailable');
+    }
+
     return service.loadAttachment(blobId, filePath);
   }
 
@@ -183,6 +292,31 @@ class ChatRepository {
       throw StateError('Direct chat peer mapping is missing for $chatId');
     }
 
+    // Validate attachment arguments before creating any local
+    // message/blob state.
+    final hasAttachmentBytes = attachmentBytes != null;
+    final hasAttachmentMimeType = attachmentMimeType != null;
+
+    if (hasAttachmentBytes != hasAttachmentMimeType) {
+      throw StateError(
+        'Malformed attachment: bytes and MIME type must be provided together',
+      );
+    }
+
+    if (hasAttachmentBytes && mediaService == null) {
+      throw StateError(
+        'Attachment storage service is unavailable',
+      );
+    }
+
+    final plaintextBytes =
+        hasAttachmentBytes
+        ? AttachmentPayload.encode(
+            mimeType: attachmentMimeType!,
+            bytes: attachmentBytes!,
+          )
+        : Uint8List.fromList(utf8.encode(plaintext));
+
     final messageId = _uuid.v4();
 
     // Stable per-message token used to correlate delivery ACKs.
@@ -227,14 +361,6 @@ class ChatRepository {
 
       final address = SignalProtocolAddress(peerName, peerDeviceId);
 
-      final plaintextBytes =
-          attachmentBytes != null && attachmentMimeType != null
-          ? AttachmentPayload.encode(
-              mimeType: attachmentMimeType,
-              bytes: attachmentBytes,
-            )
-          : Uint8List.fromList(utf8.encode(plaintext));
-
       print('SEND_STEP_3_BEFORE_ENCRYPT');
       CiphertextMessage ciphertextMessage;
       try {
@@ -276,16 +402,32 @@ class ChatRepository {
             peerName, // resolved server-side to an opaque route in production
         ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
       );
-      // 4. Send the opaque encrypted envelope through the relay.
+      // 4. Persist the opaque encrypted envelope BEFORE relay send.
+      //
+      // This closes the crash gap between relay.send() and moderation
+      // enqueue. The transport outbox contains ciphertext only.
+      final encodedEnvelope = envelope.encode();
+
+      await db.transportOutboxDao.enqueue(
+        messageId: messageId,
+        deliveryToken: deliveryToken,
+        recipientRoute: peerName,
+        envelopeBytes: encodedEnvelope,
+        createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      );
+
+      print(
+        'TRANSPORT_OUTBOX_ENQUEUED: '
+        'messageId=$messageId',
+      );
+
+      // 5. Send the exact persisted envelope.
       print('SEND_STEP_5_BEFORE_RELAY');
-      await relayClient.send(envelope.encode());
+      await relayClient.send(encodedEnvelope);
       print('SEND_STEP_6_AFTER_RELAY');
-      await db.messageDao.updateStatus(messageId, 'sent');
-      final debugRows = await db.messageDao.forChat(chatId);
-      final debugMsg = debugRows
-          .where((m) => m['message_id'] == messageId)
-          .firstOrNull;
-      print('STATUS_DEBUG: messageId=$messageId status=${debugMsg?['status']}');
+
+      await db.transportOutboxDao.markRelaySent(messageId);
+      await _onTransportRelaySent(messageId);
     } catch (e, st) {
       await db.messageDao.updateStatus(messageId, 'failed');
       print('SEND_DIRECT_MESSAGE_ERROR: $e');
@@ -314,9 +456,30 @@ class ChatRepository {
       Uint8List plaintextBytes,
     })
   >
-  decryptEnvelope({required Uint8List rawEnvelope}) async {
+  decryptEnvelope({
+    required Uint8List rawEnvelope,
+    String? senderNickname,
+  }) async {
     final envelope = Envelope.decode(rawEnvelope);
-    final peers = await _knownDirectPeers();
+
+    final normalizedSender = senderNickname?.trim().toLowerCase();
+    final knownPeers = await _knownDirectPeers();
+
+    final peers =
+        normalizedSender != null && normalizedSender.isNotEmpty
+            ? <({String chatId, String peerName, int peerDeviceId})>[
+                (
+                  chatId:
+                      await findDirectChatId(
+                        peerName: normalizedSender,
+                        peerDeviceId: 1,
+                      ) ??
+                      'direct_$normalizedSender',
+                  peerName: normalizedSender,
+                  peerDeviceId: 1,
+                ),
+              ]
+            : knownPeers;
 
     if (peers.isEmpty) {
       throw StateError(
@@ -325,7 +488,7 @@ class ChatRepository {
     }
 
     late final String chatId;
-    late final String senderNickname;
+    late final String authenticatedSenderNickname;
     late final SignalProtocolAddress senderAddress;
     late final Uint8List plaintextBytes;
 
@@ -337,7 +500,9 @@ class ChatRepository {
       try {
         Uint8List decrypted;
 
-        try {
+        // First-contact messages are X3DH PreKeySignalMessages.
+        // Established sessions use regular SignalMessage.
+        if (await sessionManager.hasSession(address)) {
           final signalMessage = SignalMessage.fromSerialized(
             envelope.ciphertext,
           );
@@ -345,7 +510,7 @@ class ChatRepository {
             address,
             signalMessage,
           );
-        } catch (_) {
+        } else {
           final preKeyMessage = PreKeySignalMessage(envelope.ciphertext);
           decrypted = await sessionManager.decryptReceived(
             address,
@@ -354,7 +519,7 @@ class ChatRepository {
         }
 
         chatId = peer.chatId;
-        senderNickname = peer.peerName;
+        authenticatedSenderNickname = peer.peerName;
         senderAddress = address;
         plaintextBytes = decrypted;
         lastError = null;
@@ -373,7 +538,7 @@ class ChatRepository {
     return (
       envelope: envelope,
       chatId: chatId,
-      senderNickname: senderNickname,
+      senderNickname: authenticatedSenderNickname,
       senderAddress: senderAddress,
       plaintextBytes: plaintextBytes,
     );
@@ -443,9 +608,28 @@ class ChatRepository {
         : utf8.decode(plaintextBytes);
     final messageId = _uuid.v4();
 
-    final chatRow = await db.chatDao.byId(chatId);
+    var chatRow = await db.chatDao.byId(chatId);
+
     if (chatRow == null) {
-      throw StateError('Direct chat not found for $senderNickname');
+      await createDirectChat(
+        chatId: chatId,
+        displayName: senderNickname,
+        peerName: senderNickname,
+        peerDeviceId: senderAddress.getDeviceId(),
+      );
+
+      chatRow = await db.chatDao.byId(chatId);
+
+      if (chatRow == null) {
+        throw StateError(
+          'Unable to create direct chat for $senderNickname',
+        );
+      }
+
+      print(
+        'INCOMING_CHAT_AUTO_CREATED: '
+        'chatId=$chatId peer=$senderNickname',
+      );
     }
 
     final ttl = chatRow['default_ttl_sec'] as int;
@@ -476,6 +660,46 @@ class ChatRepository {
 
     // The message has been successfully decrypted and stored locally.
     await db.messageDao.updateStatus(messageId, 'delivered');
+
+    // Persist a moderation copy in the encrypted outbox.
+    // Upload/retry happens asynchronously and must never block
+    // the local message or the Signal delivery ACK.
+    try {
+      final incomingBlob = attachment == null
+          ? null
+          : await db.mediaBlobDao.byMessageId(messageId);
+
+      await db.moderationOutboxDao.enqueue(
+        messageId: messageId,
+        direction: 'incoming',
+        sender: senderNickname,
+        recipient: localNickname,
+        chatId: chatId,
+        contentType: attachment != null
+            ? 'attachment'
+            : 'text/plain',
+        plaintext: plaintext,
+        attachmentMimeType: attachment?.mimeType,
+        attachmentBlobId: incomingBlob?['blob_id'] as String?,
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+      );
+
+      moderationOutbox.scheduleFlush();
+
+      print(
+        'MODERATION_INCOMING_OUTBOX_ENQUEUED: '
+        'messageId=$messageId',
+      );
+    } catch (outboxError, outboxStack) {
+      print(
+        'MODERATION_INCOMING_OUTBOX_ENQUEUE_ERROR: '
+        '$outboxError',
+      );
+      print(
+        'MODERATION_INCOMING_OUTBOX_ENQUEUE_STACK: '
+        '$outboxStack',
+      );
+    }
 
     // Tell the sender that this exact envelope was successfully delivered.
     // ACK failure must not make us lose an already received message.

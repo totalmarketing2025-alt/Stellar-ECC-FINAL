@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
-
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
@@ -46,15 +45,11 @@ class PushHandler {
   }
 
   Future<void> initialize() async {
-    final settings = await messaging.requestPermission(
+    await messaging.requestPermission(
       alert: true,
       badge: true,
       sound: false,
     );
-
-    if (settings.authorizationStatus == AuthorizationStatus.denied) {
-      return;
-    }
 
     unawaited(_registerCurrentTokenWithRetry());
 
@@ -69,8 +64,6 @@ class PushHandler {
     if (initialMessage != null) {
       await _handleWake();
     }
-
-    FirebaseMessaging.onBackgroundMessage(_backgroundHandler);
   }
 
   Future<void> registerCurrentToken() async {
@@ -210,8 +203,3 @@ class PushHandler {
     }
   }
 }
-
-/// Runs in a separate isolate when the app is fully backgrounded.
-/// The push remains a wake signal only.
-@pragma('vm:entry-point')
-Future<void> _backgroundHandler(RemoteMessage message) async {}

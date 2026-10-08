@@ -5,15 +5,23 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
+import android.util.Log
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import ecc.stellar.app.calls.StellarCallManager
+import ecc.stellar.app.calls.StellarIncomingCallNotification
 
 class StellarFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
         private const val MESSAGE_CHANNEL = "stellar_messages"
         private const val MESSAGE_ID_BASE = 1001
+
+
     }
 
     override fun onMessageReceived(
@@ -28,7 +36,39 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
             return
         }
 
+        if (data["wake"] == "1") {
+            scheduleBackgroundMessageSync()
+            return
+        }
+
         showGenericMessageNotification()
+    }
+
+    private fun scheduleBackgroundMessageSync() {
+        try {
+            val request =
+                OneTimeWorkRequestBuilder<StellarPushSyncWorker>()
+                    .build()
+
+            WorkManager
+                .getInstance(applicationContext)
+                .enqueueUniqueWork(
+                    "stellar-push-sync",
+                    ExistingWorkPolicy.APPEND_OR_REPLACE,
+                    request
+                )
+
+            Log.d(
+                "StellarFCM",
+                "FIX1 push sync scheduled"
+            )
+        } catch (error: Throwable) {
+            Log.e(
+                "StellarFCM",
+                "FIX1 failed to schedule push sync",
+                error
+            )
+        }
     }
 
     private fun handleIncomingCall(
@@ -60,8 +100,26 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
                 kind,
                 chatId
             )
-        } catch (_: Throwable) {
-            // Do not crash the FCM service.
+        } catch (error: Throwable) {
+            // Telecom can reject an incoming call for platform/state reasons.
+            // Keep the existing incoming-call notification as a fallback.
+            try {
+                StellarIncomingCallNotification.show(
+                    this,
+                    callId,
+                    remote,
+                    kind,
+                    chatId
+                )
+            } catch (_: Throwable) {
+                // Do not crash the FCM service if notification setup also fails.
+            }
+
+            android.util.Log.e(
+                "StellarFCM",
+                "Telecom incoming call failed for $callId",
+                error
+            )
         }
     }
 
@@ -125,6 +183,27 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        // Token registration remains separate from call contents.
+
+        if (token.isBlank()) {
+            return
+        }
+
+        // FCM can rotate the registration token while Flutter is not
+        // running. Wake the existing authenticated Flutter registration
+        // path so Directory is updated with the new token.
+        try {
+            scheduleBackgroundMessageSync()
+
+            Log.d(
+                "StellarFCM",
+                "FIX4 FCM token refresh queued for authenticated registration"
+            )
+        } catch (error: Throwable) {
+            Log.e(
+                "StellarFCM",
+                "FIX4 failed to schedule token refresh registration",
+                error
+            )
+        }
     }
 }

@@ -3,25 +3,39 @@
   "name": "stellar-ecc-final",
   "main": "src/index.js",
   "compatibility_date": "2026-09-06",
+  "keep_vars": true,
+  "r2_buckets": [
+    {
+      "binding": "MODERATION_ATTACHMENTS",
+      "bucket_name": "stellar-ecc-moderation-attachments"
+    }
+  ],
   "durable_objects": {
     "bindings": [
       {
         "name": "RELAY",
         "class_name": "RelayRoom"
+      },
+      {
+        "name": "MODERATION",
+        "class_name": "ModerationRoom"
       }
     ]
   },
   "vars": {
     "DIRECTORY_URL": "https://stellar-ecc-directory.totalmarketing2025.workers.dev",
     "FCM_PROJECT_ID": "stellar-adc4b",
-    "FCM_CLIENT_EMAIL": "dev-placeholder@stellar-adc4b.iam.gserviceaccount.com",
-    "FCM_PRIVATE_KEY": "DEV_PLACEHOLDER",
-    "RELAY_SHARED_SECRET": "stellar-relay-dev-secret"
+    "RELAY_SHARED_SECRET": "stellar-relay-dev-secret",
+    "MODERATION_SHARED_SECRET": "stellar-moderation-dev-secret"
   },
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["RelayRoom"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ModerationRoom"]
     }
   ]
 }

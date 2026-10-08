@@ -13,6 +13,7 @@ import '../../widgets/stellar_avatar.dart';
 import '../../widgets/message_bubble.dart';
 import '../../widgets/ttl_picker_sheet.dart';
 import '../../widgets/attachment_picker_sheet.dart';
+import '../../../core/media/attachment_payload.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.chatId});
@@ -32,9 +33,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void initState() {
     super.initState();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _markChatRead();
+    });
+
     _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       ref.invalidate(chatMessagesProvider(widget.chatId));
+      ref.invalidate(chatListProvider);
     });
+  }
+
+  Future<void> _markChatRead() async {
+    try {
+      await ref.read(chatRepositoryProvider).markChatRead(widget.chatId);
+      ref.invalidate(chatListProvider);
+    } catch (_) {
+      // Read-state failure must not break the chat UI.
+    }
   }
 
   @override
@@ -71,6 +87,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
         ),
         actions: [
+          const _StellarConnectionIndicator(),
           IconButton(
             icon: const Icon(Icons.call_outlined),
             onPressed: () => context.push('/call/voice/${widget.chatId}'),
@@ -128,6 +145,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               },
             ),
           ),
+          if ((chat?.unreadCount ?? 0) > 0)
+            _NewMessagesBanner(
+              count: chat!.unreadCount,
+              onTap: () async {
+                await _markChatRead();
+                if (mounted && _scrollController.hasClients) {
+                  await _scrollController.animateTo(
+                    0,
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeOut,
+                  );
+                }
+              },
+            ),
           if (_replyingTo != null) _ReplyPreview(
             message: _replyingTo!,
             onCancel: () => setState(() => _replyingTo = null),
@@ -154,6 +185,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final file = File(path);
     if (!await file.exists()) return;
+
+    final fileLength = await file.length();
+
+    if (fileLength > AttachmentPayload.maxBytes) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Attachment is too large. Maximum size is 8 MB.'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+      return;
+    }
+
     final bytes = await file.readAsBytes();
     final mimeType = _guessMimeType(path);
 
@@ -258,6 +304,131 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
     if (selected != null) setState(() => _perMessageTtlOverride = selected);
+  }
+}
+
+
+class _StellarConnectionIndicator extends ConsumerStatefulWidget {
+  const _StellarConnectionIndicator();
+
+  @override
+  ConsumerState<_StellarConnectionIndicator> createState() =>
+      _StellarConnectionIndicatorState();
+}
+
+class _StellarConnectionIndicatorState
+    extends ConsumerState<_StellarConnectionIndicator> {
+  Timer? _timer;
+  bool _online = false;
+  bool _pulse = true;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _updateStatus();
+
+    _timer = Timer.periodic(
+      const Duration(milliseconds: 650),
+      (_) => _updateStatus(),
+    );
+  }
+
+  void _updateStatus() {
+    if (!mounted) return;
+
+    final online = ref.read(relayClientProvider).isConnected;
+
+    setState(() {
+      if (online != _online) {
+        _pulse = true;
+      } else if (online) {
+        _pulse = !_pulse;
+      }
+
+      _online = online;
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _online
+        ? StellarColors.success.withOpacity(_pulse ? 0.98 : 0.48)
+        : StellarColors.textSecondary.withOpacity(0.30);
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, right: 2),
+      child: Center(
+        child: AnimatedOpacity(
+          opacity: _online ? (_pulse ? 1.0 : 0.58) : 0.52,
+          duration: const Duration(milliseconds: 280),
+          child: Text(
+            'S+V🔒',
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NewMessagesBanner extends StatelessWidget {
+  const _NewMessagesBanner({
+    required this.count,
+    required this.onTap,
+  });
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Material(
+        color: StellarColors.bgElevated,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.mark_chat_unread_outlined,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  count == 1 ? 'New message' : '$count new messages',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Icon(
+                  Icons.keyboard_arrow_down,
+                  size: 18,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
