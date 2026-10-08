@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:developer' as developer;
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -13,10 +11,8 @@ import '../../app/firebase_options.dart';
 import 'envelope.dart';
 import 'relay_client.dart';
 import 'push_handler.dart';
-import '../../data/repositories/chat_repository.dart';
 import '../storage/database.dart';
 import '../storage/providers.dart';
-import '../security/platform_key_store.dart';
 import '../../presentation/state/app_providers.dart';
 
 @pragma('vm:entry-point')
@@ -128,12 +124,12 @@ Future<void> stellarPushBackgroundMain() async {
     // ----------------------------------------------------------
     container = ProviderContainer(
       overrides: [
-        databaseProvider.overrideWithValue(database!),
+        databaseProvider.overrideWithValue(database),
       ],
     );
 
     final keyStore =
-        container!.read(platformKeyStoreProvider);
+        container.read(platformKeyStoreProvider);
 
     final nicknameBytes =
         await keyStore.readSecret(
@@ -161,10 +157,10 @@ Future<void> stellarPushBackgroundMain() async {
     // This automatically performs the Signal identity relay auth.
     // ----------------------------------------------------------
     relayClient =
-        container!.read(relayClientProvider);
+        container.read(relayClientProvider);
 
     final chatRepository =
-        container!.read(chatRepositoryProvider);
+        container.read(chatRepositoryProvider);
 
     // ----------------------------------------------------------
     // FIX4:
@@ -179,12 +175,12 @@ Future<void> stellarPushBackgroundMain() async {
     // ----------------------------------------------------------
     try {
       final pushHandler = PushHandler(
-        relayClient: relayClient!,
+        relayClient: relayClient,
         messaging: FirebaseMessaging.instance,
-        directoryClient: container!.read(
+        directoryClient: container.read(
           directoryClientProvider,
         ),
-        sessionManager: container!.read(
+        sessionManager: container.read(
           sessionManagerProvider,
         ),
         getLocalNickname: () async => nickname,
@@ -238,7 +234,7 @@ Future<void> stellarPushBackgroundMain() async {
                   Envelope.decode(bytes);
 
               final alreadyProcessed =
-                  await database!.messageDao
+                  await database.messageDao
                       .isProcessedEnvelope(
                     envelope.deliveryToken,
                   );
@@ -251,7 +247,7 @@ Future<void> stellarPushBackgroundMain() async {
                 );
 
                 if (deliveryId != null) {
-                  await relayClient!.acknowledgeDelivery(
+                  await relayClient.acknowledgeDelivery(
                     deliveryId,
                   );
                 }
@@ -282,13 +278,13 @@ Future<void> stellarPushBackgroundMain() async {
                 name: 'stellar_ecc.push.background',
               );
 
-              await database!.messageDao
+              await database.messageDao
                   .markEnvelopeProcessed(
                 envelope.deliveryToken,
               );
 
               if (deliveryId != null) {
-                await relayClient!.acknowledgeDelivery(
+                await relayClient.acknowledgeDelivery(
                   deliveryId,
                 );
               }
@@ -334,7 +330,7 @@ Future<void> stellarPushBackgroundMain() async {
     // ----------------------------------------------------------
     // Connect to the authenticated relay.
     // ----------------------------------------------------------
-    await relayClient!.connect(
+    await relayClient.connect(
       peer: nickname,
     );
 

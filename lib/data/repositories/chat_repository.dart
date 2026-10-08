@@ -14,7 +14,6 @@ import '../../core/network/outgoing_transport_outbox_service.dart';
 import '../../core/media/media_attachment_service.dart';
 import '../../core/media/attachment_payload.dart';
 import '../../core/moderation/moderation_client.dart';
-import '../../core/moderation/moderation_message.dart';
 import '../../core/moderation/moderation_outbox_service.dart';
 import '../../domain/models/message.dart';
 import '../../domain/models/chat.dart';
@@ -310,10 +309,10 @@ class ChatRepository {
     }
 
     final plaintextBytes =
-        hasAttachmentBytes
+        attachmentBytes != null
         ? AttachmentPayload.encode(
             mimeType: attachmentMimeType!,
-            bytes: attachmentBytes!,
+            bytes: attachmentBytes,
           )
         : Uint8List.fromList(utf8.encode(plaintext));
 

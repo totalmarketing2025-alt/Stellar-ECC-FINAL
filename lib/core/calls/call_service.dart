@@ -7,7 +7,6 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import '../crypto/session_manager.dart';
-import '../network/envelope.dart';
 import '../network/directory_client.dart';
 import '../network/relay_client.dart';
 import '../../domain/models/call_session.dart';

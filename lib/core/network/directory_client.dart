@@ -1,8 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
-import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import 'directory_user_bundle.dart';
 
