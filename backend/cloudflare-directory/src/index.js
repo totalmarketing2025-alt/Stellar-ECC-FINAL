@@ -199,6 +199,11 @@ async function verifySignalIdentitySignature({
     const rBytes = sig.slice(0, 32);
     const sBytes = sig.slice(32);
 
+    // libsignal_protocol_dart stores the Edwards public-key sign bit
+    // in signature[63]. It is metadata, not part of scalar s.
+    const signBit = (sBytes[31] >>> 7) & 1;
+    sBytes[31] &= 0x7f;
+
     /*
      * R is a compressed Edwards point:
      *   - low 255 bits encode y
@@ -230,7 +235,7 @@ async function verifySignalIdentitySignature({
 
     const edPublicKey = curve25519PublicToEd25519Public(
       montgomeryPublicKeyForConversion,
-      0,
+      signBit,
     );
 
     if (!edPublicKey) {
@@ -259,7 +264,7 @@ async function verifySignalIdentitySignature({
         name: "Ed25519",
       },
       cryptoKey,
-      sig,
+      new Uint8Array([...rBytes, ...sBytes]),
       messageBytes,
     );
   } catch (error) {

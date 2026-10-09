@@ -157,6 +157,134 @@ assert.equal(
   "s with excess bits must be rejected",
 );
 
+
+// Generate a valid Ed25519 signature carrying signBit = 1.
+const FIELD_P = (1n << 255n) - 19n;
+
+function modP(value) {
+  const result = value % FIELD_P;
+  return result < 0n ? result + FIELD_P : result;
+}
+
+function powMod(base, exponent) {
+  let result = 1n;
+  base = modP(base);
+
+  while (exponent > 0n) {
+    if (exponent & 1n) result = modP(result * base);
+    base = modP(base * base);
+    exponent >>= 1n;
+  }
+
+  return result;
+}
+
+function littleEndianToBigInt(bytes) {
+  let result = 0n;
+  for (let i = bytes.length - 1; i >= 0; i--) {
+    result = (result << 8n) | BigInt(bytes[i]);
+  }
+  return result;
+}
+
+function bigIntToLittleEndian(value, length) {
+  const result = new Uint8Array(length);
+  for (let i = 0; i < length; i++) {
+    result[i] = Number(value & 0xffn);
+    value >>= 8n;
+  }
+  return result;
+}
+
+let keyPair;
+let rawPublicKey;
+let publicSignBit;
+
+do {
+  keyPair = await globalThis.crypto.subtle.generateKey(
+    { name: "Ed25519" },
+    true,
+    ["sign", "verify"],
+  );
+
+  rawPublicKey = new Uint8Array(
+    await globalThis.crypto.subtle.exportKey("raw", keyPair.publicKey),
+  );
+
+  publicSignBit = rawPublicKey[31] >>> 7;
+} while (publicSignBit !== 1);
+
+const yBytes = rawPublicKey.slice();
+yBytes[31] &= 0x7f;
+
+const y = littleEndianToBigInt(yBytes);
+const denominator = modP(1n - y);
+
+assert.notEqual(denominator, 0n, "public-key conversion denominator");
+
+const u = modP(
+  (1n + y) * powMod(denominator, FIELD_P - 2n),
+);
+
+const identityKeyBytes = new Uint8Array(33);
+identityKeyBytes[0] = 0x05;
+identityKeyBytes.set(bigIntToLittleEndian(u, 32), 1);
+
+const signBitOneMessage = "XEdDSA signBit=1 verification test";
+const signBitOneMessageBytes = new TextEncoder().encode(
+  signBitOneMessage,
+);
+
+const signBitOneSignatureBytes = new Uint8Array(
+  await globalThis.crypto.subtle.sign(
+    { name: "Ed25519" },
+    keyPair.privateKey,
+    signBitOneMessageBytes,
+  ),
+);
+
+// Signal-compatible XEdDSA encoding stores the public-key sign bit
+// in the most significant bit of signature byte 63.
+signBitOneSignatureBytes[63] |= 0x80;
+
+const signBitOneIdentityKey = btoa(
+  String.fromCharCode(...identityKeyBytes),
+);
+
+const signBitOneSignature = btoa(
+  String.fromCharCode(...signBitOneSignatureBytes),
+);
+
+const signBitOneValid = await verifySignalIdentitySignature({
+  identityKey: signBitOneIdentityKey,
+  message: signBitOneMessage,
+  signature: signBitOneSignature,
+});
+
+assert.equal(
+  signBitOneValid,
+  true,
+  "valid XEdDSA signature with signBit=1 must verify",
+);
+
+const wrongSignBitBytes = signBitOneSignatureBytes.slice();
+wrongSignBitBytes[63] &= 0x7f;
+
+const wrongSignBitValid = await verifySignalIdentitySignature({
+  identityKey: signBitOneIdentityKey,
+  message: signBitOneMessage,
+  signature: btoa(String.fromCharCode(...wrongSignBitBytes)),
+});
+
+assert.equal(
+  wrongSignBitValid,
+  false,
+  "signature with incorrect signBit must be rejected",
+);
+
+console.log("valid signature with signBit=1: PASS");
+console.log("incorrect signBit rejected: PASS");
+
 console.log("XEd25519 runtime verification: PASS");
 console.log("valid signature: PASS");
 console.log("tampered message: PASS");
