@@ -223,7 +223,9 @@ Future<WebSocketChannel> connectAuthenticated(
         authCompleter.completeError(
           StateError(
             'Relay closed before authentication for '
-            '${user.nickname}',
+            '${user.nickname}; '
+            'closeCode=${channel.closeCode}; '
+            'closeReason=${channel.closeReason}',
           ),
         );
       }
