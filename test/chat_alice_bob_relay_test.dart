@@ -325,11 +325,8 @@ void main() {
       final bob = await connectAuthenticated(bobUser);
 
       try {
-        final aliceIdentity = aliceUser.identity;
         final aliceStore = aliceUser.store;
 
-        final bobIdentity = bobUser.identity;
-        final bobRegistrationId = bobUser.registrationId;
         final bobStore = bobUser.store;
 
         final bobBundle = bobUser.bundle;
