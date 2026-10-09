@@ -422,14 +422,17 @@ export class DirectoryStore {
       }
 
       const nickname = normalizeNickname(body.nickname);
-      const deviceId = String(body.deviceId || "").trim();
+      const deviceId = Number(body.deviceId);
       const registrationId = Number(body.registrationId);
 
       if (
         !validNickname(nickname) ||
-        !deviceId ||
+        !Number.isInteger(deviceId) ||
+        deviceId < 1 ||
+        deviceId > 0x7fffffff ||
         !Number.isInteger(registrationId) ||
-        registrationId < 0
+        registrationId < 1 ||
+        registrationId > 0x7fffffff
       ) {
         return json({ error: "Invalid TURN challenge request" }, 400);
       }
@@ -479,16 +482,19 @@ export class DirectoryStore {
       }
 
       const nickname = normalizeNickname(body.nickname);
-      const deviceId = String(body.deviceId || "").trim();
+      const deviceId = Number(body.deviceId);
       const registrationId = Number(body.registrationId);
       const challenge = String(body.challenge || "").trim();
       const signature = String(body.signature || "").trim();
 
       if (
         !validNickname(nickname) ||
-        !deviceId ||
+        !Number.isInteger(deviceId) ||
+        deviceId < 1 ||
+        deviceId > 0x7fffffff ||
         !Number.isInteger(registrationId) ||
-        registrationId < 0 ||
+        registrationId < 1 ||
+        registrationId > 0x7fffffff ||
         !challenge ||
         !signature
       ) {

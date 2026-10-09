@@ -5,7 +5,7 @@ const source = fs
   .readFileSync(new URL("../src/index.js", import.meta.url), "utf8")
   .replace(/\nexport default[\s\S]*$/, "")
   .replace(/export class DirectoryStore/g, "class DirectoryStore")
-  + "\nreturn { verifySignalIdentitySignature };\n";
+  + "\nreturn { verifySignalIdentitySignature, DirectoryStore };\n";
 
 const factory = new Function(
   "crypto",
@@ -15,7 +15,7 @@ const factory = new Function(
   source,
 );
 
-const { verifySignalIdentitySignature } = factory(
+const { verifySignalIdentitySignature, DirectoryStore } = factory(
   globalThis.crypto,
   globalThis.btoa,
   globalThis.atob,
@@ -291,3 +291,101 @@ console.log("tampered message: PASS");
 console.log("tampered signature: PASS");
 console.log("invalid R.y field range: PASS");
 console.log("invalid s range: PASS");
+
+
+// TURN regression: numeric deviceId must match the registered bundle.
+{
+  const records = new Map([
+    ["user:alice", {
+      nickname: "alice",
+      bundle: {
+        deviceId: 1,
+        registrationId: 7,
+        identityKey,
+      },
+    }],
+  ]);
+
+  const storage = {
+    get: async (key) => records.get(key),
+    put: async (key, value) => records.set(key, value),
+    delete: async (key) => records.delete(key),
+  };
+
+  const directory = new DirectoryStore(
+    { storage },
+    {},
+  );
+
+  const challengeResponse = await directory.fetch(new Request(
+    "https://directory.test/v1/turn-credentials/challenge",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        nickname: "alice",
+        deviceId: 1,
+        registrationId: 7,
+      }),
+    },
+  ));
+
+  assert.equal(
+    challengeResponse.status,
+    200,
+    "registered numeric deviceId must receive a challenge",
+  );
+
+  const { challenge } = await challengeResponse.json();
+  assert.ok(challenge, "challenge must be present");
+
+  const fractionalResponse = await directory.fetch(new Request(
+    "https://directory.test/v1/turn-credentials/challenge",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        nickname: "alice",
+        deviceId: 1.5,
+        registrationId: 7,
+      }),
+    },
+  ));
+
+  assert.equal(
+    fractionalResponse.status,
+    400,
+    "fractional deviceId must be rejected",
+  );
+
+  const credentialsResponse = await directory.fetch(new Request(
+    "https://directory.test/v1/turn-credentials",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        nickname: "alice",
+        deviceId: 1,
+        registrationId: 7,
+        challenge,
+        signature,
+      }),
+    },
+  ));
+
+  const credentialsBody = await credentialsResponse.json();
+
+  assert.equal(
+    credentialsResponse.status,
+    401,
+    "invalid signature should be rejected after device lookup",
+  );
+  assert.equal(
+    credentialsBody.error,
+    "Invalid TURN signature",
+  );
+
+  console.log("TURN numeric deviceId: PASS");
+  console.log("TURN fractional deviceId rejection: PASS");
+  console.log("TURN invalid signature rejection: PASS");
+}
