@@ -1002,6 +1002,14 @@ export class RelayRoom {
         );
 
         if (!verificationResponse.ok) {
+          const errorBody = await verificationResponse.text();
+
+          console.error("RELAY_AUTH_DIRECTORY_REJECTED", JSON.stringify({
+            status: verificationResponse.status,
+            statusText: verificationResponse.statusText,
+            body: errorBody.slice(0, 500),
+          }));
+
           try {
             ws.close(1008, "Relay authentication failed");
           } catch (_) {}
