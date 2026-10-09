@@ -25,17 +25,20 @@
   "vars": {
     "DIRECTORY_URL": "https://stellar-ecc-directory.totalmarketing2025.workers.dev",
     "FCM_PROJECT_ID": "stellar-adc4b",
-    "RELAY_SHARED_SECRET": "stellar-relay-dev-secret",
     "MODERATION_SHARED_SECRET": "stellar-moderation-dev-secret"
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["RelayRoom"]
+      "new_sqlite_classes": [
+        "RelayRoom"
+      ]
     },
     {
       "tag": "v2",
-      "new_sqlite_classes": ["ModerationRoom"]
+      "new_sqlite_classes": [
+        "ModerationRoom"
+      ]
     }
   ]
 }
