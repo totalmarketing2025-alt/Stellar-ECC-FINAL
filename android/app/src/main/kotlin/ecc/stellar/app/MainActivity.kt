@@ -16,6 +16,7 @@ class MainActivity : FlutterFragmentActivity() {
         private const val CALL_ACTION = "ecc.stellar.app.CALL_ACTION"
         private const val METHOD_INCOMING_ACTION = "incomingCallAction"
         private const val METHOD_GET_PENDING_ACTION = "getPendingCallAction"
+        private const val METHOD_SET_CALL_ACTION_HANDLER_READY = "setCallActionHandlerReady"
         private const val METHOD_SET_CALL_ACTIVE = "setCallActive"
         private const val METHOD_SET_CALL_ENDED = "setCallEnded"
 
@@ -24,6 +25,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private var callChannel: MethodChannel? = null
+    private var callActionHandlerReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,6 +40,7 @@ class MainActivity : FlutterFragmentActivity() {
         flutterEngine: FlutterEngine
     ) {
         super.configureFlutterEngine(flutterEngine)
+        callActionHandlerReady = false
 
         callChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -45,6 +48,10 @@ class MainActivity : FlutterFragmentActivity() {
         ).also { channel ->
             channel.setMethodCallHandler { call: MethodCall, result ->
                 when (call.method) {
+                    METHOD_SET_CALL_ACTION_HANDLER_READY -> {
+                        callActionHandlerReady = true
+                        result.success(true)
+                    }
                     METHOD_GET_PENDING_ACTION -> {
                         val prefs = getSharedPreferences(
                             PREFS_NAME,
@@ -103,7 +110,7 @@ class MainActivity : FlutterFragmentActivity() {
                         } else {
                             result.success(
                                 ecc.stellar.app.calls.StellarCallManager
-                                    .setCallEnded(callId)
+                                    .setCallEnded(this@MainActivity, callId)
                             )
                         }
                     }
@@ -145,7 +152,7 @@ class MainActivity : FlutterFragmentActivity() {
 
         val channel = callChannel
 
-        if (channel == null) {
+        if (channel == null || !callActionHandlerReady) {
             getSharedPreferences(
                 PREFS_NAME,
                 Context.MODE_PRIVATE

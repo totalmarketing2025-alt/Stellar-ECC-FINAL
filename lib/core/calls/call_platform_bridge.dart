@@ -31,7 +31,18 @@ class CallPlatformAction {
 class CallPlatformBridge {
   CallPlatformBridge() {
     _channel.setMethodCallHandler(_handleMethodCall);
-    _loadPendingAction();
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    try {
+      await _channel.invokeMethod<bool>(
+        'setCallActionHandlerReady',
+      );
+    } catch (error) {
+      print('CALL_ACTION_HANDLER_READY_FAILED: $error');
+    }
+    await _loadPendingAction();
   }
 
   static const MethodChannel _channel = MethodChannel('ecc.stellar.app/calls');
@@ -41,19 +52,23 @@ class CallPlatformBridge {
         onListen: _flushPendingAction,
       );
 
-  CallPlatformAction? _pendingAction;
+  final List<CallPlatformAction> _pendingActions = <CallPlatformAction>[];
 
   Stream<CallPlatformAction> get actions => _controller.stream;
 
   void _flushPendingAction() {
-    final pending = _pendingAction;
-
-    if (pending == null || _controller.isClosed) {
+    if (_controller.isClosed ||
+        !_controller.hasListener ||
+        _pendingActions.isEmpty) {
       return;
     }
 
-    _pendingAction = null;
-    _controller.add(pending);
+    final pending = List<CallPlatformAction>.from(_pendingActions);
+    _pendingActions.clear();
+
+    for (final action in pending) {
+      _controller.add(action);
+    }
   }
 
   void _emitAction(CallPlatformAction action) {
@@ -62,7 +77,7 @@ class CallPlatformBridge {
     }
 
     if (!_controller.hasListener) {
-      _pendingAction = action;
+      _pendingActions.add(action);
       return;
     }
 

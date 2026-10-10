@@ -42,6 +42,13 @@ class CallService {
   String? _chatId;
   CallKind? _callKind;
 
+  // Invalidates asynchronous work belonging to an older call lifecycle.
+  int _callGeneration = 0;
+
+  bool _isCurrentGeneration(int generation) {
+    return generation == _callGeneration;
+  }
+
   bool _remoteDescriptionSet = false;
   final List<RTCIceCandidate> _pendingIceCandidates = [];
 
@@ -129,6 +136,7 @@ class CallService {
     String? callId,
     String? chatId,
   }) async {
+    final generation = ++_callGeneration;
     var phase = 'initialize';
 
     try {
@@ -142,12 +150,20 @@ class CallService {
       );
 
       phase = 'getUserMedia';
-      _localStream = await navigator.mediaDevices.getUserMedia({
+      final acquiredStream =
+          await navigator.mediaDevices.getUserMedia({
         'audio': true,
         'video': video
             ? {'facingMode': 'user', 'width': 640, 'height': 480}
             : false,
       });
+
+      if (!_isCurrentGeneration(generation)) {
+        await acquiredStream.dispose();
+        return;
+      }
+
+      _localStream = acquiredStream;
 
       print('CALL_START_MEDIA_OK: callId=$_callId');
 
@@ -156,16 +172,27 @@ class CallService {
       phase = 'buildIceConfiguration';
       final iceConfiguration = await _buildIceConfiguration();
 
+      if (!_isCurrentGeneration(generation)) return;
+
       print('CALL_START_ICE_CONFIG_OK: callId=$_callId');
 
       phase = 'createPeerConnection';
-      _peerConnection = await createPeerConnection(iceConfiguration);
+      final acquiredPeerConnection =
+          await createPeerConnection(iceConfiguration);
+
+      if (!_isCurrentGeneration(generation)) {
+        await acquiredPeerConnection.close();
+        return;
+      }
+
+      _peerConnection = acquiredPeerConnection;
 
       print('CALL_START_PEER_OK: callId=$_callId');
 
       phase = 'addLocalTracks';
       for (final track in _localStream!.getTracks()) {
         await _peerConnection!.addTrack(track, _localStream!);
+        if (!_isCurrentGeneration(generation)) return;
       }
 
       print(
@@ -176,6 +203,11 @@ class CallService {
       phase = 'attachPeerCallbacks';
 
       _peerConnection!.onTrack = (RTCTrackEvent event) {
+        if (!_isCurrentGeneration(generation) ||
+            _peerConnection != acquiredPeerConnection) {
+          return;
+        }
+
         if (event.streams.isNotEmpty) {
           _remoteStream = event.streams.first;
           remoteRenderer?.srcObject = _remoteStream;
@@ -183,6 +215,11 @@ class CallService {
       };
 
       _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
+        if (!_isCurrentGeneration(generation) ||
+            _peerConnection != acquiredPeerConnection) {
+          return;
+        }
+
         unawaited(
           _sendSignal(remoteNickname, {
             'type': 'ice-candidate',
@@ -192,6 +229,11 @@ class CallService {
       };
 
       _peerConnection!.onConnectionState = (RTCPeerConnectionState state) {
+        if (!_isCurrentGeneration(generation) ||
+            _peerConnection != acquiredPeerConnection) {
+          return;
+        }
+
         print('CALL_CONNECTION_STATE: $state');
 
         onConnectionStateChanged?.call(state);
@@ -228,10 +270,14 @@ class CallService {
         phase = 'createOffer';
         final offer = await _peerConnection!.createOffer();
 
+        if (!_isCurrentGeneration(generation)) return;
+
         print('CALL_START_OFFER_CREATED: callId=$_callId');
 
         phase = 'setLocalDescription';
         await _peerConnection!.setLocalDescription(offer);
+
+        if (!_isCurrentGeneration(generation)) return;
 
         print('CALL_START_LOCAL_DESCRIPTION_OK: callId=$_callId');
 
@@ -241,6 +287,8 @@ class CallService {
           'sdp': offer.sdp,
           'sdpType': offer.type,
         });
+
+        if (!_isCurrentGeneration(generation)) return;
 
         print('CALL_START_OFFER_SENT: callId=$_callId');
       }
@@ -256,27 +304,46 @@ class CallService {
       );
       print('CALL_START_STACK: $stackTrace');
 
-      await _cleanupAfterStartFailure();
+      if (_isCurrentGeneration(generation)) {
+        await _cleanupAfterStartFailure(generation);
+      }
 
       rethrow;
     }
   }
 
-  Future<void> _cleanupAfterStartFailure() async {
-    final failedCallId = _callId;
+  Future<void> _cleanupAfterStartFailure(int generation) async {
+    if (!_isCurrentGeneration(generation)) return;
 
-    print(
-      'CALL_START_CLEANUP_BEGIN: callId=$failedCallId',
-    );
+    final failedCallId = _callId;
+    final localStream = _localStream;
+    final peerConnection = _peerConnection;
+
+    // Detach this failed call before awaiting cleanup.
+    // A new call can safely start while these resources are closing.
+    _callGeneration++;
+    _localStream = null;
+    _remoteStream = null;
+    _peerConnection = null;
+    _remoteDescriptionSet = false;
+    _pendingIceCandidates.clear();
+    _callId = null;
+    _chatId = null;
+    _callKind = null;
+
+    localRenderer?.srcObject = null;
+    remoteRenderer?.srcObject = null;
+
+    print('CALL_START_CLEANUP_BEGIN: callId=$failedCallId');
 
     try {
-      await _localStream?.dispose();
+      await localStream?.dispose();
     } catch (error) {
       print('CALL_START_CLEANUP_STREAM_FAILED: $error');
     }
 
     try {
-      await _peerConnection?.close();
+      await peerConnection?.close();
     } catch (error) {
       print('CALL_START_CLEANUP_PEER_FAILED: $error');
     }
@@ -289,37 +356,26 @@ class CallService {
       }
     }
 
-    localRenderer?.srcObject = null;
-    remoteRenderer?.srcObject = null;
-
-    _localStream = null;
-    _remoteStream = null;
-    _peerConnection = null;
-    _remoteDescriptionSet = false;
-    _pendingIceCandidates.clear();
-
-    _callId = null;
-    _chatId = null;
-    _callKind = null;
-
-    print(
-      'CALL_START_CLEANUP_DONE: callId=$failedCallId',
-    );
+    print('CALL_START_CLEANUP_DONE: callId=$failedCallId');
   }
+
 
   Future<void> handleSignal({
     required String remoteNickname,
     required Map<String, dynamic> signal,
   }) async {
+    final generation = _callGeneration;
     final peerConnection = _peerConnection;
-    if (peerConnection == null) {
+    final activeCallId = _callId;
+
+    if (peerConnection == null || activeCallId == null) {
       throw StateError('Call peer connection is not initialized');
     }
 
     final signalCallId = signal['callId'];
     if (signalCallId is! String ||
         signalCallId.isEmpty ||
-        signalCallId != _callId) {
+        signalCallId != activeCallId) {
       throw StateError('Call signal callId mismatch');
     }
 
@@ -329,6 +385,11 @@ class CallService {
     if (signalKind != expectedKind) {
       throw StateError('Call signal kind mismatch');
     }
+
+    bool stillCurrent() =>
+        _isCurrentGeneration(generation) &&
+        _peerConnection == peerConnection &&
+        _callId == activeCallId;
 
     final type = signal['type'];
 
@@ -347,13 +408,17 @@ class CallService {
         await peerConnection.setRemoteDescription(
           RTCSessionDescription(sdp, sdpType),
         );
+        if (!stillCurrent()) return;
 
         _remoteDescriptionSet = true;
-        await _flushPendingIceCandidates(peerConnection);
+        await _flushPendingIceCandidates(peerConnection, generation);
+        if (!stillCurrent()) return;
 
         final answer = await peerConnection.createAnswer();
+        if (!stillCurrent()) return;
 
         await peerConnection.setLocalDescription(answer);
+        if (!stillCurrent()) return;
 
         await _sendSignal(remoteNickname, {
           'type': 'answer',
@@ -376,9 +441,10 @@ class CallService {
         await peerConnection.setRemoteDescription(
           RTCSessionDescription(sdp, sdpType),
         );
+        if (!stillCurrent()) return;
 
         _remoteDescriptionSet = true;
-        await _flushPendingIceCandidates(peerConnection);
+        await _flushPendingIceCandidates(peerConnection, generation);
         break;
 
       case 'ice-candidate':
@@ -394,7 +460,6 @@ class CallService {
         };
 
         final candidateValue = candidate['candidate'];
-
         if (candidateValue is! String || candidateValue.isEmpty) {
           throw StateError('Invalid ICE candidate');
         }
@@ -405,6 +470,8 @@ class CallService {
           candidate['sdpMLineIndex'] as int?,
         );
 
+        if (!stillCurrent()) return;
+
         if (!_remoteDescriptionSet) {
           _pendingIceCandidates.add(iceCandidate);
         } else {
@@ -413,12 +480,14 @@ class CallService {
         break;
 
       case 'reject':
-        print('CALL_REJECTED: $_callId');
+        if (!stillCurrent()) return;
+        print('CALL_REJECTED: $activeCallId');
         await end();
         break;
 
       case 'end':
-        print('CALL_ENDED_REMOTE: $_callId');
+        if (!stillCurrent()) return;
+        print('CALL_ENDED_REMOTE: $activeCallId');
         await end();
         break;
 
@@ -429,8 +498,11 @@ class CallService {
 
   Future<void> _flushPendingIceCandidates(
     RTCPeerConnection peerConnection,
+    int generation,
   ) async {
-    if (_pendingIceCandidates.isEmpty) {
+    if (!_isCurrentGeneration(generation) ||
+        _peerConnection != peerConnection ||
+        _pendingIceCandidates.isEmpty) {
       return;
     }
 
@@ -438,6 +510,10 @@ class CallService {
     _pendingIceCandidates.clear();
 
     for (final candidate in pending) {
+      if (!_isCurrentGeneration(generation) ||
+          _peerConnection != peerConnection) {
+        return;
+      }
       await peerConnection.addCandidate(candidate);
     }
   }
@@ -446,7 +522,9 @@ class CallService {
     String remoteNickname,
     Map<String, dynamic> signal,
   ) async {
+    final generation = _callGeneration;
     final callId = _callId;
+    final chatId = _chatId;
     final callKind = _callKind;
 
     if (callId == null || callKind == null) {
@@ -456,18 +534,23 @@ class CallService {
     final identityKeyPair =
         await sessionManager.identityStore.getIdentityKeyPair();
 
+    if (!_isCurrentGeneration(generation) || _callId != callId) {
+      return;
+    }
+
+    final recipient = remoteNickname.trim().toLowerCase();
     final payload = <String, dynamic>{
       ...signal,
       'callId': callId,
-      'chatId': _chatId,
+      'chatId': chatId,
       'kind': callKind == CallKind.video ? 'video' : 'voice',
       'sentAt': DateTime.now().millisecondsSinceEpoch,
-      'recipient': remoteNickname.trim().toLowerCase(),
+      'recipient': recipient,
     };
 
     final signature = CallSignalAuthenticator.sign(
       identityKeyPair: identityKeyPair,
-      recipient: remoteNickname.trim().toLowerCase(),
+      recipient: recipient,
       payload: payload,
     );
 
@@ -477,33 +560,32 @@ class CallService {
     };
 
     final plaintext = Uint8List.fromList(
-      utf8.encode(
-        '$_signalPrefix${jsonEncode(authenticatedPayload)}',
-      ),
+      utf8.encode('$_signalPrefix${jsonEncode(authenticatedPayload)}'),
     );
 
+    if (!_isCurrentGeneration(generation) || _callId != callId) {
+      return;
+    }
+
     // Call signaling intentionally bypasses the message E2E layer.
-    // The payload remains plaintext at the relay transport layer,
-    // but is cryptographically authenticated with the local
+    // The payload is cryptographically authenticated with the local
     // Signal identity key.
     await relayClient.sendCallSignal(
       recipient: remoteNickname,
       plaintext: plaintext,
     );
 
-    if (signal['type'] == 'offer') {
+    if (signal['type'] == 'offer' &&
+        _isCurrentGeneration(generation) &&
+        _callId == callId) {
       try {
         await relayClient.sendCallWake(
           recipient: remoteNickname,
           callId: callId,
           kind: callKind == CallKind.video ? 'video' : 'voice',
-          chatId: _chatId,
+          chatId: chatId,
         );
       } catch (error, stackTrace) {
-        // CALL_WAKE is a background wake mechanism. The authenticated
-        // call offer has already been sent through the relay above, so
-        // a wake delivery failure must not tear down an otherwise valid
-        // outgoing call session.
         print('CALL_WAKE_FAILED: $error');
         print('CALL_WAKE_STACK: $stackTrace');
       }
@@ -516,6 +598,17 @@ class CallService {
     String? chatId,
     CallKind? kind,
   }) async {
+    // Never reject a different call that became active in the meantime.
+    if (_callId != null && callId != null && _callId != callId) {
+      print('CALL_REJECT_IGNORED: active call ID mismatch');
+      return;
+    }
+
+    if (_callKind != null && kind != null && _callKind != kind) {
+      print('CALL_REJECT_IGNORED: active call kind mismatch');
+      return;
+    }
+
     final effectiveCallId = _callId ?? callId;
     final effectiveCallKind = _callKind ?? kind;
 
@@ -527,7 +620,16 @@ class CallService {
     _chatId ??= chatId;
     _callKind ??= effectiveCallKind;
 
+    final generation = _callGeneration;
+    final rejectedCallId = _callId;
+
     await _sendSignal(remoteNickname, {'type': 'reject'});
+
+    // Relay work may finish after this call has already been replaced.
+    if (!_isCurrentGeneration(generation) ||
+        _callId != rejectedCallId) {
+      return;
+    }
 
     await end();
   }
@@ -538,12 +640,11 @@ class CallService {
       return;
     }
 
+    final generation = _callGeneration;
     final callId = _callId;
     final callKind = _callKind;
 
-    if (callId != null &&
-        callId.isNotEmpty &&
-        callKind != null) {
+    if (callId != null && callId.isNotEmpty && callKind != null) {
       try {
         await _sendSignal(remoteNickname, {'type': 'end'});
       } catch (error) {
@@ -551,29 +652,54 @@ class CallService {
       }
     }
 
+    // Do not let delayed cleanup terminate a replacement call.
+    if (!_isCurrentGeneration(generation) || _callId != callId) {
+      return;
+    }
+
     await end();
   }
 
   Future<void> end() async {
+    // Invalidate outstanding start operations before releasing resources.
+    _callGeneration++;
+
     final callId = _callId;
+    final localStream = _localStream;
+    final peerConnection = _peerConnection;
 
-    await _localStream?.dispose();
-    await _peerConnection?.close();
-
-    if (callId != null && callId.isNotEmpty) {
-      await platformBridge.setCallEnded(callId);
-    }
-
+    // Reset Dart state even if a native or WebRTC cleanup operation fails.
     _localStream = null;
     _remoteStream = null;
     _peerConnection = null;
     _remoteDescriptionSet = false;
     _pendingIceCandidates.clear();
-
-    // Fully reset call identity so the next call starts as a fresh session.
     _callId = null;
     _chatId = null;
     _callKind = null;
+
+    localRenderer?.srcObject = null;
+    remoteRenderer?.srcObject = null;
+
+    try {
+      await localStream?.dispose();
+    } catch (error) {
+      print('CALL_END_STREAM_CLEANUP_FAILED: $error');
+    }
+
+    try {
+      await peerConnection?.close();
+    } catch (error) {
+      print('CALL_END_PEER_CLEANUP_FAILED: $error');
+    }
+
+    if (callId != null && callId.isNotEmpty) {
+      try {
+        await platformBridge.setCallEnded(callId);
+      } catch (error) {
+        print('CALL_END_NATIVE_CLEANUP_FAILED: $error');
+      }
+    }
   }
 
   Future<void> toggleMute(bool muted) async {

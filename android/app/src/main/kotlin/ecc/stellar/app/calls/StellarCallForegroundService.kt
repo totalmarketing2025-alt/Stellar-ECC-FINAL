@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
@@ -11,6 +12,8 @@ import androidx.core.app.NotificationCompat
 import ecc.stellar.app.R
 
 class StellarCallForegroundService : Service() {
+
+    private var activeCallId: String? = null
 
     companion object {
         const val ACTION_START = "ecc.stellar.app.calls.START_FOREGROUND"
@@ -22,6 +25,24 @@ class StellarCallForegroundService : Service() {
 
         private const val CHANNEL_ID = "stellar_active_calls"
         private const val NOTIFICATION_ID = 42001
+
+        /**
+         * Request a call-scoped stop. The service verifies the ID
+         * before removing its foreground notification or stopping.
+         */
+        fun stopForCall(context: Context, callId: String) {
+            if (callId.isBlank()) return
+
+            val intent = Intent(
+                context,
+                StellarCallForegroundService::class.java,
+            ).apply {
+                action = ACTION_STOP
+                putExtra(EXTRA_CALL_ID, callId)
+            }
+
+            context.startService(intent)
+        }
     }
 
     override fun onCreate() {
@@ -36,6 +57,16 @@ class StellarCallForegroundService : Service() {
     ): Int {
         when (intent?.action) {
             ACTION_START -> {
+                val incomingCallId =
+                    intent.getStringExtra(EXTRA_CALL_ID).orEmpty()
+
+                if (incomingCallId.isBlank()) {
+                    stopSelf(startId)
+                    return START_NOT_STICKY
+                }
+
+                activeCallId = incomingCallId
+
                 val remote = intent.getStringExtra(EXTRA_REMOTE_NICKNAME)
                     .orEmpty()
                     .ifBlank { "Stellar call" }
@@ -48,8 +79,20 @@ class StellarCallForegroundService : Service() {
             }
 
             ACTION_STOP -> {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                val requestedCallId =
+                    intent.getStringExtra(EXTRA_CALL_ID).orEmpty()
+
+                // A stale call must never stop a different call's service.
+                if (requestedCallId.isNotBlank() &&
+                    requestedCallId == activeCallId
+                ) {
+                    activeCallId = null
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf(startId)
+                } else if (activeCallId == null) {
+                    // ACTION_STOP may have started an otherwise idle service.
+                    stopSelf(startId)
+                }
             }
         }
 

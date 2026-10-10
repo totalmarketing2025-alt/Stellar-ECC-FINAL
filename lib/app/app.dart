@@ -18,21 +18,70 @@ class StellarEccApp extends ConsumerStatefulWidget {
 
 class _StellarEccAppState extends ConsumerState<StellarEccApp> {
   StreamSubscription<CallPlatformAction>? _callActionSubscription;
+  CallPlatformAction? _pendingNativeCallAction;
+  bool _pendingNativeActionScheduled = false;
 
   @override
   void initState() {
     super.initState();
-    _callActionSubscription = ref.read(callPlatformBridgeProvider).actions.listen((action) {
-      if (action.action != 'answer' || action.callId.isEmpty || action.chatId == null) {
+    _callActionSubscription =
+        ref.read(callPlatformBridgeProvider).actions.listen((action) {
+      final nickname = ref.read(localNicknameProvider);
+      if (nickname == null || nickname.isEmpty) {
+        _pendingNativeCallAction = action;
         return;
       }
+      _dispatchNativeCallAction(action);
+    });
+  }
 
-      final encodedChatId = Uri.encodeComponent(action.chatId!);
-      final route = action.kind == 'video'
-          ? '/call/video/$encodedChatId?incoming=1'
-          : '/call/voice/$encodedChatId?incoming=1';
+  void _dispatchNativeCallAction(CallPlatformAction action) {
+    final nickname = ref.read(localNicknameProvider);
+    if (nickname == null || nickname.isEmpty) {
+      _pendingNativeCallAction = action;
+      return;
+    }
 
-      ref.read(appRouterProvider).go(route);
+    // One owner handles the native action; the coordinator no longer
+    // subscribes independently to the broadcast stream.
+    unawaited(
+      ref.read(callCoordinatorProvider).handlePlatformAction(action),
+    );
+
+    if (action.action != 'answer' ||
+        action.callId.isEmpty ||
+        action.chatId == null ||
+        action.chatId!.isEmpty) {
+      return;
+    }
+
+    final encodedChatId = Uri.encodeComponent(action.chatId!);
+    final route = action.kind == 'video'
+        ? '/call/video/$encodedChatId?incoming=1'
+        : '/call/voice/$encodedChatId?incoming=1';
+
+    ref.read(appRouterProvider).go(route);
+  }
+
+  void _schedulePendingNativeAction() {
+    if (_pendingNativeCallAction == null ||
+        _pendingNativeActionScheduled) {
+      return;
+    }
+
+    _pendingNativeActionScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pendingNativeActionScheduled = false;
+      if (!mounted) return;
+
+      final nickname = ref.read(localNicknameProvider);
+      if (nickname == null || nickname.isEmpty) return;
+
+      final action = _pendingNativeCallAction;
+      if (action == null) return;
+
+      _pendingNativeCallAction = null;
+      _dispatchNativeCallAction(action);
     });
   }
 
@@ -53,6 +102,7 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
     final nickname = ref.watch(localNicknameProvider);
     if (nickname != null && nickname.isNotEmpty) {
       ref.watch(callCoordinatorProvider);
+      _schedulePendingNativeAction();
     }
 
     final router = ref.watch(appRouterProvider);

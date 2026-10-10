@@ -44,14 +44,16 @@ object StellarCallManager {
         return true
     }
 
-    fun setCallEnded(callId: String): Boolean {
+    fun setCallEnded(context: Context, callId: String): Boolean {
         pendingIncomingCalls.remove(callId)
 
+        // Always stop native call resources, even if Telecom already
+        // removed the connection or WebRTC reports the end more than once.
+        StellarCallForegroundService.stopForCall(context, callId)
+        StellarIncomingCallNotification.cancel(context, callId)
+
         val connection = activeConnections.remove(callId) ?: return false
-        connection.setDisconnected(
-            android.telecom.DisconnectCause(android.telecom.DisconnectCause.REMOTE)
-        )
-        connection.destroy()
+        connection.finishFromFlutter()
         return true
     }
 
@@ -345,12 +347,23 @@ class StellarConnection(
         destroy()
     }
 
-    private fun stopForegroundCallService() {
-        appContext.stopService(
-            Intent(
-                appContext,
-                StellarCallForegroundService::class.java,
-            )
+    internal fun finishFromFlutter() {
+        if (terminalHandled) {
+            return
+        }
+
+        // Prevent Telecom's onDisconnect callback from forwarding a
+        // duplicate end action back to Flutter.
+        terminalHandled = true
+
+        setDisconnected(
+            DisconnectCause(DisconnectCause.REMOTE),
         )
+        destroy()
+    }
+
+    private fun stopForegroundCallService() {
+        if (callId.isBlank()) return
+        StellarCallForegroundService.stopForCall(appContext, callId)
     }
 }
