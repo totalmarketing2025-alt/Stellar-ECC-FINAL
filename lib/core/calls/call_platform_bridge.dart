@@ -34,15 +34,40 @@ class CallPlatformBridge {
     _initialize();
   }
 
+  bool _initialized = false;
+  final List<CallPlatformAction> _actionsDuringInitialization =
+      <CallPlatformAction>[];
+
   Future<void> _initialize() async {
+    CallPlatformAction? pendingAction;
+
     try {
-      await _channel.invokeMethod<bool>(
+      final result = await _channel.invokeMethod<dynamic>(
         'setCallActionHandlerReady',
       );
+
+      if (result is Map) {
+        final action = CallPlatformAction.fromMap(result);
+        if (action.action.isNotEmpty &&
+            action.callId.isNotEmpty &&
+            action.remoteNickname.isNotEmpty) {
+          pendingAction = action;
+        }
+      }
     } catch (error) {
       print('CALL_ACTION_HANDLER_READY_FAILED: $error');
     }
-    await _loadPendingAction();
+
+    // Deliver the stored action before actions received during initialization.
+    if (pendingAction != null) {
+      _emitAction(pendingAction);
+    }
+
+    for (final action in _actionsDuringInitialization) {
+      _emitAction(action);
+    }
+    _actionsDuringInitialization.clear();
+    _initialized = true;
   }
 
   static const MethodChannel _channel = MethodChannel('ecc.stellar.app/calls');
@@ -84,26 +109,6 @@ class CallPlatformBridge {
     _controller.add(action);
   }
 
-  Future<void> _loadPendingAction() async {
-    try {
-      final result = await _channel.invokeMethod<dynamic>(
-        'getPendingCallAction',
-      );
-
-      if (result is Map) {
-        final action = CallPlatformAction.fromMap(result);
-
-        if (action.action.isNotEmpty &&
-            action.callId.isNotEmpty &&
-            action.remoteNickname.isNotEmpty) {
-          _emitAction(action);
-        }
-      }
-    } catch (error) {
-      print('CALL_PENDING_ACTION_LOAD_FAILED: $error');
-    }
-  }
-
   Future<void> _handleMethodCall(MethodCall call) async {
     if (call.method != 'incomingCallAction') {
       return;
@@ -120,6 +125,11 @@ class CallPlatformBridge {
     if (action.action.isEmpty ||
         action.callId.isEmpty ||
         action.remoteNickname.isEmpty) {
+      return;
+    }
+
+    if (!_initialized) {
+      _actionsDuringInitialization.add(action);
       return;
     }
 

@@ -13,12 +13,10 @@ class CallCoordinator {
     required CallService callService,
     required CallPlatformBridge platformBridge,
   })  : _signalRouter = signalRouter,
-        _callService = callService,
-        _platformBridge = platformBridge;
+        _callService = callService;
 
   final CallSignalRouter _signalRouter;
   final CallService _callService;
-  final CallPlatformBridge _platformBridge;
 
   StreamSubscription<CallSignal>? _subscription;
   Timer? _ringTimeout;

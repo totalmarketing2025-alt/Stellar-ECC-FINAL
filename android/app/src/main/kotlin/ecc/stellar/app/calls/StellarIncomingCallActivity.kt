@@ -17,6 +17,7 @@ class StellarIncomingCallActivity : Activity() {
         const val ACTION_INCOMING = "ecc.stellar.app.calls.INCOMING"
         const val ACTION_ANSWER = "ecc.stellar.app.calls.ANSWER"
         const val ACTION_REJECT = "ecc.stellar.app.calls.REJECT"
+        const val ACTION_END = "ecc.stellar.app.calls.END"
 
         fun launchAction(
             context: Context,
@@ -30,7 +31,12 @@ class StellarIncomingCallActivity : Activity() {
                 context,
                 StellarIncomingCallActivity::class.java
             ).apply {
-                this.action = action
+                this.action = when (action) {
+                    "answer" -> ACTION_ANSWER
+                    "reject" -> ACTION_REJECT
+                    "end" -> ACTION_END
+                    else -> action
+                }
                 putExtra(StellarCallManager.EXTRA_CALL_ID, callId)
                 putExtra(
                     StellarCallManager.EXTRA_REMOTE_NICKNAME,
@@ -84,6 +90,11 @@ class StellarIncomingCallActivity : Activity() {
 
             ACTION_REJECT -> {
                 forwardAction("reject", callId, remote, kind, chatId)
+                return
+            }
+
+            ACTION_END -> {
+                forwardAction("end", callId, remote, kind, chatId)
                 return
             }
 

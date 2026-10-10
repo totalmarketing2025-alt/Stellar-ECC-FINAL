@@ -15,7 +15,6 @@ class MainActivity : FlutterFragmentActivity() {
         private const val CHANNEL = "ecc.stellar.app/calls"
         private const val CALL_ACTION = "ecc.stellar.app.CALL_ACTION"
         private const val METHOD_INCOMING_ACTION = "incomingCallAction"
-        private const val METHOD_GET_PENDING_ACTION = "getPendingCallAction"
         private const val METHOD_SET_CALL_ACTION_HANDLER_READY = "setCallActionHandlerReady"
         private const val METHOD_SET_CALL_ACTIVE = "setCallActive"
         private const val METHOD_SET_CALL_ENDED = "setCallEnded"
@@ -49,48 +48,10 @@ class MainActivity : FlutterFragmentActivity() {
             channel.setMethodCallHandler { call: MethodCall, result ->
                 when (call.method) {
                     METHOD_SET_CALL_ACTION_HANDLER_READY -> {
+                        val pending = takePendingCallAction()
                         callActionHandlerReady = true
-                        result.success(true)
+                        result.success(pending)
                     }
-                    METHOD_GET_PENDING_ACTION -> {
-                        val prefs = getSharedPreferences(
-                            PREFS_NAME,
-                            Context.MODE_PRIVATE
-                        )
-
-                        val pendingJson =
-                            prefs.getString(PREF_PENDING_ACTION, null)
-
-                        if (pendingJson == null) {
-                            result.success(null)
-                        } else {
-                            try {
-                                val pending = org.json.JSONObject(pendingJson)
-                                val payload = hashMapOf<String, Any?>(
-                                    "action" to pending.optString("action", null),
-                                    "callId" to pending.optString("callId", null),
-                                    "remoteNickname" to pending.optString(
-                                        "remoteNickname",
-                                        null
-                                    ),
-                                    "kind" to pending.optString("kind", null),
-                                    "chatId" to pending.optString("chatId", null)
-                                )
-
-                                prefs.edit()
-                                    .remove(PREF_PENDING_ACTION)
-                                    .apply()
-
-                                result.success(payload)
-                            } catch (_: Throwable) {
-                                prefs.edit()
-                                    .remove(PREF_PENDING_ACTION)
-                                    .apply()
-                                result.success(null)
-                            }
-                        }
-                    }
-
                     METHOD_SET_CALL_ACTIVE -> {
                         val callId = call.argument<String>("callId").orEmpty()
                         if (callId.isBlank()) {
@@ -127,6 +88,27 @@ class MainActivity : FlutterFragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         deliverIntent(intent)
+    }
+
+    private fun takePendingCallAction(): HashMap<String, Any?>? {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val pendingJson = prefs.getString(PREF_PENDING_ACTION, null) ?: return null
+
+        return try {
+            val pending = org.json.JSONObject(pendingJson)
+            val payload = hashMapOf<String, Any?>(
+                "action" to pending.optString("action", null),
+                "callId" to pending.optString("callId", null),
+                "remoteNickname" to pending.optString("remoteNickname", null),
+                "kind" to pending.optString("kind", null),
+                "chatId" to pending.optString("chatId", null)
+            )
+            prefs.edit().remove(PREF_PENDING_ACTION).apply()
+            payload
+        } catch (_: Throwable) {
+            prefs.edit().remove(PREF_PENDING_ACTION).apply()
+            null
+        }
     }
 
     private fun deliverIntent(intent: Intent?) {
