@@ -2578,6 +2578,8 @@ export default {
         runtime: {
           DIRECTORY_URL: Boolean(env.DIRECTORY_URL),
           RELAY_SHARED_SECRET: Boolean(env.RELAY_SHARED_SECRET),
+          FCM_CLIENT_EMAIL: Boolean(env.FCM_CLIENT_EMAIL),
+          FCM_PRIVATE_KEY: Boolean(env.FCM_PRIVATE_KEY),
         },
       });
     }
