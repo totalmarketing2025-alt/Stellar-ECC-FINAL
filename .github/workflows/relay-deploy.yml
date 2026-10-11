@@ -32,4 +32,19 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npm run deploy
+
+      - name: Configure FCM Worker Secrets
+        working-directory: backend/cloudflare-relay
+        env:
+          FCM_CLIENT_EMAIL: ${{ secrets.FCM_CLIENT_EMAIL }}
+          FCM_PRIVATE_KEY: ${{ secrets.FCM_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$FCM_CLIENT_EMAIL" || -z "$FCM_PRIVATE_KEY" ]]; then
+            echo "::error::FCM GitHub Secrets are missing."
+            exit 1
+          fi
+          printf '%s' "$FCM_CLIENT_EMAIL" | npx wrangler secret put FCM_CLIENT_EMAIL
+          printf '%s' "$FCM_PRIVATE_KEY" | npx wrangler secret put FCM_PRIVATE_KEY
 # FCM deploy trigger
