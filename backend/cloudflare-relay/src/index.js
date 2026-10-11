@@ -736,6 +736,10 @@ export class RelayRoom {
         projectId: Boolean(projectId),
         clientEmail: Boolean(clientEmail),
         privateKey: Boolean(privateKey),
+        privateKeyIsPlaceholder: privateKey === "DEV_PLACEHOLDER",
+        clientEmailIsPlaceholder:
+          typeof clientEmail === "string" &&
+          clientEmail.startsWith("dev-placeholder@"),
       }));
       return;
     }
