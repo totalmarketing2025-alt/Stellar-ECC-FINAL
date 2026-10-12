@@ -47,6 +47,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             subtitle: Text(nickname),
           ),
           ListTile(
+            leading: const Icon(Icons.account_circle_outlined, color: StellarColors.accentBlue),
+            title: const Text('My Profile'),
+            subtitle: const Text('View or change your profile photo'),
+            trailing: const Icon(Icons.chevron_right, color: StellarColors.textSecondary),
+            onTap: () {
+              if (nickname == '—' || nickname.trim().isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Your profile is not ready yet.')),
+                );
+                return;
+              }
+              context.push('/profile/${Uri.encodeComponent(nickname.trim())}');
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.qr_code, color: StellarColors.accentBlue),
             title: const Text('Safety number / QR'),
             onTap: () => context.push('/security'),

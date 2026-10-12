@@ -307,7 +307,28 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Center(child: _buildProfileAvatar()),
+          Center(
+            child: GestureDetector(
+              onTap: isSelf && !_savingPhoto ? _choosePhoto : null,
+              child: Stack(
+                alignment: Alignment.bottomRight,
+                children: [
+                  _buildProfileAvatar(),
+                  if (isSelf)
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: StellarColors.accentBlue,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: StellarColors.bgSurface, width: 2),
+                      ),
+                      child: const Icon(Icons.camera_alt_outlined, size: 17, color: Colors.white),
+                    ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 12),
           if (isSelf) ...[
             Center(

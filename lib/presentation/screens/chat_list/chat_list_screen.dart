@@ -47,6 +47,20 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
         title: const Text('Stellar ECC'),
         actions: [
           IconButton(
+            tooltip: 'My Profile',
+            icon: const Icon(Icons.account_circle_outlined),
+            onPressed: () {
+              final nickname = ref.read(localNicknameProvider)?.trim();
+              if (nickname == null || nickname.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Your profile is not ready yet.')),
+                );
+                return;
+              }
+              context.push('/profile/${Uri.encodeComponent(nickname)}');
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => context.push('/settings'),
           ),

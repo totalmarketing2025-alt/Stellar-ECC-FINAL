@@ -73,29 +73,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: Row(
-          children: [
-            StellarAvatar(
-              seed: widget.chatId,
-              label: chat?.displayName ?? '?',
-              size: 36,
-              photoBytes: chat?.chatType == ChatType.direct &&
-                      chat?.peerName != null
-                  ? ref
-                      .watch(profilePhotoBytesProvider(chat!.peerName!))
-                      .asData
-                      ?.value
-                  : null,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                chat?.displayName ?? widget.chatId,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        title: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: chat?.chatType == ChatType.direct && chat?.peerName != null
+              ? () => context.push('/profile/${Uri.encodeComponent(chat!.peerName!)}')
+              : null,
+          child: Row(
+            children: [
+              StellarAvatar(
+                seed: widget.chatId,
+                label: chat?.displayName ?? '?',
+                size: 36,
+                photoBytes: chat?.chatType == ChatType.direct &&
+                        chat?.peerName != null
+                    ? ref
+                        .watch(profilePhotoBytesProvider(chat!.peerName!))
+                        .asData
+                        ?.value
+                    : null,
               ),
-            ),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  chat?.displayName ?? widget.chatId,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           const _StellarConnectionIndicator(),
