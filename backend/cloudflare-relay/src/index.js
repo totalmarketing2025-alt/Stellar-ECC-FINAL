@@ -826,7 +826,7 @@ export class RelayRoom {
               }
             : {}),
         },
-        priority: callMeta ? "high" : "normal",
+        priority: "high",
       });
 
       if (result === "invalid-token") {
