@@ -10,6 +10,7 @@ import '../../core/crypto/group_crypto.dart';
 import '../../core/network/relay_client.dart';
 import '../../core/network/directory_client.dart';
 import '../../core/media/media_attachment_service.dart';
+import '../../core/profile/profile_photo_service.dart';
 import '../../core/moderation/moderation_client.dart';
 import '../../core/moderation/moderation_admin_client.dart';
 import '../../core/calls/call_signal_router.dart';
@@ -138,6 +139,13 @@ final groupCryptoProvider = Provider<GroupCrypto>((ref) {
 final mediaAttachmentServiceProvider = Provider<MediaAttachmentService>((ref) {
   return MediaAttachmentService(
     db: ref.watch(databaseProvider),
+    keyStore: ref.watch(platformKeyStoreProvider),
+  );
+});
+
+/// Locally encrypted profile-photo storage.
+final profilePhotoServiceProvider = Provider<ProfilePhotoService>((ref) {
+  return ProfilePhotoService(
     keyStore: ref.watch(platformKeyStoreProvider),
   );
 });
