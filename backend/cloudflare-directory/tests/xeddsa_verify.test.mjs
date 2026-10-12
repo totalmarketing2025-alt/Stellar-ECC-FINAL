@@ -388,4 +388,243 @@ console.log("invalid s range: PASS");
   console.log("TURN numeric deviceId: PASS");
   console.log("TURN fractional deviceId rejection: PASS");
   console.log("TURN invalid signature rejection: PASS");
+
+
+// Profile-photo integration tests using a real Ed25519 keypair and
+// Signal-compatible XEdDSA signature encoding.
+{
+  const photoBytes = Uint8Array.from([
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10,
+    0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
+  ]);
+
+  const records = new Map([
+    ["user:alice", {
+      nickname: "alice",
+      bundle: {
+        deviceId: 1,
+        registrationId: 7,
+        identityKey: signBitOneIdentityKey,
+      },
+    }],
+  ]);
+
+  const storage = {
+    get: async (key) => records.get(key),
+    put: async (key, value) => records.set(key, value),
+    delete: async (key) => records.delete(key),
+    transaction: async (callback) => callback({
+      get: async (key) => records.get(key),
+      put: async (key, value) => records.set(key, value),
+      delete: async (key) => records.delete(key),
+    }),
+  };
+
+  const directory = new DirectoryStore({ storage }, {});
+  const base = "https://directory.test/v1/users/alice/profile-photo";
+
+  async function issueChallenge(operation) {
+    const response = await directory.fetch(new Request(
+      `${base}/challenge`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deviceId: 1,
+          registrationId: 7,
+          operation,
+        }),
+      },
+    ));
+
+    assert.equal(response.status, 200, `${operation} challenge should succeed`);
+    const body = await response.json();
+    assert.equal(typeof body.challenge, "string");
+    assert.ok(body.challenge.length >= 20);
+    return body.challenge;
+  }
+
+  async function signPhotoMessage({
+    operation,
+    challenge,
+    mimeType = "",
+    bytes = new Uint8Array(),
+  }) {
+    let digest = "";
+
+    if (operation === "put") {
+      const hash = new Uint8Array(
+        await globalThis.crypto.subtle.digest("SHA-256", bytes),
+      );
+      digest = Array.from(
+        hash,
+        (byte) => byte.toString(16).padStart(2, "0"),
+      ).join("");
+    }
+
+    const message = JSON.stringify([
+      "stellar-profile-photo-v1",
+      "alice",
+      1,
+      7,
+      operation,
+      mimeType,
+      digest,
+      challenge,
+    ]);
+
+    const signatureBytes = new Uint8Array(
+      await globalThis.crypto.subtle.sign(
+        { name: "Ed25519" },
+        keyPair.privateKey,
+        new TextEncoder().encode(message),
+      ),
+    );
+
+    signatureBytes[63] =
+      (signatureBytes[63] & 0x7f) | (publicSignBit << 7);
+
+    return btoa(String.fromCharCode(...signatureBytes));
+  }
+
+  async function putPhoto({
+    challenge,
+    bytes = photoBytes,
+    mimeType = "image/jpeg",
+    signatureOverride,
+  }) {
+    const signature = signatureOverride ?? await signPhotoMessage({
+      operation: "put",
+      challenge,
+      mimeType,
+      bytes,
+    });
+
+    return directory.fetch(new Request(base, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        deviceId: 1,
+        registrationId: 7,
+        challenge,
+        signature,
+        mimeType,
+        photo: btoa(String.fromCharCode(...bytes)),
+      }),
+    }));
+  }
+
+  // A registered device receives an upload challenge.
+  const uploadChallenge = await issueChallenge("put");
+
+  // Correctly signed JPEG bytes are accepted.
+  const uploadResponse = await putPhoto({ challenge: uploadChallenge });
+  assert.equal(uploadResponse.status, 200, "valid signed photo upload should succeed");
+
+  const uploadBody = await uploadResponse.json();
+  assert.equal(uploadBody.ok, true);
+  assert.equal(uploadBody.operation, "put");
+
+  // The photo can be retrieved and matches the uploaded data.
+  const getResponse = await directory.fetch(new Request(base));
+  assert.equal(getResponse.status, 200, "uploaded photo should be retrievable");
+
+  const getBody = await getResponse.json();
+  assert.equal(getBody.nickname, "alice");
+  assert.equal(getBody.mimeType, "image/jpeg");
+  assert.equal(getBody.photo, btoa(String.fromCharCode(...photoBytes)));
+  assert.equal(typeof getBody.updatedAt, "number");
+
+  // The same challenge cannot be replayed after successful upload.
+  const replayResponse = await putPhoto({ challenge: uploadChallenge });
+  assert.equal(replayResponse.status, 401, "used upload challenge must be rejected");
+
+  // A valid signature for one photo must not authorize different bytes.
+  const alteredChallenge = await issueChallenge("put");
+  const validSignatureForOriginal = await signPhotoMessage({
+    operation: "put",
+    challenge: alteredChallenge,
+    mimeType: "image/jpeg",
+    bytes: photoBytes,
+  });
+
+  const alteredBytes = photoBytes.slice();
+  alteredBytes[5] ^= 0x01;
+
+  const alteredResponse = await putPhoto({
+    challenge: alteredChallenge,
+    bytes: alteredBytes,
+    signatureOverride: validSignatureForOriginal,
+  });
+  assert.equal(alteredResponse.status, 401, "signature must bind uploaded photo hash");
+
+  // Unsupported MIME types are rejected.
+  const mimeChallenge = await issueChallenge("put");
+  const mimeSignature = await signPhotoMessage({
+    operation: "put",
+    challenge: mimeChallenge,
+    mimeType: "image/gif",
+    bytes: photoBytes,
+  });
+
+  const mimeResponse = await putPhoto({
+    challenge: mimeChallenge,
+    mimeType: "image/gif",
+    signatureOverride: mimeSignature,
+  });
+  assert.equal(mimeResponse.status, 400, "unsupported MIME type must be rejected");
+
+  // A correctly signed DELETE removes the stored photo.
+  const deleteChallenge = await issueChallenge("delete");
+  const deleteSignature = await signPhotoMessage({
+    operation: "delete",
+    challenge: deleteChallenge,
+  });
+
+  const deleteResponse = await directory.fetch(new Request(base, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      deviceId: 1,
+      registrationId: 7,
+      challenge: deleteChallenge,
+      signature: deleteSignature,
+    }),
+  }));
+
+  assert.equal(deleteResponse.status, 200, "valid signed delete should succeed");
+
+  const afterDeleteResponse = await directory.fetch(new Request(base));
+  assert.equal(afterDeleteResponse.status, 404, "deleted photo should return 404");
+
+  // A missing or incorrect challenge must not authorize a write.
+  const unauthorizedResponse = await directory.fetch(new Request(base, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      deviceId: 1,
+      registrationId: 7,
+      challenge: "invalid-challenge-value-123456",
+      signature: signature,
+      mimeType: "image/jpeg",
+      photo: btoa(String.fromCharCode(...photoBytes)),
+    }),
+  }));
+
+  assert.equal(
+    unauthorizedResponse.status,
+    401,
+    "unknown challenge must be rejected",
+  );
+
+  console.log("Profile-photo challenge: PASS");
+  console.log("Profile-photo signed upload: PASS");
+  console.log("Profile-photo GET: PASS");
+  console.log("Profile-photo replay rejection: PASS");
+  console.log("Profile-photo hash/signature binding: PASS");
+  console.log("Profile-photo unsupported MIME rejection: PASS");
+  console.log("Profile-photo signed delete: PASS");
+  console.log("Profile-photo unauthorized write rejection: PASS");
+}
+
 }

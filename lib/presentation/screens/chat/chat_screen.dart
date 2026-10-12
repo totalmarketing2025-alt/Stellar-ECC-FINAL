@@ -75,7 +75,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         titleSpacing: 0,
         title: Row(
           children: [
-            StellarAvatar(seed: widget.chatId, label: chat?.displayName ?? '?', size: 36),
+            StellarAvatar(
+              seed: widget.chatId,
+              label: chat?.displayName ?? '?',
+              size: 36,
+              photoBytes: chat?.chatType == ChatType.direct &&
+                      chat?.peerName != null
+                  ? ref
+                      .watch(profilePhotoBytesProvider(chat!.peerName!))
+                      .asData
+                      ?.value
+                  : null,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(

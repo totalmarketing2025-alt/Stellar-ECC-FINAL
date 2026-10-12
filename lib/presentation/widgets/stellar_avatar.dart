@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme/stellar_theme.dart';
@@ -5,11 +7,12 @@ import '../../core/theme/stellar_theme.dart';
 /// Gradient monogram avatar — no forced profile photo requirement, per
 /// the privacy-first identity model (Phase 1/5): a nickname is enough.
 class StellarAvatar extends StatelessWidget {
-  const StellarAvatar({super.key, required this.seed, required this.label, this.size = 44});
+  const StellarAvatar({super.key, required this.seed, required this.label, this.size = 44, this.photoBytes});
 
   final String seed;
   final String label;
   final double size;
+  final Uint8List? photoBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -22,14 +25,31 @@ class StellarAvatar extends StatelessWidget {
         gradient: StellarColors.stellarGradient,
       ),
       alignment: Alignment.center,
-      child: Text(
-        initial,
-        style: TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w700,
-          fontSize: size * 0.4,
-        ),
-      ),
+      child: photoBytes == null
+          ? Text(
+              initial,
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: size * 0.4,
+              ),
+            )
+          : ClipOval(
+              child: Image.memory(
+                photoBytes!,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Text(
+                  initial,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: size * 0.4,
+                  ),
+                ),
+              ),
+            ),
     );
   }
 }

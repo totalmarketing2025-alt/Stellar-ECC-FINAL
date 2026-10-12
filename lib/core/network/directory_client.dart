@@ -269,6 +269,180 @@ class DirectoryClient {
     return json;
   }
 
+
+  static String buildProfilePhotoAuthMessage({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+    required String operation,
+    required String mimeType,
+    required String sha256Hex,
+    required String challenge,
+  }) {
+    if (operation != 'put' && operation != 'delete') {
+      throw ArgumentError.value(operation, 'operation');
+    }
+
+    return jsonEncode([
+      'stellar-profile-photo-v1',
+      nickname,
+      deviceId,
+      registrationId,
+      operation,
+      mimeType,
+      sha256Hex,
+      challenge,
+    ]);
+  }
+
+  Future<String> getProfilePhotoChallenge({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+    required String operation,
+  }) async {
+    if (operation != 'put' && operation != 'delete') {
+      throw ArgumentError.value(operation, 'operation');
+    }
+
+    final response = await _request(
+      'POST',
+      '/v1/users/${Uri.encodeComponent(nickname)}/profile-photo/challenge',
+      body: {
+        'deviceId': deviceId,
+        'registrationId': registrationId,
+        'operation': operation,
+      },
+    );
+
+    final body = await _readBody(response);
+    final json = _decodeJson(body);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw DirectoryException(
+        json['error']?.toString() ??
+            'Profile-photo challenge request failed',
+        response.statusCode,
+      );
+    }
+
+    final challenge = json['challenge'];
+    if (challenge is! String || challenge.length < 20) {
+      throw const FormatException(
+        'Invalid profile-photo challenge response',
+      );
+    }
+
+    return challenge;
+  }
+
+  Future<Map<String, dynamic>?> fetchProfilePhoto(
+    String nickname,
+  ) async {
+    final response = await _request(
+      'GET',
+      '/v1/users/${Uri.encodeComponent(nickname)}/profile-photo',
+    );
+
+    final body = await _readBody(response);
+
+    if (response.statusCode == 404) {
+      return null;
+    }
+
+    final json = _decodeJson(body);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw DirectoryException(
+        json['error']?.toString() ?? 'Profile-photo download failed',
+        response.statusCode,
+      );
+    }
+
+    final encodedPhoto = json['photo'];
+    final mimeType = json['mimeType'];
+    final updatedAt = json['updatedAt'];
+
+    if (encodedPhoto is! String ||
+        mimeType is! String ||
+        updatedAt is! num ||
+        !const {'image/jpeg', 'image/png', 'image/webp'}
+            .contains(mimeType)) {
+      throw const FormatException(
+        'Invalid profile-photo response',
+      );
+    }
+
+    return {
+      'nickname': json['nickname'],
+      'photo': encodedPhoto,
+      'mimeType': mimeType,
+      'updatedAt': updatedAt,
+    };
+  }
+
+  Future<void> uploadProfilePhoto({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+    required String challenge,
+    required String signature,
+    required String mimeType,
+    required String photoBase64,
+  }) async {
+    final response = await _request(
+      'PUT',
+      '/v1/users/${Uri.encodeComponent(nickname)}/profile-photo',
+      body: {
+        'deviceId': deviceId,
+        'registrationId': registrationId,
+        'challenge': challenge,
+        'signature': signature,
+        'mimeType': mimeType,
+        'photo': photoBase64,
+      },
+    );
+
+    final body = await _readBody(response);
+    final json = _decodeJson(body);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw DirectoryException(
+        json['error']?.toString() ?? 'Profile-photo upload failed',
+        response.statusCode,
+      );
+    }
+  }
+
+  Future<void> deleteProfilePhoto({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+    required String challenge,
+    required String signature,
+  }) async {
+    final response = await _request(
+      'DELETE',
+      '/v1/users/${Uri.encodeComponent(nickname)}/profile-photo',
+      body: {
+        'deviceId': deviceId,
+        'registrationId': registrationId,
+        'challenge': challenge,
+        'signature': signature,
+      },
+    );
+
+    final body = await _readBody(response);
+    final json = _decodeJson(body);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw DirectoryException(
+        json['error']?.toString() ?? 'Profile-photo deletion failed',
+        response.statusCode,
+      );
+    }
+  }
+
   Future<Map<String, dynamic>> lookup(String nickname) async {
     final response = await _request(
       'GET',

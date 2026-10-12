@@ -189,15 +189,24 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   }
 }
 
-class _ChatListTile extends StatelessWidget {
+class _ChatListTile extends ConsumerWidget {
   const _ChatListTile({required this.chat});
   final Chat chat;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return ListTile(
       onTap: () => context.push('/chat/${chat.chatId}'),
-      leading: StellarAvatar(seed: chat.chatId, label: chat.displayName),
+      leading: StellarAvatar(
+        seed: chat.chatId,
+        label: chat.displayName,
+        photoBytes: chat.chatType == ChatType.direct && chat.peerName != null
+            ? ref
+                .watch(profilePhotoBytesProvider(chat.peerName!))
+                .asData
+                ?.value
+            : null,
+      ),
       title: Text(chat.displayName, style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Text(
         chat.lastMessagePreview ?? 'No messages yet',

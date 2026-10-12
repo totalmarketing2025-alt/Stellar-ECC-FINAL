@@ -9,6 +9,95 @@ function validNickname(nickname) {
 
 const PUSH_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
+const PROFILE_PHOTO_MAX_BYTES = 512 * 1024;
+const PROFILE_PHOTO_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+function profilePhotoChallengeKey(nickname, deviceId, registrationId, operation) {
+  return `profile-photo-challenge:${nickname}:${deviceId}:${registrationId}:${operation}`;
+}
+
+function profilePhotoStorageKey(nickname) {
+  return `profile-photo:${nickname}`;
+}
+
+function validProfilePhotoBytes(bytes, mimeType) {
+  if (!(bytes instanceof Uint8Array) ||
+      bytes.length === 0 ||
+      bytes.length > PROFILE_PHOTO_MAX_BYTES) {
+    return false;
+  }
+
+  if (mimeType === "image/jpeg") {
+    return bytes.length >= 3 &&
+      bytes[0] === 0xff &&
+      bytes[1] === 0xd8 &&
+      bytes[2] === 0xff;
+  }
+
+  if (mimeType === "image/png") {
+    return bytes.length >= 8 &&
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47 &&
+      bytes[4] === 0x0d &&
+      bytes[5] === 0x0a &&
+      bytes[6] === 0x1a &&
+      bytes[7] === 0x0a;
+  }
+
+  if (mimeType === "image/webp") {
+    return bytes.length >= 12 &&
+      bytes[0] === 0x52 &&
+      bytes[1] === 0x49 &&
+      bytes[2] === 0x46 &&
+      bytes[3] === 0x46 &&
+      bytes[8] === 0x57 &&
+      bytes[9] === 0x45 &&
+      bytes[10] === 0x42 &&
+      bytes[11] === 0x50;
+  }
+
+  return false;
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function buildProfilePhotoAuthMessage({
+  nickname,
+  deviceId,
+  registrationId,
+  operation,
+  challenge,
+  mimeType = "",
+  sha256 = "",
+}) {
+  return JSON.stringify([
+    "stellar-profile-photo-v1",
+    nickname,
+    deviceId,
+    registrationId,
+    operation,
+    mimeType,
+    sha256,
+    challenge,
+  ]);
+}
+
 const CURVE25519_P = (1n << 255n) - 19n;
 
 function createPushChallenge() {
@@ -1324,6 +1413,269 @@ export class DirectoryStore {
         ok: true,
         nickname,
         registered: true,
+      });
+    }
+
+
+    // Profile photos are public profile data. Writes require a signature
+    // from the Signal identity key currently registered for this device.
+    const photoChallengeMatch = url.pathname.match(
+      /^\/v1\/users\/([^/]+)\/profile-photo\/challenge$/,
+    );
+
+    if (request.method === "POST" && photoChallengeMatch) {
+      let nickname;
+
+      try {
+        nickname = normalizeNickname(decodeURIComponent(photoChallengeMatch[1]));
+      } catch (_) {
+        return json({ error: "Invalid nickname" }, 400);
+      }
+
+      if (!validNickname(nickname)) {
+        return json({ error: "Invalid nickname" }, 400);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const { deviceId, registrationId, operation } = body || {};
+
+      if (!Number.isInteger(deviceId) ||
+          deviceId < 1 ||
+          deviceId > 0x7fffffff ||
+          !Number.isInteger(registrationId) ||
+          registrationId < 1 ||
+          registrationId > 0x7fffffff ||
+          !["put", "delete"].includes(operation)) {
+        return json({ error: "Invalid profile photo challenge request" }, 400);
+      }
+
+      const user = await this.ctx.storage.get(`user:${nickname}`);
+      const bundle = user?.bundle;
+
+      if (!bundle ||
+          bundle.deviceId !== deviceId ||
+          Number(bundle.registrationId) !== registrationId ||
+          typeof bundle.identityKey !== "string") {
+        return json({ error: "Device not registered" }, 404);
+      }
+
+      const challenge = createPushChallenge();
+      const expiresAt = Date.now() + PUSH_CHALLENGE_TTL_MS;
+      const challengeKey = profilePhotoChallengeKey(
+        nickname,
+        deviceId,
+        registrationId,
+        operation,
+      );
+
+      await this.ctx.storage.put(challengeKey, { challenge, expiresAt });
+
+      return json({ nickname, challenge, expiresAt });
+    }
+
+    const photoRouteMatch = url.pathname.match(
+      /^\/v1\/users\/([^/]+)\/profile-photo$/,
+    );
+
+    if (photoRouteMatch) {
+      let nickname;
+
+      try {
+        nickname = normalizeNickname(decodeURIComponent(photoRouteMatch[1]));
+      } catch (_) {
+        return json({ error: "Invalid nickname" }, 400);
+      }
+
+      if (!validNickname(nickname)) {
+        return json({ error: "Invalid nickname" }, 400);
+      }
+
+      const photoKey = profilePhotoStorageKey(nickname);
+
+      if (request.method === "GET") {
+        const photo = await this.ctx.storage.get(photoKey);
+
+        if (!photo ||
+            typeof photo.photo !== "string" ||
+            !PROFILE_PHOTO_MIME_TYPES.has(photo.mimeType) ||
+            typeof photo.updatedAt !== "number") {
+          return json({ error: "Profile photo not found" }, 404);
+        }
+
+        return json({
+          nickname,
+          photo: photo.photo,
+          mimeType: photo.mimeType,
+          updatedAt: photo.updatedAt,
+        });
+      }
+
+      if (request.method !== "PUT" && request.method !== "DELETE") {
+        return json({ error: "Method not allowed" }, 405);
+      }
+
+      const contentLength = Number(request.headers.get("content-length") || "0");
+      if (Number.isFinite(contentLength) &&
+          contentLength > PROFILE_PHOTO_MAX_BYTES * 2 + 16384) {
+        return json({ error: "Profile photo request too large" }, 413);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const { deviceId, registrationId, challenge, signature } = body || {};
+      const operation = request.method === "PUT" ? "put" : "delete";
+
+      if (!Number.isInteger(deviceId) ||
+          deviceId < 1 ||
+          deviceId > 0x7fffffff ||
+          !Number.isInteger(registrationId) ||
+          registrationId < 1 ||
+          registrationId > 0x7fffffff ||
+          typeof challenge !== "string" ||
+          challenge.length < 20 ||
+          challenge.length > 128 ||
+          typeof signature !== "string" ||
+          signature.length > 256) {
+        return json({ error: "Invalid profile photo authorization" }, 400);
+      }
+
+      let photoBytes = null;
+      let mimeType = "";
+      let sha256 = "";
+
+      if (operation === "put") {
+        mimeType = typeof body.mimeType === "string"
+          ? body.mimeType.trim().toLowerCase()
+          : "";
+
+        const encodedPhoto = typeof body.photo === "string" ? body.photo : "";
+
+        if (!PROFILE_PHOTO_MIME_TYPES.has(mimeType) ||
+            encodedPhoto.length === 0 ||
+            encodedPhoto.length > Math.ceil(PROFILE_PHOTO_MAX_BYTES * 4 / 3) + 8) {
+          return json({ error: "Invalid profile photo data" }, 400);
+        }
+
+        photoBytes = decodeBase64(encodedPhoto);
+
+        if (!photoBytes ||
+            !validProfilePhotoBytes(photoBytes, mimeType)) {
+          return json({ error: "Invalid profile photo format or size" }, 400);
+        }
+
+        const digest = new Uint8Array(
+          await crypto.subtle.digest("SHA-256", photoBytes),
+        );
+        sha256 = bytesToHex(digest);
+      }
+
+      const userKey = `user:${nickname}`;
+      const existingUser = await this.ctx.storage.get(userKey);
+      const existingBundle = existingUser?.bundle;
+
+      if (!existingBundle ||
+          existingBundle.deviceId !== deviceId ||
+          Number(existingBundle.registrationId) !== registrationId ||
+          typeof existingBundle.identityKey !== "string") {
+        return json({ error: "Device not registered" }, 409);
+      }
+
+      const challengeKey = profilePhotoChallengeKey(
+        nickname,
+        deviceId,
+        registrationId,
+        operation,
+      );
+
+      const storedChallenge = await this.ctx.storage.get(challengeKey);
+
+      if (!storedChallenge ||
+          storedChallenge.challenge !== challenge ||
+          typeof storedChallenge.expiresAt !== "number" ||
+          storedChallenge.expiresAt <= Date.now()) {
+        return json({ error: "Invalid or expired profile photo challenge" }, 401);
+      }
+
+      const message = buildProfilePhotoAuthMessage({
+        nickname,
+        deviceId,
+        registrationId,
+        operation,
+        challenge,
+        mimeType,
+        sha256,
+      });
+
+      const signatureValid = await verifySignalIdentitySignature({
+        identityKey: existingBundle.identityKey,
+        message,
+        signature,
+      });
+
+      if (!signatureValid) {
+        return json({ error: "Invalid profile photo signature" }, 401);
+      }
+
+      const result = await this.ctx.storage.transaction(async (txn) => {
+        const currentUser = await txn.get(userKey);
+        const currentBundle = currentUser?.bundle;
+
+        if (!currentBundle ||
+            currentBundle.identityKey !== existingBundle.identityKey ||
+            currentBundle.deviceId !== deviceId ||
+            Number(currentBundle.registrationId) !== registrationId) {
+          return { error: "Device identity changed", status: 409 };
+        }
+
+        const currentChallenge = await txn.get(challengeKey);
+
+        if (!currentChallenge ||
+            currentChallenge.challenge !== challenge ||
+            typeof currentChallenge.expiresAt !== "number" ||
+            currentChallenge.expiresAt <= Date.now()) {
+          if (currentChallenge) {
+            await txn.delete(challengeKey);
+          }
+          return {
+            error: "Challenge already used or expired",
+            status: 401,
+          };
+        }
+
+        await txn.delete(challengeKey);
+
+        if (operation === "put") {
+          await txn.put(photoKey, {
+            photo: bytesToBase64(photoBytes),
+            mimeType,
+            updatedAt: Date.now(),
+          });
+        } else {
+          await txn.delete(photoKey);
+        }
+
+        return { ok: true };
+      });
+
+      if (result.error) {
+        return json({ error: result.error }, result.status);
+      }
+
+      return json({
+        ok: true,
+        nickname,
+        operation,
       });
     }
 

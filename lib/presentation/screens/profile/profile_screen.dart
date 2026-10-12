@@ -31,9 +31,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _loadPhoto() async {
-    final bytes = await ref
-        .read(profilePhotoServiceProvider)
-        .loadPhoto(widget.userId);
+    Uint8List? bytes;
+
+    try {
+      bytes = await ref.read(
+        profilePhotoBytesProvider(widget.userId).future,
+      );
+    } catch (_) {
+      // Fall back to the encrypted local copy if loading fails.
+      bytes = await ref
+          .read(profilePhotoServiceProvider)
+          .loadPhoto(widget.userId);
+    }
 
     if (!mounted) return;
 
@@ -50,9 +59,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       final picker = ImagePicker();
       final selected = await picker.pickImage(
         source: ImageSource.gallery,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 85,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 65,
       );
 
       if (selected == null || !mounted) return;
@@ -64,8 +73,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         return;
       }
 
-      if (bytes.length > 10 * 1024 * 1024) {
-        _showMessage('Choose an image smaller than 10 MB.');
+      if (bytes.length > 512 * 1024) {
+        _showMessage(
+          'This photo is larger than 512 KiB. Choose a smaller image '
+          'and try again. Your existing photo has not been changed.',
+        );
         return;
       }
 
@@ -92,7 +104,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               ),
               const SizedBox(height: 12),
               const Text(
-                'The photo will be encrypted and stored on this device.',
+                'The photo will be encrypted on this device. '
+                'If this is your profile, it can also be published to '
+                'the Stellar directory.',
                 textAlign: TextAlign.center,
               ),
             ],
@@ -116,7 +130,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
       try {
         await ref.read(profilePhotoServiceProvider).savePhoto(
-              userId: widget.userId,
+              userId: widget.userId.trim().toLowerCase(),
               imageBytes: bytes,
             );
 
@@ -124,10 +138,40 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
         setState(() {
           _photoBytes = bytes;
-          _savingPhoto = false;
         });
 
-        _showMessage('Profile photo saved securely on this device.');
+        // Refresh all avatar consumers even if the remote upload fails.
+        ref.invalidate(
+          profilePhotoBytesProvider(widget.userId.trim().toLowerCase()),
+        );
+
+        // Only publish a photo under the authenticated local nickname.
+        final localNickname = ref.read(localNicknameProvider);
+        if (localNickname != null &&
+            localNickname.trim().toLowerCase() ==
+                widget.userId.trim().toLowerCase()) {
+          try {
+            await ref.read(profilePhotoSyncServiceProvider).uploadPhoto(
+                  nickname: localNickname,
+                  imageBytes: bytes,
+                );
+
+            if (!mounted) return;
+            setState(() => _savingPhoto = false);
+            _showMessage('Profile photo saved and synchronized.');
+          } catch (_) {
+            if (!mounted) return;
+            setState(() => _savingPhoto = false);
+            _showMessage(
+              'Photo saved on this device, but upload failed. '
+              'The server copy was not confirmed.',
+            );
+          }
+        } else {
+          if (!mounted) return;
+          setState(() => _savingPhoto = false);
+          _showMessage('Profile photo saved securely on this device.');
+        }
       } catch (_) {
         if (!mounted) return;
         setState(() => _savingPhoto = false);
@@ -149,8 +193,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         backgroundColor: StellarColors.bgElevated,
         title: const Text('Remove profile photo?'),
         content: const Text(
-          'Your locally stored profile photo and its encryption key '
-          'will be removed.',
+          'Your local photo will be removed. For your own profile, '
+          'the directory copy will also be deleted.',
         ),
         actions: [
           TextButton(
@@ -170,7 +214,25 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     setState(() => _savingPhoto = true);
 
     try {
-      await ref.read(profilePhotoServiceProvider).removePhoto(widget.userId);
+      final localNickname = ref.read(localNicknameProvider);
+
+      // If this is the local user's profile, delete the remote copy first.
+      // A failed remote delete must not be reported as a complete deletion.
+      if (localNickname != null &&
+            localNickname.trim().toLowerCase() ==
+                widget.userId.trim().toLowerCase()) {
+        await ref
+            .read(profilePhotoSyncServiceProvider)
+            .deletePhoto(localNickname);
+      } else {
+        await ref
+            .read(profilePhotoServiceProvider)
+            .removePhoto(widget.userId.trim().toLowerCase());
+      }
+
+      ref.invalidate(
+        profilePhotoBytesProvider(widget.userId.trim().toLowerCase()),
+      );
 
       if (!mounted) return;
 
