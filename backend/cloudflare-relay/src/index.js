@@ -130,19 +130,33 @@ async function classifyFcmResponse(response) {
     body = null;
   }
 
+  const error = body?.error;
+  const details = Array.isArray(error?.details)
+    ? error.details.map((detail) => ({
+        type: detail?.["@type"],
+        errorCode: detail?.errorCode,
+        fieldViolations: Array.isArray(detail?.fieldViolations)
+          ? detail.fieldViolations.map((item) => ({
+              field: item?.field,
+              description: item?.description,
+            }))
+          : undefined,
+      }))
+    : [];
+
   console.error("FCM_RESPONSE", JSON.stringify({
     status: response.status,
     statusText: response.statusText,
-    body,
+    errorStatus: error?.status,
+    errorMessage: error?.message,
+    details,
   }));
 
-  const error = body?.error;
-
-  const details = Array.isArray(error?.details)
+  const responseDetails = Array.isArray(error?.details)
     ? error.details
     : [];
 
-  const hasUnregisteredError = details.some(
+  const hasUnregisteredError = responseDetails.some(
     (detail) =>
       detail &&
       typeof detail === "object" &&
@@ -199,6 +213,7 @@ async function sendFcmMessage({
   token,
   data,
   priority = "normal",
+  platform = "unknown",
 }) {
   for (let attempt = 0; attempt < 3; attempt++) {
     let response;
@@ -224,9 +239,20 @@ async function sendFcmMessage({
         },
       );
     } catch (error) {
-      console.error("FCM_FETCH_ERROR", String(error));
+      console.error("FCM_FETCH_ERROR", JSON.stringify({
+        platform,
+        kind: data?.type === "call" ? "call" : "message",
+        attempt: attempt + 1,
+        error: String(error),
+      }));
 
       if (attempt === 2) {
+        console.error("FCM_SEND_FAILURE", JSON.stringify({
+          platform,
+          kind: data?.type === "call" ? "call" : "message",
+          reason: "network_error",
+          attempts: attempt + 1,
+        }));
         return "other";
       }
 
@@ -237,18 +263,45 @@ async function sendFcmMessage({
     }
 
     if (response.ok) {
+      console.log("FCM_SEND_SUCCESS", JSON.stringify({
+        status: response.status,
+        platform,
+        kind: data?.type === "call" ? "call" : "message",
+        attempt: attempt + 1,
+      }));
       return "sent";
     }
 
-    const kind = await classifyFcmResponse(response);
+    const responseKind = await classifyFcmResponse(response);
 
-    if (kind === "invalid-token") {
+    if (responseKind === "invalid-token") {
+      console.error("FCM_SEND_FAILURE", JSON.stringify({
+        status: response.status,
+        platform,
+        kind: data?.type === "call" ? "call" : "message",
+        reason: "invalid_token",
+        attempt: attempt + 1,
+      }));
       return "invalid-token";
     }
 
-    if (kind !== "transient" || attempt === 2) {
+    if (responseKind !== "transient" || attempt === 2) {
+      console.error("FCM_SEND_FAILURE", JSON.stringify({
+        status: response.status,
+        platform,
+        kind: data?.type === "call" ? "call" : "message",
+        reason: responseKind,
+        attempt: attempt + 1,
+      }));
       return "other";
     }
+
+    console.warn("FCM_RETRY", JSON.stringify({
+      status: response.status,
+      platform,
+      kind: data?.type === "call" ? "call" : "message",
+      nextAttempt: attempt + 2,
+    }));
 
     await new Promise((resolve) =>
       setTimeout(resolve, getFcmRetryDelayMs(response, attempt)),
@@ -746,14 +799,24 @@ export class RelayRoom {
       return;
     }
 
-    const response = await fetch(
-      `${directoryUrl}/v1/users/${encodeURIComponent(recipient)}/push-token`,
-      {
-        headers: {
-          Authorization: `Bearer ${sharedSecret}`,
+    let response;
+
+    try {
+      response = await fetch(
+        `${directoryUrl}/v1/users/${encodeURIComponent(recipient)}/push-token`,
+        {
+          headers: {
+            Authorization: `Bearer ${sharedSecret}`,
+          },
         },
-      },
-    );
+      );
+    } catch (error) {
+      console.error("FCM_DIRECTORY_ERROR", JSON.stringify({
+        reason: "network_error",
+        error: String(error),
+      }));
+      return;
+    }
 
     if (!response.ok) {
       console.error("FCM_DIRECTORY_ERROR", JSON.stringify({
@@ -763,7 +826,17 @@ export class RelayRoom {
       return;
     }
 
-    const body = await response.json();
+    let body;
+
+    try {
+      body = await response.json();
+    } catch (error) {
+      console.error("FCM_DIRECTORY_ERROR", JSON.stringify({
+        reason: "invalid_json",
+        error: String(error),
+      }));
+      return;
+    }
 
     console.log("FCM_DIRECTORY_REGISTRATIONS", JSON.stringify({
       count: Array.isArray(body.pushRegistrations)
@@ -827,6 +900,7 @@ export class RelayRoom {
             : {}),
         },
         priority: "high",
+        platform: registration.platform,
       });
 
       if (result === "invalid-token") {
@@ -837,9 +911,27 @@ export class RelayRoom {
           registration.token,
         );
       }
+
+      return {
+        result,
+        platform: registration.platform,
+      };
     });
 
-    await Promise.all(sends);
+    const results = await Promise.all(sends);
+    const sent = results.filter((item) => item.result === "sent").length;
+    const invalidTokens = results.filter(
+      (item) => item.result === "invalid-token",
+    ).length;
+    const failed = results.filter((item) => item.result === "other").length;
+
+    console.log("FCM_SEND_SUMMARY", JSON.stringify({
+      kind: callMeta ? "call" : "message",
+      total: results.length,
+      sent,
+      failed,
+      invalidTokens,
+    }));
   }
 
   async fetch(request) {
