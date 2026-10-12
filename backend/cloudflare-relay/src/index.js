@@ -81,7 +81,9 @@ function stringToBase64Url(value) {
 }
 
 function pemToArrayBuffer(pem) {
-  const base64 = pem
+  const normalizedPem = pem.replace(/\\n/g, "\n");
+
+  const base64 = normalizedPem
     .replace("-----BEGIN PRIVATE KEY-----", "")
     .replace("-----END PRIVATE KEY-----", "")
     .replace(/\s+/g, "");
