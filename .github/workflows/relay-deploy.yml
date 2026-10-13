@@ -46,6 +46,6 @@ jobs:
             echo "::error::FCM GitHub Secrets are missing."
             exit 1
           fi
-          printf '%s' "$FCM_CLIENT_EMAIL" | npx wrangler secret put FCM_CLIENT_EMAIL
-          printf '%s' "$FCM_PRIVATE_KEY" | npx wrangler secret put FCM_PRIVATE_KEY
+          printf '%s' "$FCM_CLIENT_EMAIL" | npx wrangler versions secret put FCM_CLIENT_EMAIL
+          printf '%s' "$FCM_PRIVATE_KEY" | npx wrangler versions secret put FCM_PRIVATE_KEY
 # FCM deploy trigger
