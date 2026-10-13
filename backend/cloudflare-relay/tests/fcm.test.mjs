@@ -386,7 +386,7 @@ test("persistent transient FCM failure stops after three attempts", async () => 
   assert.equal(fcmAttempts, 3);
 });
 
-test("ordinary wake uses high priority and no call metadata", async () => {
+test("ordinary wake uses normal priority and no call metadata", async () => {
   const fcmMessages = [];
 
   const room = configuredRoom(async (url, options = {}) => {
@@ -416,5 +416,5 @@ test("ordinary wake uses high priority and no call metadata", async () => {
 
   assert.equal(fcmMessages.length, 1);
   assert.deepEqual(fcmMessages[0].data, { wake: "1" });
-  assert.equal(fcmMessages[0].android.priority, "high");
+  assert.equal(fcmMessages[0].android.priority, "normal");
 });

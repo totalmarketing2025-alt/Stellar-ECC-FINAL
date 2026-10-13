@@ -899,7 +899,7 @@ export class RelayRoom {
               }
             : {}),
         },
-        priority: "high",
+        priority: callMeta ? "high" : "normal",
         platform: registration.platform,
       });
 
