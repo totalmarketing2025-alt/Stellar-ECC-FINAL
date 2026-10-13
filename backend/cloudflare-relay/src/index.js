@@ -437,7 +437,7 @@ function createRelayChallenge() {
 function validRelayPeer(peer) {
   return (
     typeof peer === "string" &&
-    /^[a-z0-9_.-]{1,64}$/.test(peer)
+    /^[a-z0-9_]{3,32}$/.test(peer)
   );
 }
 
@@ -899,7 +899,7 @@ export class RelayRoom {
               }
             : {}),
         },
-        priority: callMeta ? "high" : "normal",
+        priority: "high",
         platform: registration.platform,
       });
 
@@ -1045,13 +1045,34 @@ export class RelayRoom {
         return;
       }
 
+      const authDeviceId = Number(response.deviceId);
+      const authRegistrationId = Number(response.registrationId);
+
       if (
         response.challenge !== attachment.challenge ||
-        !Number.isInteger(Number(response.deviceId)) ||
-        !Number.isInteger(Number(response.registrationId)) ||
+        !Number.isInteger(authDeviceId) ||
+        authDeviceId < 1 ||
+        authDeviceId > 0x7fffffff ||
+        !Number.isInteger(authRegistrationId) ||
+        authRegistrationId < 1 ||
+        authRegistrationId > 0x7fffffff ||
         typeof response.signature !== "string" ||
         !response.signature
       ) {
+        console.warn("RELAY_AUTH_INVALID_RESPONSE_FIELDS", JSON.stringify({
+          challengeMatches: response.challenge === attachment.challenge,
+          deviceIdValid:
+            Number.isInteger(authDeviceId) &&
+            authDeviceId >= 1 &&
+            authDeviceId <= 0x7fffffff,
+          registrationIdValid:
+            Number.isInteger(authRegistrationId) &&
+            authRegistrationId >= 1 &&
+            authRegistrationId <= 0x7fffffff,
+          signaturePresent:
+            typeof response.signature === "string" &&
+            response.signature.length > 0,
+        }));
         try {
           ws.close(1008, "Invalid relay authentication");
         } catch (_) {}
@@ -1091,8 +1112,8 @@ export class RelayRoom {
             },
             body: JSON.stringify({
               nickname: attachment.peer,
-              deviceId: Number(response.deviceId),
-              registrationId: Number(response.registrationId),
+              deviceId: authDeviceId,
+              registrationId: authRegistrationId,
               challenge: response.challenge,
               signature: response.signature,
             }),

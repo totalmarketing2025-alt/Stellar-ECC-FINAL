@@ -726,15 +726,33 @@ export class DirectoryStore {
           ? body.signature
           : "";
 
+      const nicknameValid = validNickname(nickname);
+      const deviceIdValid =
+        Number.isInteger(deviceId) &&
+        deviceId >= 1 &&
+        deviceId <= 0x7fffffff;
+      const registrationIdValid =
+        Number.isInteger(registrationId) &&
+        registrationId >= 1 &&
+        registrationId <= 0x7fffffff;
+      const challengePresent = challenge.length > 0;
+      const signaturePresent = signature.length > 0;
+
       if (
-        !validNickname(nickname) ||
-        !Number.isInteger(deviceId) ||
-        deviceId <= 0 ||
-        !Number.isInteger(registrationId) ||
-        registrationId <= 0 ||
-        !challenge ||
-        !signature
+        !nicknameValid ||
+        !deviceIdValid ||
+        !registrationIdValid ||
+        !challengePresent ||
+        !signaturePresent
       ) {
+        console.warn("DIRECTORY_RELAY_AUTH_INVALID_FIELDS", JSON.stringify({
+          nicknameValid,
+          deviceIdValid,
+          registrationIdValid,
+          challengePresent,
+          signaturePresent,
+        }));
+
         return json({
           error: "Invalid relay auth request",
         }, 400);
