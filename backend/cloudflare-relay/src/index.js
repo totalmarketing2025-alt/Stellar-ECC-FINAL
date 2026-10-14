@@ -1551,6 +1551,47 @@ export class ModerationRoom {
 
     if (
       request.method === "GET" &&
+      url.pathname === "/v1/moderation/admin/dashboard"
+    ) {
+      const session =
+        await this.authenticateModerationAdminSession(request);
+
+      if (!session) {
+        return Response.json(
+          { error: "Unauthorized" },
+          { status: 401 },
+        );
+      }
+
+      const now = Date.now();
+      const dayAgo = now - 24 * 60 * 60 * 1000;
+
+      const stats = this.ctx.storage.sql
+        .exec(
+          `SELECT
+             COUNT(*) AS active_messages,
+             COUNT(DISTINCT sender) AS unique_senders,
+             COUNT(DISTINCT recipient) AS unique_recipients,
+             COALESCE(SUM(
+               CASE WHEN attachment_mime_type IS NOT NULL
+                 AND attachment_mime_type != ''
+                 THEN 1 ELSE 0 END
+             ), 0) AS attachments,
+             COALESCE(SUM(
+               CASE WHEN created_at >= ? THEN 1 ELSE 0 END
+             ), 0) AS messages_last_24h
+           FROM moderation_messages
+           WHERE expires_at > ?`,
+          dayAgo,
+          now,
+        )
+        .one();
+
+      return Response.json({ stats });
+    }
+
+    if (
+      request.method === "GET" &&
       url.pathname === "/v1/moderation/admin/messages"
     ) {
       const session =
@@ -1575,6 +1616,28 @@ export class ModerationRoom {
           ? offsetValue
           : 0;
 
+      const query = (url.searchParams.get("q") || "")
+        .trim()
+        .toLowerCase()
+        .slice(0, 120);
+
+      const searchClause = query
+        ? ` AND (
+             instr(lower(message_id), ?) > 0 OR
+             instr(lower(sender), ?) > 0 OR
+             instr(lower(recipient), ?) > 0 OR
+             instr(lower(COALESCE(chat_id, '')), ?) > 0 OR
+             instr(lower(content_type), ?) > 0 OR
+             instr(lower(plaintext), ?) > 0
+           )`
+        : "";
+
+      const params = [Date.now()];
+      if (query) {
+        params.push(query, query, query, query, query, query);
+      }
+      params.push(limit, offset);
+
       const rows = this.ctx.storage.sql
         .exec(
           `SELECT
@@ -1588,12 +1651,10 @@ export class ModerationRoom {
              plaintext,
              attachment_mime_type
            FROM moderation_messages
-           WHERE expires_at > ?
+           WHERE expires_at > ?${searchClause}
            ORDER BY created_at DESC
            LIMIT ? OFFSET ?`,
-          Date.now(),
-          limit,
-          offset,
+          ...params,
         )
         .toArray();
 
@@ -2857,6 +2918,9 @@ export default {
       ) &&
       url.pathname.endsWith("/attachment");
 
+    const isModerationAdminDashboard =
+      url.pathname === "/v1/moderation/admin/dashboard";
+
     const isModerationAdminMessages =
       url.pathname === "/v1/moderation/admin/messages";
 
@@ -2876,9 +2940,14 @@ export default {
       isModerationAttachment ||
       isModerationReceivedMessages ||
       isModerationReceivedAttachment ||
+      isModerationAdminDashboard ||
       isModerationAdminMessages ||
       isModerationAdminAttachment
     ) {
+      const isAdminDashboardGet =
+        isModerationAdminDashboard &&
+        request.method === "GET";
+
       const isAdminMessagesGet =
         isModerationAdminMessages &&
         request.method === "GET";
@@ -2888,6 +2957,7 @@ export default {
         request.method === "GET";
 
       if (
+        !isAdminDashboardGet &&
         !isAdminMessagesGet &&
         !isAdminAttachmentGet &&
         request.method !== "POST"
@@ -2896,6 +2966,7 @@ export default {
           status: 405,
           headers: {
             Allow:
+              isModerationAdminDashboard ||
               isModerationAdminMessages ||
               isModerationAdminAttachment
                 ? "GET"
