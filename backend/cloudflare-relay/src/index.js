@@ -1461,6 +1461,18 @@ export class ModerationRoom {
       )
     `);
 
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS moderation_broadcasts (
+        broadcast_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        created_by TEXT NOT NULL,
+        attachment_mime_type TEXT,
+        attachment_size INTEGER
+      )
+    `);
+
     try {
       this.ctx.storage.sql.exec(
         `ALTER TABLE moderation_messages
@@ -1559,8 +1571,389 @@ export class ModerationRoom {
     return session;
   }
 
+  async createBroadcast(request) {
+    const session =
+      await this.authenticateModerationAdminSession(request);
+
+    if (!session) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    let body;
+    try {
+      body = await request.json();
+    } catch (_) {
+      return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return Response.json(
+        { error: "Request body must be a JSON object" },
+        { status: 400 },
+      );
+    }
+
+    if (
+      typeof body.title !== "string" ||
+      !body.title.trim() ||
+      body.title.trim().length > 160
+    ) {
+      return Response.json({ error: "Invalid title" }, { status: 400 });
+    }
+
+    if (
+      typeof body.message !== "string" ||
+      !body.message.trim()
+    ) {
+      return Response.json({ error: "Invalid message" }, { status: 400 });
+    }
+
+    if (new TextEncoder().encode(body.message).byteLength > 256 * 1024) {
+      return Response.json({ error: "Message too large" }, { status: 413 });
+    }
+
+    let mime = null;
+    if (body.attachmentMimeType != null) {
+      if (
+        typeof body.attachmentMimeType !== "string" ||
+        !body.attachmentMimeType.trim() ||
+        body.attachmentMimeType.length > 128
+      ) {
+        return Response.json(
+          { error: "Invalid attachment MIME type" },
+          { status: 400 },
+        );
+      }
+      mime = body.attachmentMimeType;
+    }
+
+    const id = crypto.randomUUID();
+    const createdAt = Date.now();
+    const createdBy =
+      typeof session.username === "string" &&
+      session.username.length > 0 &&
+      session.username.length <= 128
+        ? session.username
+        : "admin";
+
+    this.ctx.storage.sql.exec(
+      `INSERT INTO moderation_broadcasts
+       (broadcast_id, title, message, created_at, created_by,
+        attachment_mime_type, attachment_size)
+       VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+      id,
+      body.title.trim(),
+      body.message,
+      createdAt,
+      createdBy,
+      mime,
+    );
+
+    return Response.json(
+      {
+        ok: true,
+        broadcast: {
+          broadcast_id: id,
+          title: body.title.trim(),
+          message: body.message,
+          created_at: createdAt,
+          created_by: createdBy,
+          attachment_mime_type: mime,
+          attachment_size: null,
+        },
+      },
+      { status: 201 },
+    );
+  }
+
+  async listBroadcasts(request, adminOnly = false) {
+    const session = adminOnly
+      ? await this.authenticateModerationAdminSession(request)
+      : await this.authenticateModerationSession(request);
+
+    if (!session) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const url = new URL(request.url);
+    const rawLimit = url.searchParams.get("limit");
+    const rawOffset = url.searchParams.get("offset");
+    const limit = rawLimit == null ? 50 : Number(rawLimit);
+    const offset = rawOffset == null ? 0 : Number(rawOffset);
+
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 100 ||
+      !Number.isSafeInteger(offset) ||
+      offset < 0
+    ) {
+      return Response.json(
+        { error: "Invalid pagination parameters" },
+        { status: 400 },
+      );
+    }
+
+    const broadcasts = this.ctx.storage.sql.exec(
+      `SELECT broadcast_id, title, message, created_at, created_by,
+              attachment_mime_type, attachment_size
+         FROM moderation_broadcasts
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?`,
+      limit,
+      offset,
+    ).toArray();
+
+    return Response.json({ broadcasts });
+  }
+
+  async uploadBroadcastAttachment(request, broadcastId) {
+    const session =
+      await this.authenticateModerationAdminSession(request);
+
+    if (!session) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (
+      typeof broadcastId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(broadcastId)
+    ) {
+      return Response.json({ error: "Invalid broadcast ID" }, { status: 400 });
+    }
+
+    const row = this.ctx.storage.sql.exec(
+      `SELECT broadcast_id, attachment_mime_type
+         FROM moderation_broadcasts WHERE broadcast_id = ?`,
+      broadcastId,
+    ).one();
+
+    if (!row) {
+      return Response.json({ error: "Broadcast not found" }, { status: 404 });
+    }
+
+    if (
+      typeof row.attachment_mime_type !== "string" ||
+      !row.attachment_mime_type
+    ) {
+      return Response.json(
+        { error: "Broadcast does not declare an attachment MIME type" },
+        { status: 400 },
+      );
+    }
+
+    const contentType = request.headers.get("Content-Type");
+    if (contentType !== row.attachment_mime_type) {
+      return Response.json(
+        { error: "Attachment MIME type does not match metadata" },
+        { status: 400 },
+      );
+    }
+
+    const rawLength = request.headers.get("Content-Length");
+    if (rawLength != null) {
+      const declaredLength = Number(rawLength);
+      if (
+        !Number.isSafeInteger(declaredLength) ||
+        declaredLength < 0 ||
+        declaredLength > 8 * 1024 * 1024
+      ) {
+        return Response.json({ error: "Invalid attachment size" }, {
+          status: declaredLength > 8 * 1024 * 1024 ? 413 : 400,
+        });
+      }
+    }
+
+    // Read the body incrementally so a missing Content-Length cannot
+    // bypass the attachment limit before the complete body is buffered.
+    const maxAttachmentBytes = 8 * 1024 * 1024;
+    const reader = request.body?.getReader();
+
+    if (!reader) {
+      return Response.json({ error: "Empty attachment" }, { status: 400 });
+    }
+
+    const chunks = [];
+    let totalBytes = 0;
+    let tooLarge = false;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        totalBytes += value.byteLength;
+        if (totalBytes > maxAttachmentBytes) {
+          tooLarge = true;
+          try {
+            await reader.cancel();
+          } catch (_) {
+            // The request may already have closed.
+          }
+          break;
+        }
+
+        chunks.push(value);
+      }
+    } catch (_) {
+      return Response.json(
+        { error: "Unable to read attachment" },
+        { status: 400 },
+      );
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch (_) {
+        // The reader may already have released its lock.
+      }
+    }
+
+    if (tooLarge) {
+      return Response.json(
+        { error: "Attachment too large" },
+        { status: 413 },
+      );
+    }
+
+    if (totalBytes === 0) {
+      return Response.json({ error: "Empty attachment" }, { status: 400 });
+    }
+
+    const bytes = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    const key = `broadcasts/${broadcastId}/attachment`;
+    await this.env.MODERATION_ATTACHMENTS.put(key, bytes, {
+      httpMetadata: { contentType },
+    });
+
+    this.ctx.storage.sql.exec(
+      `UPDATE moderation_broadcasts SET attachment_size = ?
+        WHERE broadcast_id = ?`,
+      bytes.byteLength,
+      broadcastId,
+    );
+
+    return Response.json(
+      { ok: true, stored: true, size: bytes.byteLength },
+      { status: 201 },
+    );
+  }
+
+  async getBroadcastAttachment(request, broadcastId) {
+    const session = await this.authenticateModerationSession(request);
+
+    if (!session) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (
+      typeof broadcastId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(broadcastId)
+    ) {
+      return Response.json({ error: "Invalid broadcast ID" }, { status: 400 });
+    }
+
+    const row = this.ctx.storage.sql.exec(
+      `SELECT broadcast_id, attachment_mime_type, attachment_size
+         FROM moderation_broadcasts WHERE broadcast_id = ?`,
+      broadcastId,
+    ).one();
+
+    if (!row) {
+      return Response.json({ error: "Broadcast not found" }, { status: 404 });
+    }
+
+    if (
+      typeof row.attachment_mime_type !== "string" ||
+      !row.attachment_mime_type
+    ) {
+      return Response.json({ error: "Attachment not found" }, { status: 404 });
+    }
+
+    const object = await this.env.MODERATION_ATTACHMENTS.get(
+      `broadcasts/${broadcastId}/attachment`,
+    );
+
+    if (!object) {
+      return Response.json({ error: "Attachment not found" }, { status: 404 });
+    }
+
+    return new Response(object.body, {
+      status: 200,
+      headers: {
+        "Content-Type": row.attachment_mime_type,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
+
   async fetch(request) {
     const url = new URL(request.url);
+
+    if (
+      url.pathname === "/v1/moderation/admin/broadcasts" &&
+      request.method === "POST"
+    ) {
+      return this.createBroadcast(request);
+    }
+
+    if (url.pathname === "/v1/moderation/admin/broadcasts") {
+      if (request.method !== "GET") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "GET, POST" },
+        });
+      }
+      return this.listBroadcasts(request, true);
+    }
+
+    if (url.pathname === "/v1/moderation/broadcasts") {
+      if (request.method !== "GET") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "GET" },
+        });
+      }
+      return this.listBroadcasts(request, false);
+    }
+
+    const adminBroadcastAttachmentMatch = url.pathname.match(
+      /^\/v1\/moderation\/admin\/broadcasts\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/attachment$/i,
+    );
+    if (adminBroadcastAttachmentMatch) {
+      if (request.method !== "POST") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "POST" },
+        });
+      }
+      return this.uploadBroadcastAttachment(
+        request,
+        adminBroadcastAttachmentMatch[1],
+      );
+    }
+
+    const broadcastAttachmentMatch = url.pathname.match(
+      /^\/v1\/moderation\/broadcasts\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/attachment$/i,
+    );
+    if (broadcastAttachmentMatch) {
+      if (request.method !== "GET") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "GET" },
+        });
+      }
+      return this.getBroadcastAttachment(
+        request,
+        broadcastAttachmentMatch[1],
+      );
+    }
 
     if (
       request.method === "GET" &&
@@ -3184,6 +3577,20 @@ export default {
       ) &&
       url.pathname.endsWith("/attachment");
 
+    const isModerationAdminBroadcasts =
+      url.pathname === "/v1/moderation/admin/broadcasts";
+
+    const isModerationBroadcasts =
+      url.pathname === "/v1/moderation/broadcasts";
+
+    const isModerationAdminBroadcastAttachment =
+      url.pathname.startsWith("/v1/moderation/admin/broadcasts/") &&
+      url.pathname.endsWith("/attachment");
+
+    const isModerationBroadcastAttachment =
+      url.pathname.startsWith("/v1/moderation/broadcasts/") &&
+      url.pathname.endsWith("/attachment");
+
     const isModerationAdminDashboard =
       url.pathname === "/v1/moderation/admin/dashboard";
 
@@ -3221,6 +3628,10 @@ export default {
       isModerationReceivedAttachment ||
       isModerationReports ||
       isModerationAdminDashboard ||
+      isModerationAdminBroadcasts ||
+      isModerationBroadcasts ||
+      isModerationAdminBroadcastAttachment ||
+      isModerationBroadcastAttachment ||
       isModerationAdminReports ||
       isModerationAdminReportStatus ||
       isModerationAdminUsers ||
@@ -3229,6 +3640,18 @@ export default {
     ) {
       const isAdminDashboardGet =
         isModerationAdminDashboard &&
+        request.method === "GET";
+
+      const isAdminBroadcastsGet =
+        isModerationAdminBroadcasts &&
+        request.method === "GET";
+
+      const isBroadcastsGet =
+        isModerationBroadcasts &&
+        request.method === "GET";
+
+      const isBroadcastAttachmentGet =
+        isModerationBroadcastAttachment &&
         request.method === "GET";
 
       const isAdminUsersGet =
@@ -3249,6 +3672,9 @@ export default {
 
       if (
         !isAdminDashboardGet &&
+        !isAdminBroadcastsGet &&
+        !isBroadcastsGet &&
+        !isBroadcastAttachmentGet &&
         !isAdminUsersGet &&
         !isAdminReportsGet &&
         !isAdminMessagesGet &&
@@ -3258,12 +3684,17 @@ export default {
         return new Response("Method Not Allowed", {
           status: 405,
           headers: {
-            Allow:
-              isModerationAdminDashboard ||
-              isModerationAdminUsers ||
-              isModerationAdminReports ||
-              isModerationAdminMessages ||
-              isModerationAdminAttachment
+            Allow: isModerationAdminBroadcasts
+              ? "GET, POST"
+              : (
+                  isModerationAdminDashboard ||
+                  isModerationBroadcasts ||
+                  isModerationBroadcastAttachment ||
+                  isModerationAdminUsers ||
+                  isModerationAdminReports ||
+                  isModerationAdminMessages ||
+                  isModerationAdminAttachment
+                )
                 ? "GET"
                 : "POST",
           },

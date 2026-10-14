@@ -6,6 +6,7 @@ import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
 import '../crypto/signal_stores.dart';
 import 'moderation_message.dart';
+import 'stellar_broadcast.dart';
 
 class ModerationClient {
   ModerationClient({
@@ -336,6 +337,114 @@ class ModerationClient {
         response.statusCode,
       );
     }
+  }
+
+
+  Future<List<StellarBroadcast>> fetchBroadcasts({
+    required String nickname,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    if (limit < 1 || limit > 100 || offset < 0) {
+      throw ArgumentError('Invalid Broadcast pagination parameters');
+    }
+
+    await _ensureAuthenticated(nickname);
+
+    final uri = Uri.parse(
+      '$baseUrl/v1/moderation/broadcasts',
+    ).replace(
+      queryParameters: {
+        'limit': '$limit',
+        'offset': '$offset',
+      },
+    );
+
+    final request = await _client.getUrl(uri);
+    request.headers.set(
+      HttpHeaders.authorizationHeader,
+      'Bearer $_sessionToken',
+    );
+
+    final response = await request.close().timeout(
+      const Duration(seconds: 20),
+    );
+
+    final body = await utf8.decoder.bind(response).join();
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ModerationException(
+        body.isEmpty ? 'Broadcast list request failed' : body,
+        response.statusCode,
+      );
+    }
+
+    final decoded = jsonDecode(body);
+    if (decoded is! Map<String, dynamic> ||
+        decoded['broadcasts'] is! List) {
+      throw const FormatException(
+        'Invalid Broadcast list response',
+      );
+    }
+
+    return (decoded['broadcasts'] as List)
+        .map((item) {
+          if (item is! Map) {
+            throw const FormatException(
+              'Invalid Broadcast item',
+            );
+          }
+          return StellarBroadcast.fromJson(
+            Map<String, dynamic>.from(item),
+          );
+        })
+        .toList();
+  }
+
+  Future<Uint8List> fetchBroadcastAttachment({
+    required String broadcastId,
+    required String nickname,
+  }) async {
+    if (!RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+      caseSensitive: false,
+    ).hasMatch(broadcastId)) {
+      throw ArgumentError('Invalid Broadcast ID');
+    }
+
+    await _ensureAuthenticated(nickname);
+
+    final request = await _client.getUrl(
+      Uri.parse(
+        '$baseUrl/v1/moderation/broadcasts/$broadcastId/attachment',
+      ),
+    );
+
+    request.headers.set(
+      HttpHeaders.authorizationHeader,
+      'Bearer $_sessionToken',
+    );
+
+    final response = await request.close().timeout(
+      const Duration(seconds: 30),
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final body = await utf8.decoder.bind(response).join();
+      throw ModerationException(
+        body.isEmpty
+            ? 'Broadcast attachment download failed'
+            : body,
+        response.statusCode,
+      );
+    }
+
+    final bytes = await response.fold<List<int>>(
+      <int>[],
+      (buffer, chunk) => buffer..addAll(chunk),
+    );
+
+    return Uint8List.fromList(bytes);
   }
 
   Future<void> submitReport({

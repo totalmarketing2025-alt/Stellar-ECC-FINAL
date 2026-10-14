@@ -18,6 +18,7 @@ import '../presentation/screens/groups/group_management_screen.dart';
 import '../presentation/screens/groups/new_group_screen.dart';
 import '../presentation/screens/security/security_center_screen.dart';
 import '../presentation/screens/moderation/moderation_room_screen.dart';
+import '../presentation/screens/moderation/broadcast_inbox_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -63,6 +64,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/moderation',
         builder: (c, s) => const ModerationRoomScreen(),
+      ),
+      GoRoute(
+        path: '/broadcasts',
+        builder: (c, s) => const BroadcastInboxScreen(),
       ),
     ],
   );

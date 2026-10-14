@@ -3,6 +3,7 @@ import "package:flutter_riverpod/flutter_riverpod.dart";
 
 import "../../../core/moderation/moderation_admin_message.dart";
 import "../../state/app_providers.dart";
+import "moderation_broadcast_admin_tab.dart";
 
 class ModerationRoomScreen extends ConsumerStatefulWidget {
   const ModerationRoomScreen({super.key});
@@ -170,27 +171,43 @@ class _ModerationRoomScreenState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Moderation Room"),
-        actions: [
-          if (_authenticated)
-            IconButton(
-              tooltip: "Refresh",
-              onPressed: _loading ? null : _refresh,
-              icon: const Icon(Icons.refresh),
-            ),
-          if (_authenticated)
-            IconButton(
-              tooltip: "Logout",
-              onPressed: _loading ? null : _logout,
-              icon: const Icon(Icons.logout),
-            ),
-        ],
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text("Moderation Room"),
+          bottom: _authenticated
+              ? const TabBar(
+                  tabs: [
+                    Tab(text: "Messages"),
+                    Tab(text: "Broadcasts"),
+                  ],
+                )
+              : null,
+          actions: [
+            if (_authenticated)
+              IconButton(
+                tooltip: "Refresh",
+                onPressed: _loading ? null : _refresh,
+                icon: const Icon(Icons.refresh),
+              ),
+            if (_authenticated)
+              IconButton(
+                tooltip: "Logout",
+                onPressed: _loading ? null : _logout,
+                icon: const Icon(Icons.logout),
+              ),
+          ],
+        ),
+        body: !_authenticated
+            ? _buildLogin(context)
+            : TabBarView(
+                children: [
+                  _buildMessages(context),
+                  const ModerationBroadcastAdminTab(),
+                ],
+              ),
       ),
-      body: !_authenticated
-          ? _buildLogin(context)
-          : _buildMessages(context),
     );
   }
 

@@ -158,6 +158,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
           _SectionHeader('Notifications'),
           ListTile(
+            leading: const Icon(
+              Icons.campaign_outlined,
+              color: StellarColors.accentPurple,
+            ),
+            title: const Text('Broadcasts'),
+            subtitle: const Text('Announcements and attached files'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/broadcasts'),
+          ),
+          ListTile(
             leading: const Icon(Icons.notifications_outlined, color: StellarColors.accentPurple),
             title: const Text('Preview level'),
             subtitle: Text(_notificationPreviewLevelLabel(_notificationPreviewLevel)),
