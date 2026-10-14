@@ -293,6 +293,120 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
+  Future<void> _showReportDialog() async {
+    final localNickname = ref.read(localNicknameProvider);
+
+    if (localNickname == null || localNickname.trim().isEmpty) {
+      _showMessage(
+        'Set up your Stellar nickname before reporting a profile.',
+      );
+      return;
+    }
+
+    final target = widget.userId.trim().toLowerCase();
+
+    if (target.isEmpty ||
+        target == localNickname.trim().toLowerCase()) {
+      return;
+    }
+
+    const reasons = <String>[
+      'Spam',
+      'Harassment or abuse',
+      'Impersonation',
+      'Inappropriate profile',
+      'Scam or fraud',
+      'Other',
+    ];
+
+    String selectedReason = reasons.first;
+    final descriptionController = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: StellarColors.bgElevated,
+          title: Text('Report @$target'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Why are you reporting this profile?'),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: selectedReason,
+                  isExpanded: true,
+                  items: reasons.map((reason) {
+                    return DropdownMenuItem(
+                      value: reason,
+                      child: Text(reason),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() => selectedReason = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descriptionController,
+                  maxLength: 2000,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Additional details (optional)',
+                    hintText: 'Describe what happened',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const Text(
+                  'Your report will be sent to Stellar Moderator.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Submit report'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true || !mounted) {
+      descriptionController.dispose();
+      return;
+    }
+
+    try {
+      await ref.read(moderationClientProvider).submitReport(
+        target: target,
+        reason: selectedReason,
+        description: descriptionController.text,
+        nickname: localNickname,
+      );
+
+      if (mounted) {
+        _showMessage('Report submitted to Stellar Moderator.');
+      }
+    } catch (error) {
+      if (mounted) {
+        _showMessage('Could not submit report. $error');
+      }
+    } finally {
+      descriptionController.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final localNickname = ref.watch(localNicknameProvider);
@@ -432,17 +546,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             const Divider(color: StellarColors.bgElevated),
             ListTile(
               leading: const Icon(
-                Icons.block,
-                color: StellarColors.danger,
-              ),
-              title: const Text(
-                'Block',
-                style: TextStyle(color: StellarColors.danger),
-              ),
-              onTap: () {},
-            ),
-            ListTile(
-              leading: const Icon(
                 Icons.flag_outlined,
                 color: StellarColors.danger,
               ),
@@ -450,7 +553,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 'Report',
                 style: TextStyle(color: StellarColors.danger),
               ),
-              onTap: () {},
+              subtitle: const Text('Report this profile to Stellar Moderator'),
+              onTap: _showReportDialog,
             ),
           ],
         ],

@@ -338,6 +338,59 @@ class ModerationClient {
     }
   }
 
+  Future<void> submitReport({
+    required String target,
+    required String reason,
+    required String description,
+    required String nickname,
+  }) async {
+    final normalizedTarget = target.trim().toLowerCase();
+    final normalizedDescription = description.trim();
+
+    if (normalizedTarget.isEmpty || normalizedTarget.length > 128) {
+      throw ArgumentError('Invalid report target');
+    }
+
+    if (reason.trim().isEmpty || reason.length > 64) {
+      throw ArgumentError('Invalid report reason');
+    }
+
+    if (normalizedDescription.length > 2000) {
+      throw ArgumentError('Report description is too long');
+    }
+
+    await _ensureAuthenticated(nickname);
+
+    final request = await _client.postUrl(
+      Uri.parse('$baseUrl/v1/moderation/reports'),
+    );
+
+    request.headers.contentType = ContentType.json;
+    request.headers.set(
+      HttpHeaders.authorizationHeader,
+      'Bearer $_sessionToken',
+    );
+
+    request.write(jsonEncode({
+      'target': normalizedTarget,
+      'reason': reason.trim(),
+      'description': normalizedDescription,
+    }));
+
+    final response = await request.close().timeout(
+      const Duration(seconds: 15),
+    );
+
+    final body = await utf8.decoder.bind(response).join();
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ModerationException(
+        body.isEmpty ? 'Report submission failed' : body,
+        response.statusCode,
+      );
+    }
+  }
+
   void dispose() {
     _sessionToken = null;
     _sessionExpiresAt = null;

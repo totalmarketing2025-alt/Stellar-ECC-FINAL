@@ -1435,6 +1435,19 @@ export class ModerationRoom {
     this.env = env;
 
     this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS moderation_reports (
+        report_id TEXT PRIMARY KEY,
+        reporter TEXT NOT NULL,
+        target TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        description TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
+    this.ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS moderation_messages (
         message_id TEXT PRIMARY KEY,
         sender TEXT NOT NULL,
@@ -1667,6 +1680,85 @@ export class ModerationRoom {
         .one();
 
       return Response.json({ stats });
+    }
+
+    if (
+      request.method === "GET" &&
+      url.pathname === "/v1/moderation/admin/reports"
+    ) {
+      const session =
+        await this.authenticateModerationAdminSession(request);
+
+      if (!session) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      const reports = this.ctx.storage.sql.exec(
+        `SELECT report_id, reporter, target, reason, description,
+                status, created_at, updated_at
+           FROM moderation_reports
+          ORDER BY created_at DESC
+          LIMIT 500`,
+      ).toArray();
+
+      return Response.json({ reports });
+    }
+
+    const reportStatusMatch = url.pathname.match(
+      /^\/v1\/moderation\/admin\/reports\/([a-f0-9-]+)\/status$/i
+    );
+
+    if (request.method === "POST" && reportStatusMatch) {
+      const session =
+        await this.authenticateModerationAdminSession(request);
+
+      if (!session) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+
+      const allowedStatuses = [
+        "open", "reviewing", "resolved", "dismissed"
+      ];
+
+      if (!body || !allowedStatuses.includes(body.status)) {
+        return Response.json(
+          { error: "Invalid report status" },
+          { status: 400 },
+        );
+      }
+
+      const reportId = reportStatusMatch[1];
+      const updatedAt = Date.now();
+
+      const result = this.ctx.storage.sql.exec(
+        `UPDATE moderation_reports
+            SET status = ?, updated_at = ?
+          WHERE report_id = ?`,
+        body.status,
+        updatedAt,
+        reportId,
+      );
+
+      if (result.rowsWritten === 0) {
+        return Response.json(
+          { error: "Report not found" },
+          { status: 404 },
+        );
+      }
+
+      return Response.json({
+        ok: true,
+        reportId,
+        status: body.status,
+        updatedAt,
+      });
     }
 
     if (
@@ -2283,6 +2375,101 @@ export class ModerationRoom {
         token: sessionToken,
         expiresAt: sessionExpiresAt,
       });
+    }
+
+    if (
+      request.method === "POST" &&
+      url.pathname === "/v1/moderation/reports"
+    ) {
+      const session =
+        await this.authenticateModerationSession(request);
+
+      if (!session) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return Response.json(
+          { error: "Request body must be a JSON object" },
+          { status: 400 },
+        );
+      }
+
+      const target =
+        typeof body.target === "string"
+          ? body.target.trim().toLowerCase()
+          : "";
+
+      const reason =
+        typeof body.reason === "string" ? body.reason.trim() : "";
+
+      const description =
+        typeof body.description === "string"
+          ? body.description.trim()
+          : "";
+
+      if (
+        !target ||
+        target.length > 128 ||
+        target === String(session.nickname).trim().toLowerCase()
+      ) {
+        return Response.json(
+          { error: "Invalid report target" },
+          { status: 400 },
+        );
+      }
+
+      const allowedReasons = [
+        "Spam",
+        "Harassment or abuse",
+        "Impersonation",
+        "Inappropriate profile",
+        "Scam or fraud",
+        "Other",
+      ];
+
+      if (!allowedReasons.includes(reason)) {
+        return Response.json(
+          { error: "Invalid report reason" },
+          { status: 400 },
+        );
+      }
+
+      if (description.length > 2000) {
+        return Response.json(
+          { error: "Description too long" },
+          { status: 400 },
+        );
+      }
+
+      const now = Date.now();
+      const reportId = crypto.randomUUID();
+
+      this.ctx.storage.sql.exec(
+        `INSERT INTO moderation_reports
+          (report_id, reporter, target, reason, description,
+           status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 'open', ?, ?)`,
+        reportId,
+        session.nickname,
+        target,
+        reason,
+        description,
+        now,
+        now,
+      );
+
+      return Response.json(
+        { ok: true, reportId, status: "open" },
+        { status: 201 },
+      );
     }
 
     const receivedAttachmentPrefix =
@@ -3006,6 +3193,16 @@ export default {
     const isModerationAdminMessages =
       url.pathname === "/v1/moderation/admin/messages";
 
+    const isModerationReports =
+      url.pathname === "/v1/moderation/reports";
+
+    const isModerationAdminReports =
+      url.pathname === "/v1/moderation/admin/reports";
+
+    const isModerationAdminReportStatus =
+      /^\/v1\/moderation\/admin\/reports\/[a-f0-9-]+\/status$/i
+        .test(url.pathname);
+
     const isModerationAdminAttachment =
       url.pathname.startsWith(
         "/v1/moderation/admin/messages/",
@@ -3022,7 +3219,10 @@ export default {
       isModerationAttachment ||
       isModerationReceivedMessages ||
       isModerationReceivedAttachment ||
+      isModerationReports ||
       isModerationAdminDashboard ||
+      isModerationAdminReports ||
+      isModerationAdminReportStatus ||
       isModerationAdminUsers ||
       isModerationAdminMessages ||
       isModerationAdminAttachment
@@ -3033,6 +3233,10 @@ export default {
 
       const isAdminUsersGet =
         isModerationAdminUsers &&
+        request.method === "GET";
+
+      const isAdminReportsGet =
+        isModerationAdminReports &&
         request.method === "GET";
 
       const isAdminMessagesGet =
@@ -3046,6 +3250,7 @@ export default {
       if (
         !isAdminDashboardGet &&
         !isAdminUsersGet &&
+        !isAdminReportsGet &&
         !isAdminMessagesGet &&
         !isAdminAttachmentGet &&
         request.method !== "POST"
@@ -3056,6 +3261,7 @@ export default {
             Allow:
               isModerationAdminDashboard ||
               isModerationAdminUsers ||
+              isModerationAdminReports ||
               isModerationAdminMessages ||
               isModerationAdminAttachment
                 ? "GET"
