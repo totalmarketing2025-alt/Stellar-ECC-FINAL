@@ -48,4 +48,20 @@ jobs:
           fi
           printf '%s' "$FCM_CLIENT_EMAIL" | npx wrangler versions secret put FCM_CLIENT_EMAIL
           printf '%s' "$FCM_PRIVATE_KEY" | npx wrangler versions secret put FCM_PRIVATE_KEY
+      - name: Configure Moderator Login Secrets
+        working-directory: backend/cloudflare-relay
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          MODERATOR_USERNAME: ${{ secrets.MODERATOR_USERNAME }}
+          MODERATOR_PASSWORD: ${{ secrets.MODERATOR_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$MODERATOR_USERNAME" || -z "$MODERATOR_PASSWORD" ]]; then
+            echo "::error::Moderator GitHub Secrets are missing."
+            exit 1
+          fi
+          printf '%s' "$MODERATOR_USERNAME" | npx wrangler secret put MODERATOR_USERNAME
+          printf '%s' "$MODERATOR_PASSWORD" | npx wrangler secret put MODERATOR_PASSWORD
+
 # FCM deploy trigger

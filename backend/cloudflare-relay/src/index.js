@@ -425,6 +425,8 @@ const RELAY_ACK_OK_PREFIX =
 const RELAY_AUTH_TTL_MS = 60 * 1000;
 
 const MODERATION_AUTH_TTL_MS = 60 * 1000;
+// Admin login sessions last 8 hours; challenges remain short-lived.
+const MODERATION_ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 
 function createRelayChallenge() {
   const bytes = crypto.getRandomValues(
@@ -463,6 +465,31 @@ function createModerationAdminChallenge() {
   );
 
   return base64UrlEncode(bytes);
+}
+
+async function constantTimeStringEqual(candidate, expected) {
+  if (
+    typeof candidate !== "string" ||
+    typeof expected !== "string"
+  ) {
+    return false;
+  }
+
+  const encoder = new TextEncoder();
+  const [candidateHash, expectedHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(candidate)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ]);
+
+  const a = new Uint8Array(candidateHash);
+  const b = new Uint8Array(expectedHash);
+  let difference = 0;
+
+  for (let i = 0; i < a.length; i++) {
+    difference |= a[i] ^ b[i];
+  }
+
+  return difference === 0;
 }
 
 async function verifyModerationAdminProof({
@@ -1676,6 +1703,124 @@ export class ModerationRoom {
 
     if (
       request.method === "POST" &&
+      url.pathname === "/v1/moderation/admin/login"
+    ) {
+      const expectedUsername = this.env.MODERATOR_USERNAME;
+      const expectedPassword = this.env.MODERATOR_PASSWORD;
+
+      if (
+        typeof expectedUsername !== "string" ||
+        expectedUsername.length === 0 ||
+        typeof expectedPassword !== "string" ||
+        expectedPassword.length === 0
+      ) {
+        return Response.json(
+          { error: "Moderator login is not configured" },
+          { status: 503 },
+        );
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return Response.json(
+          { error: "Invalid JSON" },
+          { status: 400 },
+        );
+      }
+
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return Response.json(
+          { error: "Request body must be a JSON object" },
+          { status: 400 },
+        );
+      }
+
+      const username =
+        typeof body.username === "string" ? body.username : "";
+      const password =
+        typeof body.password === "string" ? body.password : "";
+
+      if (
+        username.length === 0 ||
+        username.length > 128 ||
+        password.length === 0 ||
+        password.length > 1024
+      ) {
+        return Response.json(
+          { error: "Invalid username or password" },
+          { status: 401 },
+        );
+      }
+
+      // Limit failed login attempts per client IP.
+      const clientIp =
+        request.headers.get("CF-Connecting-IP") || "unknown";
+      const attemptKey =
+        `moderation-admin-login-attempts:${clientIp}`;
+      const now = Date.now();
+      let attempts = await this.ctx.storage.get(attemptKey);
+
+      if (
+        !attempts ||
+        typeof attempts.windowStartedAt !== "number" ||
+        typeof attempts.count !== "number" ||
+        attempts.windowStartedAt + 5 * 60 * 1000 <= now
+      ) {
+        attempts = { count: 0, windowStartedAt: now };
+      }
+
+      if (attempts.count >= 5) {
+        return Response.json(
+          { error: "Too many login attempts. Try again in a few minutes." },
+          {
+            status: 429,
+            headers: { "Retry-After": "300" },
+          },
+        );
+      }
+
+      attempts.count += 1;
+      await this.ctx.storage.put(attemptKey, attempts);
+
+      const usernameValid = await constantTimeStringEqual(
+        username,
+        expectedUsername,
+      );
+      const passwordValid = await constantTimeStringEqual(
+        password,
+        expectedPassword,
+      );
+
+      if (!usernameValid || !passwordValid) {
+        return Response.json(
+          { error: "Invalid username or password" },
+          { status: 401 },
+        );
+      }
+
+      await this.ctx.storage.delete(attemptKey);
+
+      const sessionToken = createModerationSessionToken();
+      const expiresAt = Date.now() + MODERATION_ADMIN_SESSION_TTL_MS;
+
+      await this.ctx.storage.put(
+        `moderation-admin-session:${sessionToken}`,
+        {
+          role: "admin",
+          expiresAt,
+        },
+      );
+
+      return Response.json({
+        token: sessionToken,
+        expiresAt,
+      });
+    }
+
+    if (
+      request.method === "POST" &&
       url.pathname === "/v1/moderation/admin/challenge"
     ) {
       const challenge = createModerationAdminChallenge();
@@ -2725,6 +2870,7 @@ export default {
       url.pathname === "/v1/messages" ||
       url.pathname === "/v1/moderation/auth/challenge" ||
       url.pathname === "/v1/moderation/auth/verify" ||
+      url.pathname === "/v1/moderation/admin/login" ||
       url.pathname === "/v1/moderation/admin/challenge" ||
       url.pathname === "/v1/moderation/admin/verify" ||
       isModerationAttachment ||
