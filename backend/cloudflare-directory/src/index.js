@@ -1758,6 +1758,40 @@ export class DirectoryStore {
       }, 201);
     }
 
+    if (
+      request.method === "GET" &&
+      url.pathname === "/v1/internal/moderation-users"
+    ) {
+      const authorization =
+        request.headers.get("Authorization") || "";
+
+      const expectedSecret =
+        this.env.RELAY_SHARED_SECRET || "";
+
+      if (
+        !expectedSecret ||
+        authorization !== `Bearer ${expectedSecret}`
+      ) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+
+      const result = await this.ctx.storage.list({
+        prefix: "user:",
+      });
+
+      const users = [];
+
+      for (const value of result.values()) {
+        if (value && typeof value.nickname === "string") {
+          users.push(value.nickname);
+        }
+      }
+
+      users.sort((a, b) => a.localeCompare(b));
+
+      return json({ users });
+    }
+
     if (request.method === "GET" && url.pathname === "/v1/users") {
       const result = await this.ctx.storage.list({
         prefix: "user:",

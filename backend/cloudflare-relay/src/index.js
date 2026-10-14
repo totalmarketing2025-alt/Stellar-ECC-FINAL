@@ -1551,6 +1551,85 @@ export class ModerationRoom {
 
     if (
       request.method === "GET" &&
+      url.pathname === "/v1/moderation/admin/users"
+    ) {
+      const session =
+        await this.authenticateModerationAdminSession(request);
+
+      if (!session) {
+        return Response.json(
+          { error: "Unauthorized" },
+          { status: 401 },
+        );
+      }
+
+      const directoryUrl = this.env.DIRECTORY_URL;
+      const sharedSecret = this.env.RELAY_SHARED_SECRET;
+
+      if (!directoryUrl || !sharedSecret) {
+        return Response.json(
+          { error: "Directory service is not configured" },
+          { status: 503 },
+        );
+      }
+
+      let response;
+
+      try {
+        const endpoint =
+          `${directoryUrl.replace(/\/+$/, "")}/v1/internal/moderation-users`;
+
+        response = await fetch(endpoint, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${sharedSecret}`,
+            Accept: "application/json",
+          },
+        });
+      } catch (_) {
+        return Response.json(
+          { error: "Directory service unavailable" },
+          { status: 502 },
+        );
+      }
+
+      if (!response.ok) {
+        return Response.json(
+          { error: "Directory service request failed" },
+          { status: 502 },
+        );
+      }
+
+      let data;
+
+      try {
+        data = await response.json();
+      } catch (_) {
+        return Response.json(
+          { error: "Invalid Directory response" },
+          { status: 502 },
+        );
+      }
+
+      if (!data || !Array.isArray(data.users)) {
+        return Response.json(
+          { error: "Invalid Directory response" },
+          { status: 502 },
+        );
+      }
+
+      const users = data.users.filter(
+        (nickname) =>
+          typeof nickname === "string" &&
+          nickname.length > 0 &&
+          nickname.length <= 128,
+      );
+
+      return Response.json({ users });
+    }
+
+    if (
+      request.method === "GET" &&
       url.pathname === "/v1/moderation/admin/dashboard"
     ) {
       const session =
@@ -2921,6 +3000,9 @@ export default {
     const isModerationAdminDashboard =
       url.pathname === "/v1/moderation/admin/dashboard";
 
+    const isModerationAdminUsers =
+      url.pathname === "/v1/moderation/admin/users";
+
     const isModerationAdminMessages =
       url.pathname === "/v1/moderation/admin/messages";
 
@@ -2941,11 +3023,16 @@ export default {
       isModerationReceivedMessages ||
       isModerationReceivedAttachment ||
       isModerationAdminDashboard ||
+      isModerationAdminUsers ||
       isModerationAdminMessages ||
       isModerationAdminAttachment
     ) {
       const isAdminDashboardGet =
         isModerationAdminDashboard &&
+        request.method === "GET";
+
+      const isAdminUsersGet =
+        isModerationAdminUsers &&
         request.method === "GET";
 
       const isAdminMessagesGet =
@@ -2958,6 +3045,7 @@ export default {
 
       if (
         !isAdminDashboardGet &&
+        !isAdminUsersGet &&
         !isAdminMessagesGet &&
         !isAdminAttachmentGet &&
         request.method !== "POST"
@@ -2967,6 +3055,7 @@ export default {
           headers: {
             Allow:
               isModerationAdminDashboard ||
+              isModerationAdminUsers ||
               isModerationAdminMessages ||
               isModerationAdminAttachment
                 ? "GET"
