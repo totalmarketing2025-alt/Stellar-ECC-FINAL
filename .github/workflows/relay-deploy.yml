@@ -33,35 +33,42 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npm run deploy
 
-      - name: Configure FCM Worker Secrets
+      - name: Configure Worker Secrets
         working-directory: backend/cloudflare-relay
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           FCM_CLIENT_EMAIL: ${{ secrets.FCM_CLIENT_EMAIL }}
           FCM_PRIVATE_KEY: ${{ secrets.FCM_PRIVATE_KEY }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "$FCM_CLIENT_EMAIL" || -z "$FCM_PRIVATE_KEY" ]]; then
-            echo "::error::FCM GitHub Secrets are missing."
-            exit 1
-          fi
-          printf '%s' "$FCM_CLIENT_EMAIL" | npx wrangler versions secret put FCM_CLIENT_EMAIL
-          printf '%s' "$FCM_PRIVATE_KEY" | npx wrangler versions secret put FCM_PRIVATE_KEY
-      - name: Configure Moderator Login Secrets
-        working-directory: backend/cloudflare-relay
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           MODERATOR_USERNAME: ${{ secrets.MODERATOR_USERNAME }}
           MODERATOR_PASSWORD: ${{ secrets.MODERATOR_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$MODERATOR_USERNAME" || -z "$MODERATOR_PASSWORD" ]]; then
-            echo "::error::Moderator GitHub Secrets are missing."
+          if [[ -z "$FCM_CLIENT_EMAIL" || -z "$FCM_PRIVATE_KEY" ||
+                -z "$MODERATOR_USERNAME" || -z "$MODERATOR_PASSWORD" ]]; then
+            echo "::error::One or more required Worker GitHub Secrets are missing."
             exit 1
           fi
-          printf '%s' "$MODERATOR_USERNAME" | npx wrangler secret put MODERATOR_USERNAME
-          printf '%s' "$MODERATOR_PASSWORD" | npx wrangler secret put MODERATOR_PASSWORD
+
+          secret_file="$(mktemp)"
+          trap 'rm -f "$secret_file"' EXIT
+          chmod 600 "$secret_file"
+
+          node - "$secret_file" <<'NODE'
+          const fs = require("node:fs");
+          const file = process.argv[2];
+          const names = [
+            "FCM_CLIENT_EMAIL",
+            "FCM_PRIVATE_KEY",
+            "MODERATOR_USERNAME",
+            "MODERATOR_PASSWORD",
+          ];
+          const values = Object.fromEntries(
+            names.map((name) => [name, process.env[name]])
+          );
+          fs.writeFileSync(file, JSON.stringify(values), { mode: 0o600 });
+          NODE
+
+          npx wrangler secret bulk "$secret_file"
 
 # FCM deploy trigger
