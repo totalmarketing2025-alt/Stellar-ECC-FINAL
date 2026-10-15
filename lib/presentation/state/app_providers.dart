@@ -21,6 +21,7 @@ import '../../core/calls/call_service.dart';
 import '../../data/repositories/chat_repository.dart';
 import '../../domain/models/chat.dart';
 import '../../domain/models/message.dart';
+import '../../domain/models/call_event.dart';
 
 const _relayUrl =
     'wss://stellar-ecc-final.totalmarketing2025.workers.dev/v1/connect';
@@ -121,6 +122,21 @@ final callCoordinatorProvider = Provider<CallCoordinator>((ref) {
     signalRouter: ref.watch(callSignalRouterProvider),
     callService: ref.watch(callServiceProvider),
     platformBridge: ref.watch(callPlatformBridgeProvider),
+    onCallHistoryEvent: (event) async {
+      final repo = ref.read(chatRepositoryProvider);
+      final chatRow = await repo.db.chatDao.byId(event.chatId);
+      if (chatRow == null || chatRow['chat_type'] != 'direct') return;
+
+      final ttlValue = chatRow['default_ttl_sec'];
+      final ttl = ttlValue is int && ttlValue > 0 ? ttlValue : 3600;
+      await repo.sendDirectMessage(
+        chatId: event.chatId,
+        plaintext: event.encode(),
+        ttlSeconds: ttl,
+      );
+      ref.invalidate(chatMessagesProvider(event.chatId));
+      ref.invalidate(chatListProvider);
+    },
   );
 
   coordinator.start();

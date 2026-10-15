@@ -442,7 +442,10 @@ class ChatDao {
       SELECT
         c.*,
         (
-          SELECT m.body_plaintext
+          SELECT CASE
+            WHEN m.body_plaintext LIKE 'STELLAR_CALL_EVENT_V1:%' THEN 'Call'
+            ELSE m.body_plaintext
+          END
           FROM message m
           WHERE m.chat_id = c.chat_id
             AND m.expires_at > ?

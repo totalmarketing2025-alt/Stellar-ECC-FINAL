@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../domain/models/call_session.dart';
+import '../../domain/models/call_event.dart';
 import 'call_platform_bridge.dart';
 import 'call_service.dart';
 import 'call_signal_router.dart';
@@ -12,11 +13,16 @@ class CallCoordinator {
     required CallSignalRouter signalRouter,
     required CallService callService,
     required CallPlatformBridge platformBridge,
+    this.onCallHistoryEvent,
   })  : _signalRouter = signalRouter,
         _callService = callService;
 
   final CallSignalRouter _signalRouter;
   final CallService _callService;
+
+  final Future<void> Function(CallEventPayload event)? onCallHistoryEvent;
+  final Set<String> _historyStartedCallIds = <String>{};
+  final Set<String> _historyTerminalCallIds = <String>{};
 
   StreamSubscription<CallSignal>? _subscription;
   Timer? _ringTimeout;
@@ -76,6 +82,7 @@ class CallCoordinator {
         break;
 
       case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
+        _publishHistory(session, phase: 'ended', outcome: 'failed');
         _activeSession = session.copyWith(
           state: CallState.failed,
         );
@@ -141,6 +148,7 @@ class CallCoordinator {
 
     _lastSignal = null;
     _sessionController.add(_activeSession);
+    _publishHistory(_activeSession!, phase: 'started');
 
     try {
       await _callService.start(
@@ -153,6 +161,11 @@ class CallCoordinator {
     } catch (_) {
       // A failed older start must not tear down a newer call.
       if (_activeSession?.callId == callId) {
+        _publishHistory(
+          _activeSession!,
+          phase: 'ended',
+          outcome: 'failed',
+        );
         try {
           await _callService.end();
         } catch (cleanupError) {
@@ -180,11 +193,56 @@ class CallCoordinator {
     return bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
   }
 
+  void _publishHistory(
+    CallSession session, {
+    required String phase,
+    String? outcome,
+  }) {
+    final callback = onCallHistoryEvent;
+    if (callback == null) return;
+
+    final terminal = phase == 'ended';
+    final seen = terminal
+        ? _historyTerminalCallIds
+        : _historyStartedCallIds;
+    if (!seen.add(session.callId)) return;
+    while (seen.length > 256) {
+      seen.remove(seen.first);
+    }
+
+    int? durationSeconds;
+    if (terminal && session.connectedAt != null) {
+      durationSeconds = DateTime.now()
+          .difference(session.connectedAt!)
+          .inSeconds
+          .clamp(0, 604800)
+          .toInt();
+    }
+
+    final event = CallEventPayload(
+      callId: session.callId,
+      chatId: session.chatId,
+      phase: phase,
+      kind: session.kind == CallKind.video ? 'video' : 'voice',
+      outcome: outcome,
+      durationSeconds: durationSeconds,
+    );
+
+    unawaited(callback(event).catchError((Object error) {
+      print('CALL_HISTORY_EVENT_FAILED: $error');
+    }));
+  }
+
   Future<void> endActiveCall() async {
     _ringTimeout?.cancel();
 
     final session = _activeSession;
     if (session != null) {
+      _publishHistory(
+        session,
+        phase: 'ended',
+        outcome: session.connectedAt != null ? 'completed' : 'cancelled',
+      );
       _activeSession = session.copyWith(
         state: CallState.ended,
       );
@@ -272,6 +330,12 @@ class CallCoordinator {
             currentSession?.state != CallState.ringing) {
           return;
         }
+
+        _publishHistory(
+          session,
+          phase: 'ended',
+          outcome: 'no_answer',
+        );
 
         final remoteNickname = _activeSession?.remoteNickname;
 
@@ -399,6 +463,7 @@ class CallCoordinator {
         return;
       }
 
+      _publishHistory(session, phase: 'ended', outcome: 'failed');
       _activeSession = _activeSession?.copyWith(
         state: CallState.failed,
       );
@@ -519,6 +584,11 @@ class CallCoordinator {
           // Do not clear a different call if the active session changed
           // while the asynchronous answer operation was running.
           if (_activeSession?.callId == session.callId) {
+            _publishHistory(
+              session,
+              phase: 'ended',
+              outcome: 'failed',
+            );
             _activeSession = _activeSession?.copyWith(
               state: CallState.failed,
             );
@@ -556,6 +626,11 @@ class CallCoordinator {
                 ? CallKind.video
                 : CallKind.voice,
           );
+          _publishHistory(
+            session,
+            phase: 'ended',
+            outcome: 'declined',
+          );
         } catch (error) {
           print('CALL_REJECT_FAILED: $error');
 
@@ -591,6 +666,11 @@ class CallCoordinator {
         break;
 
       case 'end':
+        _publishHistory(
+          session,
+          phase: 'ended',
+          outcome: session.connectedAt != null ? 'completed' : 'cancelled',
+        );
         _ringTimeout?.cancel();
         unawaited(_callService.end());
 

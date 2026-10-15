@@ -10,10 +10,12 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
 import '../../../domain/models/message.dart';
+import '../../../domain/models/call_event.dart';
 import '../../../domain/models/chat.dart';
 import '../../state/app_providers.dart';
 import '../../widgets/stellar_avatar.dart';
 import '../../widgets/message_bubble.dart';
+import '../../widgets/call_event_card.dart';
 import '../../widgets/ttl_picker_sheet.dart';
 import '../../widgets/attachment_picker_sheet.dart';
 import '../../../core/media/attachment_payload.dart';
@@ -138,14 +140,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         style: TextStyle(color: StellarColors.textSecondary)),
                   );
                 }
+                final timeline = _buildChatTimeline(messages);
                 return ListView.builder(
                   controller: _scrollController,
                   reverse: true,
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  itemCount: messages.length,
+                  itemCount: timeline.length,
                   itemBuilder: (context, index) {
-                    final message = messages[messages.length - 1 - index];
+                    final item = timeline[timeline.length - 1 - index];
                     final localNickname = ref.read(localNicknameProvider);
+
+                    if (item.callGroup != null) {
+                      return CallEventCard(
+                        events: item.callGroup!.messages,
+                        localNickname: localNickname ?? '',
+                      );
+                    }
+
+                    final message = item.message!;
                     return MessageBubble(
                       message: message,
                       isOutgoing: message.senderId == localNickname,
@@ -192,6 +204,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ],
       ),
     );
+  }
+
+  List<_ChatTimelineItem> _buildChatTimeline(List<Message> messages) {
+    final timeline = <_ChatTimelineItem>[];
+    final groups = <String, _CallEventTimelineGroup>{};
+
+    for (final message in messages) {
+      final event = CallEventPayload.tryParse(message.bodyPlaintext);
+      if (event == null || event.chatId != widget.chatId) {
+        timeline.add(_ChatTimelineItem.message(message));
+        continue;
+      }
+
+      final group = groups.putIfAbsent(event.callId, () {
+        final created = _CallEventTimelineGroup();
+        timeline.add(_ChatTimelineItem.call(created));
+        return created;
+      });
+      group.messages.add(message);
+    }
+
+    return timeline;
   }
 
   Future<void> _handleAttach() async {
@@ -709,4 +743,17 @@ class _Composer extends StatelessWidget {
 
 extension _FirstOrNull<T> on Iterable<T> {
   T? get firstOrNull => isEmpty ? null : first;
+}
+
+
+class _ChatTimelineItem {
+  const _ChatTimelineItem.message(this.message) : callGroup = null;
+  const _ChatTimelineItem.call(this.callGroup) : message = null;
+
+  final Message? message;
+  final _CallEventTimelineGroup? callGroup;
+}
+
+class _CallEventTimelineGroup {
+  final List<Message> messages = <Message>[];
 }
