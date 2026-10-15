@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
+import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -198,7 +201,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => const AttachmentPickerSheet(),
     );
-    if (path == null || path == 'voice' || !mounted) return;
+    if (!mounted || path == null) return;
+
+    if (path == 'voice') {
+      await _recordVoiceMessage();
+      return;
+    }
 
     final file = File(path);
     if (!await file.exists()) return;
@@ -235,6 +243,145 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           attachmentMimeType: mimeType,
         );
 
+    ref.invalidate(chatMessagesProvider(widget.chatId));
+    ref.invalidate(chatListProvider);
+  }
+
+
+  Future<void> _recordVoiceMessage() async {
+    final recorder = AudioRecorder();
+    String? recordingPath;
+    bool recordingStarted = false;
+
+    try {
+      final hasPermission = await recorder.hasPermission();
+      if (!hasPermission) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Microphone permission is required.')),
+          );
+        }
+        return;
+      }
+
+      final directory = await getTemporaryDirectory();
+      recordingPath =
+          '${directory.path}/stellar_voice_${DateTime.now().microsecondsSinceEpoch}.m4a';
+
+      await recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 96000,
+          sampleRate: 44100,
+        ),
+        path: recordingPath,
+      );
+      recordingStarted = true;
+
+      if (!mounted) return;
+
+      final shouldSend = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Voice message'),
+          content: const Text(
+            'Recording is in progress. Press Stop & Send when finished, '
+            'or Cancel to discard the recording.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              icon: const Icon(Icons.stop),
+              label: const Text('Stop & Send'),
+            ),
+          ],
+        ),
+      );
+
+      final stoppedPath = await recorder.stop();
+      recordingStarted = false;
+
+      if (shouldSend != true || stoppedPath == null || !mounted) return;
+
+      final file = File(stoppedPath);
+      if (!await file.exists()) {
+        throw StateError('The recording file was not created.');
+      }
+
+      final length = await file.length();
+      if (length == 0) {
+        throw StateError('The recording is empty.');
+      }
+
+      if (length > AttachmentPayload.maxBytes) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Voice message exceeds the 8 MB limit.'),
+            ),
+          );
+        }
+        return;
+      }
+
+      final bytes = await file.readAsBytes();
+      if (!mounted) return;
+
+      await _sendVoiceMessage(bytes);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not record voice message: $error')),
+        );
+      }
+    } finally {
+      if (recordingStarted) {
+        try {
+          await recorder.stop();
+        } catch (_) {}
+      }
+
+      try {
+        await recorder.dispose();
+      } catch (_) {}
+
+      if (recordingPath != null) {
+        try {
+          final file = File(recordingPath);
+          if (await file.exists()) await file.delete();
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<void> _sendVoiceMessage(Uint8List bytes) async {
+    final chatsAsync = ref.read(chatListProvider);
+    final chat = chatsAsync.maybeWhen(
+      data: (chats) => chats
+          .where((c) => c.chatId == widget.chatId)
+          .cast<Chat?>()
+          .firstOrNull,
+      orElse: () => null,
+    );
+
+    final ttl = _perMessageTtlOverride >= 0
+        ? _perMessageTtlOverride
+        : (chat?.defaultTtlSeconds ?? TtlPreset.oneHour);
+
+    await ref.read(chatRepositoryProvider).sendDirectMessage(
+      chatId: widget.chatId,
+      plaintext: '🎤 Voice message',
+      ttlSeconds: ttl,
+      attachmentBytes: bytes,
+      attachmentMimeType: 'audio/mp4',
+    );
+
+    if (!mounted) return;
     ref.invalidate(chatMessagesProvider(widget.chatId));
     ref.invalidate(chatListProvider);
   }

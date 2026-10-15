@@ -1,11 +1,121 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/stellar_theme.dart';
 import '../../domain/models/message.dart';
 import 'expiry_ring.dart';
+
+
+class _AudioAttachmentPlayer extends StatefulWidget {
+  const _AudioAttachmentPlayer({required this.bytesFuture});
+
+  final Future<Uint8List> bytesFuture;
+
+  @override
+  State<_AudioAttachmentPlayer> createState() =>
+      _AudioAttachmentPlayerState();
+}
+
+class _AudioAttachmentPlayerState extends State<_AudioAttachmentPlayer> {
+  late final AudioPlayer _player;
+
+  @override
+  void initState() {
+    super.initState();
+    _player = AudioPlayer();
+    _player.setReleaseMode(ReleaseMode.stop);
+  }
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggle(Uint8List bytes, PlayerState state) async {
+    try {
+      if (state == PlayerState.playing) {
+        await _player.pause();
+      } else if (state == PlayerState.paused) {
+        await _player.resume();
+      } else {
+        await _player.play(BytesSource(bytes));
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to play voice message')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: widget.bytesFuture,
+      builder: (context, bytesSnapshot) {
+        if (bytesSnapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox(
+            width: 44,
+            height: 44,
+            child: Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          );
+        }
+
+        if (!bytesSnapshot.hasData) {
+          return const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.broken_image, size: 22),
+              SizedBox(width: 6),
+              Text('Audio unavailable'),
+            ],
+          );
+        }
+
+        final bytes = bytesSnapshot.data!;
+
+        return StreamBuilder<PlayerState>(
+          stream: _player.onPlayerStateChanged,
+          initialData: PlayerState.stopped,
+          builder: (context, stateSnapshot) {
+            final state = stateSnapshot.data ?? PlayerState.stopped;
+            final playing = state == PlayerState.playing;
+
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: playing ? 'Pause voice message' : 'Play voice message',
+                  onPressed: () => _toggle(bytes, state),
+                  icon: Icon(
+                    playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                    size: 32,
+                  ),
+                ),
+                const Flexible(
+                  child: Text(
+                    'Voice message',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+}
 
 class _AttachmentPreview extends StatefulWidget {
   const _AttachmentPreview({
@@ -33,6 +143,9 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
 
   bool get _isImage =>
       widget.mimeType?.toLowerCase().startsWith('image/') == true;
+
+  bool get _isAudio =>
+      widget.mimeType?.toLowerCase().startsWith('audio/') == true;
 
   String _extensionForMime(String? mimeType) {
     switch (mimeType?.toLowerCase()) {
@@ -104,6 +217,24 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
 
   @override
   Widget build(BuildContext context) {
+
+    if (_isAudio) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: _AudioAttachmentPlayer(
+                bytesFuture: _attachmentFuture,
+              ),
+            ),
+            _saveButton(context),
+          ],
+        ),
+      );
+    }
+
     if (!_isImage) {
       final mime = widget.mimeType?.toLowerCase();
 
