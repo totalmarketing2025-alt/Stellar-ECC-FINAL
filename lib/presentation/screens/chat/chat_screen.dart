@@ -186,7 +186,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           _Composer(
             controller: _composerController,
             onSend: _handleSend,
-            onPickTtl: () => _showComposerTtlPicker(chat),
+            onVoice: _recordVoiceMessage,
             onAttach: _handleAttach,
           ),
         ],
@@ -203,8 +203,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
     if (!mounted || path == null) return;
 
-    if (path == 'voice') {
-      await _recordVoiceMessage();
+    if (path == 'ttl') {
+      final chatsAsync = ref.read(chatListProvider);
+      final selectedChat = chatsAsync.maybeWhen(
+        data: (chats) => chats.where((c) => c.chatId == widget.chatId).cast<Chat?>().firstOrNull,
+        orElse: () => null,
+      );
+      await _showComposerTtlPicker(selectedChat);
       return;
     }
 
@@ -657,10 +662,10 @@ class _ReplyPreview extends StatelessWidget {
 }
 
 class _Composer extends StatelessWidget {
-  const _Composer({required this.controller, required this.onSend, required this.onPickTtl, required this.onAttach});
+  const _Composer({required this.controller, required this.onSend, required this.onVoice, required this.onAttach});
   final TextEditingController controller;
   final VoidCallback onSend;
-  final VoidCallback onPickTtl;
+  final VoidCallback onVoice;
   final VoidCallback onAttach;
 
   @override
@@ -675,8 +680,9 @@ class _Composer extends StatelessWidget {
               onPressed: onAttach,
             ),
             IconButton(
-              icon: const Icon(Icons.timer_outlined, color: StellarColors.textSecondary),
-              onPressed: onPickTtl,
+              tooltip: 'Voice message',
+              icon: const Icon(Icons.mic_none_outlined, color: StellarColors.textSecondary),
+              onPressed: onVoice,
             ),
             Expanded(
               child: TextField(

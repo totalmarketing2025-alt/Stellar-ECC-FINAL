@@ -44,16 +44,11 @@ class AttachmentPickerSheet extends StatelessWidget {
             },
           ),
           _AttachmentOption(
-            icon: Icons.mic_outlined,
-            label: 'Voice message',
-            color: StellarColors.danger,
+            icon: Icons.timer_outlined,
+            label: 'Message timer',
+            color: StellarColors.accentPurple,
             onTap: () {
-              // Hold-to-record UX is implemented directly on the composer's
-              // mic button (long-press + drag-to-cancel), not via this
-              // sheet — this entry exists for the tap-to-open recorder
-              // fallback on devices/screen-readers where long-press
-              // gestures are harder to perform.
-              Navigator.pop(context, 'voice');
+              Navigator.pop(context, 'ttl');
             },
           ),
         ],
