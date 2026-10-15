@@ -1,8 +1,11 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../core/theme/stellar_theme.dart';
 import '../../domain/models/message.dart';
@@ -119,6 +122,274 @@ class _AudioAttachmentPlayerState extends State<_AudioAttachmentPlayer> {
   }
 }
 
+
+void _openImageFullscreen(BuildContext context, Uint8List bytes) {
+  showDialog<void>(
+    context: context,
+    barrierColor: Colors.black,
+    builder: (dialogContext) {
+      return Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 5.0,
+                child: Center(
+                  child: Image.memory(
+                    bytes,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.broken_image,
+                      color: Colors.white,
+                      size: 48,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 12,
+              right: 12,
+              child: SafeArea(
+                child: IconButton(
+                  tooltip: 'Close image',
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  icon: const Icon(
+                    Icons.close,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+
+class _VideoAttachmentPlayer extends StatefulWidget {
+  const _VideoAttachmentPlayer({
+    required this.bytesFuture,
+    required this.extension,
+  });
+
+  final Future<Uint8List> bytesFuture;
+  final String extension;
+
+  @override
+  State<_VideoAttachmentPlayer> createState() =>
+      _VideoAttachmentPlayerState();
+}
+
+class _VideoAttachmentPlayerState extends State<_VideoAttachmentPlayer> {
+  VideoPlayerController? _controller;
+  Future<void>? _initializeFuture;
+  File? _tempFile;
+  bool _failed = false;
+  int _generation = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeVideo();
+  }
+
+  @override
+  void didUpdateWidget(covariant _VideoAttachmentPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.bytesFuture != widget.bytesFuture ||
+        oldWidget.extension != widget.extension) {
+      _generation++;
+      final oldController = _controller;
+      _controller = null;
+      _initializeFuture = null;
+      _failed = false;
+      oldController?.dispose();
+
+      final oldFile = _tempFile;
+      _tempFile = null;
+      if (oldFile != null) {
+        oldFile.delete().catchError((Object _) => oldFile);
+      }
+      _initializeVideo();
+    }
+  }
+
+  Future<void> _initializeVideo() async {
+    final generation = ++_generation;
+
+    try {
+      final bytes = await widget.bytesFuture;
+      if (!mounted || generation != _generation) return;
+
+      final directory = await getTemporaryDirectory();
+      final file = File(
+        '${directory.path}/stellar_video_'
+        '${DateTime.now().microsecondsSinceEpoch}.${widget.extension}',
+      );
+      await file.writeAsBytes(bytes, flush: true);
+
+      if (!mounted || generation != _generation) {
+        await file.delete().catchError((Object _) => file);
+        return;
+      }
+
+      final controller = VideoPlayerController.file(file);
+      _tempFile = file;
+      _controller = controller;
+      final initialization = controller.initialize();
+      _initializeFuture = initialization;
+
+      await initialization;
+      if (!mounted || generation != _generation) return;
+
+      await controller.setLooping(false);
+      if (mounted && generation == _generation) setState(() {});
+    } catch (_) {
+      if (mounted && generation == _generation) {
+        setState(() => _failed = true);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    _controller?.dispose();
+    final file = _tempFile;
+    if (file != null) {
+      file.delete().catchError((Object _) => file);
+    }
+    super.dispose();
+  }
+
+  Future<void> _togglePlayback() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    if (controller.value.isPlaying) {
+      await controller.pause();
+    } else {
+      await controller.play();
+    }
+  }
+
+  Widget _placeholder() {
+    return SizedBox(
+      width: 240,
+      height: 135,
+      child: Center(
+        child: _failed
+            ? const Text('Unable to load video')
+            : const CircularProgressIndicator(strokeWidth: 2),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+    final initialization = _initializeFuture;
+
+    if (_failed || controller == null || initialization == null) {
+      return _placeholder();
+    }
+
+    return FutureBuilder<void>(
+      future: initialization,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return _placeholder();
+        if (snapshot.connectionState != ConnectionState.done ||
+            !controller.value.isInitialized) {
+          return _placeholder();
+        }
+
+        final ratio = controller.value.aspectRatio > 0
+            ? controller.value.aspectRatio
+            : 16 / 9;
+
+        return ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 280),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: ColoredBox(
+              color: Colors.black,
+              child: ValueListenableBuilder<VideoPlayerValue>(
+                valueListenable: controller,
+                builder: (context, value, child) {
+                  final maxMs =
+                      value.duration.inMilliseconds.clamp(1, 2147483647);
+                  final currentMs =
+                      value.position.inMilliseconds.clamp(0, maxMs);
+
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AspectRatio(
+                        aspectRatio: ratio,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            VideoPlayer(controller),
+                            IconButton(
+                              tooltip:
+                                  value.isPlaying ? 'Pause video' : 'Play video',
+                              onPressed: _togglePlayback,
+                              iconSize: 48,
+                              color: Colors.white,
+                              icon: Icon(
+                                value.isPlaying
+                                    ? Icons.pause_circle_filled
+                                    : Icons.play_circle_fill,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            tooltip:
+                                value.isPlaying ? 'Pause video' : 'Play video',
+                            onPressed: _togglePlayback,
+                            icon: Icon(
+                              value.isPlaying ? Icons.pause : Icons.play_arrow,
+                            ),
+                          ),
+                          Expanded(
+                            child: Slider(
+                              min: 0,
+                              max: maxMs.toDouble(),
+                              value: currentMs.toDouble(),
+                              onChanged: (milliseconds) {
+                                controller.seekTo(
+                                  Duration(
+                                    milliseconds: milliseconds.round(),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _AttachmentPreview extends StatefulWidget {
   const _AttachmentPreview({
     required this.blobId,
@@ -148,6 +419,9 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
 
   bool get _isAudio =>
       widget.mimeType?.toLowerCase().startsWith('audio/') == true;
+
+  bool get _isVideo =>
+      widget.mimeType?.toLowerCase().startsWith('video/') == true;
 
   String _extensionForMime(String? mimeType) {
     switch (mimeType?.toLowerCase()) {
@@ -239,6 +513,25 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
       );
     }
 
+
+    if (_isVideo) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: _VideoAttachmentPlayer(
+                bytesFuture: _attachmentFuture,
+                extension: _extensionForMime(widget.mimeType),
+              ),
+            ),
+            _saveButton(context),
+          ],
+        ),
+      );
+    }
+
     if (!_isImage) {
       final mime = widget.mimeType?.toLowerCase();
 
@@ -288,22 +581,25 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.memory(
-                  snapshot.data!,
-                  width: 180,
-                  height: 180,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.broken_image, size: 22),
-                        SizedBox(width: 8),
-                        Text('Attachment unavailable'),
-                      ],
+              GestureDetector(
+                onTap: () => _openImageFullscreen(context, snapshot.data!),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.memory(
+                    snapshot.data!,
+                    width: 180,
+                    height: 180,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.broken_image, size: 22),
+                          SizedBox(width: 8),
+                          Text('Attachment unavailable'),
+                        ],
+                      ),
                     ),
                   ),
                 ),
