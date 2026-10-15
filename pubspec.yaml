@@ -50,7 +50,7 @@ dependencies:
   # Files / Media
   file_picker: ^8.1.2
   image_picker: ^1.1.2
-  record: ^5.2.1
+  record: ^6.1.0
   audioplayers: ^6.1.0
 
   # Utils
