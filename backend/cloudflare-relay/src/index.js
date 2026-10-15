@@ -1955,6 +1955,101 @@ export class ModerationRoom {
       );
     }
 
+    const userDossierMatch = url.pathname.match(
+      /^\/v1\/moderation\/admin\/users\/([^/]+)\/dossier$/,
+    );
+    if (request.method === "GET" && userDossierMatch) {
+      const session =
+        await this.authenticateModerationAdminSession(request);
+
+      if (!session) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      let nickname;
+      try {
+        nickname = decodeURIComponent(userDossierMatch[1]).trim();
+      } catch (_) {
+        return Response.json({ error: "Invalid nickname" }, { status: 400 });
+      }
+
+      if (!/^[a-zA-Z0-9_]{1,128}$/.test(nickname)) {
+        return Response.json({ error: "Invalid nickname" }, { status: 400 });
+      }
+
+      const now = Date.now();
+      const messages = this.ctx.storage.sql.exec(
+        `SELECT message_id, sender, recipient, chat_id, created_at,
+                expires_at, content_type, plaintext, attachment_mime_type
+           FROM moderation_messages
+          WHERE expires_at > ?
+            AND (lower(sender) = lower(?) OR lower(recipient) = lower(?))
+          ORDER BY created_at DESC
+          LIMIT 100`,
+        now,
+        nickname,
+        nickname,
+      ).toArray();
+
+      const stats = this.ctx.storage.sql.exec(
+        `SELECT COUNT(*) AS messageCount,
+                MAX(created_at) AS lastMessageAt
+           FROM moderation_messages
+          WHERE expires_at > ?
+            AND (lower(sender) = lower(?) OR lower(recipient) = lower(?))`,
+        now,
+        nickname,
+        nickname,
+      ).one();
+
+      let profilePhoto = null;
+      const directoryUrl = this.env.DIRECTORY_URL;
+      if (directoryUrl) {
+        try {
+          const photoResponse = await fetch(
+            `${directoryUrl.replace(/\/+$/, "")}/v1/users/${encodeURIComponent(nickname)}/profile-photo`,
+            { headers: { Accept: "application/json" } },
+          );
+          if (photoResponse.ok) {
+            const photoData = await photoResponse.json();
+            if (photoData && typeof photoData.photo === "string") {
+              profilePhoto = {
+                photo: photoData.photo,
+                mimeType: photoData.mimeType || null,
+                updatedAt: photoData.updatedAt || null,
+              };
+            }
+          }
+        } catch (_) {
+          // A missing/unavailable profile photo must not break the dossier.
+        }
+      }
+
+      return Response.json(
+        {
+          nickname,
+          profilePhoto,
+          stats: {
+            messageCount: Number(stats?.messageCount || 0),
+            lastMessageAt: stats?.lastMessageAt ?? null,
+          },
+          messages: messages.map((message) => ({
+            id: message.message_id,
+            sender: message.sender,
+            recipient: message.recipient,
+            createdAt: message.created_at,
+            expiresAt: message.expires_at,
+            contentType: message.content_type,
+            text: message.plaintext,
+            chatId: message.chat_id,
+            attachmentMimeType: message.attachment_mime_type,
+          })),
+          messagesLimit: 100,
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     if (
       request.method === "GET" &&
       url.pathname === "/v1/moderation/admin/users"
@@ -3597,6 +3692,9 @@ export default {
     const isModerationAdminUsers =
       url.pathname === "/v1/moderation/admin/users";
 
+    const isModerationAdminUserDossier =
+      /^\/v1\/moderation\/admin\/users\/[^/]+\/dossier$/.test(url.pathname);
+
     const isModerationAdminMessages =
       url.pathname === "/v1/moderation/admin/messages";
 
@@ -3635,6 +3733,7 @@ export default {
       isModerationAdminReports ||
       isModerationAdminReportStatus ||
       isModerationAdminUsers ||
+      isModerationAdminUserDossier ||
       isModerationAdminMessages ||
       isModerationAdminAttachment
     ) {
@@ -3658,6 +3757,10 @@ export default {
         isModerationAdminUsers &&
         request.method === "GET";
 
+      const isAdminUserDossierGet =
+        isModerationAdminUserDossier &&
+        request.method === "GET";
+
       const isAdminReportsGet =
         isModerationAdminReports &&
         request.method === "GET";
@@ -3676,6 +3779,7 @@ export default {
         !isBroadcastsGet &&
         !isBroadcastAttachmentGet &&
         !isAdminUsersGet &&
+        !isAdminUserDossierGet &&
         !isAdminReportsGet &&
         !isAdminMessagesGet &&
         !isAdminAttachmentGet &&
@@ -3691,6 +3795,7 @@ export default {
                   isModerationBroadcasts ||
                   isModerationBroadcastAttachment ||
                   isModerationAdminUsers ||
+                  isModerationAdminUserDossier ||
                   isModerationAdminReports ||
                   isModerationAdminMessages ||
                   isModerationAdminAttachment
