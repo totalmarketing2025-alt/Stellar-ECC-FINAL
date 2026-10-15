@@ -42,7 +42,9 @@ class _AudioAttachmentPlayerState extends State<_AudioAttachmentPlayer> {
       } else if (state == PlayerState.paused) {
         await _player.resume();
       } else {
-        await _player.play(BytesSource(bytes));
+        await _player.play(
+          BytesSource(bytes, mimeType: 'audio/mp4'),
+        );
       }
     } catch (_) {
       if (!mounted) return;
@@ -161,6 +163,8 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
         return 'heic';
       case 'image/heif':
         return 'heif';
+      case 'audio/mp4':
+        return 'm4a';
       case 'video/mp4':
         return 'mp4';
       case 'video/quicktime':
