@@ -21,7 +21,6 @@ import '../../core/calls/call_service.dart';
 import '../../data/repositories/chat_repository.dart';
 import '../../domain/models/chat.dart';
 import '../../domain/models/message.dart';
-import '../../domain/models/call_event.dart';
 
 const _relayUrl =
     'wss://stellar-ecc-final.totalmarketing2025.workers.dev/v1/connect';
