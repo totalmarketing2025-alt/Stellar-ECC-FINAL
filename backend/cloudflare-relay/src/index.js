@@ -422,6 +422,31 @@ const RELAY_ACK_PREFIX =
 const RELAY_ACK_OK_PREFIX =
   "STELLAR_RELAY_ACK_OK_V1:";
 
+// Sender-side attachment upload protocol.
+// Separate from recipient delivery ACK/chunk protocol.
+const RELAY_UPLOAD_CHUNK_PREFIX =
+  "STELLAR_UPLOAD_CHUNK_V1:";
+
+const RELAY_UPLOAD_START_PREFIX =
+  "STELLAR_UPLOAD_START_V1:";
+
+// Binary frame: STUP1 + UUID (36 bytes) + index/count/total (uint32)
+// followed by the encrypted envelope chunk.
+const RELAY_UPLOAD_FRAME_MAGIC = "STUP1";
+
+const RELAY_UPLOAD_ACK_PREFIX =
+  "STELLAR_UPLOAD_ACK_V1:";
+
+const RELAY_UPLOAD_DONE_PREFIX =
+  "STELLAR_UPLOAD_DONE_V1:";
+
+const RELAY_UPLOAD_ERROR_PREFIX =
+  "STELLAR_UPLOAD_ERROR_V1:";
+
+const RELAY_UPLOAD_CHUNK_SIZE = 128 * 1024;
+const RELAY_UPLOAD_MAX_BYTES = 9 * 1024 * 1024;
+const RELAY_UPLOAD_TTL_MS = 5 * 60 * 1000;
+
 const RELAY_AUTH_TTL_MS = 60 * 1000;
 
 const MODERATION_AUTH_TTL_MS = 60 * 1000;
@@ -598,6 +623,30 @@ export class RelayRoom {
         PRIMARY KEY (delivery_id, chunk_index)
       )
     `);
+
+    // Temporary sender-side attachment uploads.
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS relay_upload_transfers (
+        upload_id TEXT PRIMARY KEY,
+        sender TEXT NOT NULL,
+        recipient TEXT NOT NULL,
+        total_bytes INTEGER NOT NULL,
+        chunk_count INTEGER NOT NULL,
+        received_count INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'uploading'
+      )
+    `);
+
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS relay_upload_chunks (
+        upload_id TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        chunk BLOB NOT NULL,
+        PRIMARY KEY (upload_id, chunk_index)
+      )
+    `);
   }
 
   async queueEnvelope(recipient, sender, message) {
@@ -685,6 +734,418 @@ export class RelayRoom {
     }
 
     return deliveryId;
+  }
+
+  sendUploadError(ws, uploadId, code) {
+    try {
+      ws.send(
+        `${RELAY_UPLOAD_ERROR_PREFIX}${JSON.stringify({
+          uploadId: uploadId || "",
+          code,
+        })}`,
+      );
+    } catch (_) {}
+  }
+
+  async handleUploadStart(ws, payload, sender) {
+    let uploadId = "";
+
+    try {
+      const meta = JSON.parse(payload);
+      uploadId = String(meta.uploadId || "");
+
+      const recipient = String(meta.recipient || "")
+        .trim()
+        .toLowerCase();
+      const totalBytes = Number(meta.totalBytes);
+      const chunkCount = Number(meta.chunkCount);
+
+      if (
+        !sender ||
+        !/^[0-9a-f-]{36}$/i.test(uploadId) ||
+        !recipient ||
+        recipient.length > 128 ||
+        !Number.isInteger(totalBytes) ||
+        totalBytes < 1 ||
+        totalBytes > RELAY_UPLOAD_MAX_BYTES ||
+        !Number.isInteger(chunkCount) ||
+        chunkCount !== Math.ceil(
+          totalBytes / RELAY_UPLOAD_CHUNK_SIZE,
+        )
+      ) {
+        this.sendUploadError(ws, uploadId, "invalid_start");
+        return;
+      }
+
+      const now = Date.now();
+
+      this.ctx.storage.sql.exec(
+        `DELETE FROM relay_upload_chunks
+         WHERE upload_id IN (
+           SELECT upload_id FROM relay_upload_transfers
+           WHERE expires_at <= ?
+         )`,
+        now,
+      );
+
+      this.ctx.storage.sql.exec(
+        `DELETE FROM relay_upload_transfers WHERE expires_at <= ?`,
+        now,
+      );
+
+      const existing = this.ctx.storage.sql.exec(
+        `SELECT upload_id FROM relay_upload_transfers
+         WHERE upload_id = ?`,
+        uploadId,
+      ).one();
+
+      if (existing) {
+        this.sendUploadError(ws, uploadId, "upload_id_exists");
+        return;
+      }
+
+      this.ctx.storage.sql.exec(
+        `INSERT INTO relay_upload_transfers
+          (upload_id, sender, recipient, total_bytes, chunk_count,
+           received_count, created_at, expires_at, status)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'uploading')`,
+        uploadId,
+        sender,
+        recipient,
+        totalBytes,
+        chunkCount,
+        now,
+        now + RELAY_UPLOAD_TTL_MS,
+      );
+
+      ws.send(`${RELAY_UPLOAD_ACK_PREFIX}${JSON.stringify({
+        type: "started",
+        uploadId,
+        receivedBytes: 0,
+        totalBytes,
+      })}`);
+    } catch (_) {
+      this.sendUploadError(ws, uploadId, "invalid_start");
+    }
+  }
+
+  async handleUploadChunk(ws, frame, sender) {
+    let uploadId = "";
+
+    try {
+      // 5-byte magic + 36-byte UUID + three uint32 fields = 53 bytes.
+      if (frame.length < 53) {
+        this.sendUploadError(ws, uploadId, "invalid_chunk_frame");
+        return;
+      }
+
+      uploadId = String.fromCharCode(...frame.subarray(5, 41));
+
+      const chunkIndex = readU32(frame, 41);
+      const chunkCount = readU32(frame, 45);
+      const totalBytes = readU32(frame, 49);
+      const chunk = frame.slice(53);
+
+      if (
+        !/^[0-9a-f-]{36}$/i.test(uploadId) ||
+        !sender ||
+        chunk.length < 1 ||
+        chunk.length > RELAY_UPLOAD_CHUNK_SIZE
+      ) {
+        this.sendUploadError(ws, uploadId, "invalid_chunk");
+        return;
+      }
+
+      const transfer = this.ctx.storage.sql.exec(
+        `SELECT upload_id, sender, recipient, total_bytes, chunk_count,
+                received_count, expires_at, status
+         FROM relay_upload_transfers WHERE upload_id = ?`,
+        uploadId,
+      ).one();
+
+      if (
+        !transfer ||
+        transfer.sender !== sender ||
+        transfer.status !== "uploading" ||
+        Number(transfer.expires_at) <= Date.now() ||
+        Number(transfer.total_bytes) !== totalBytes ||
+        Number(transfer.chunk_count) !== chunkCount ||
+        chunkIndex >= chunkCount ||
+        chunkCount !== Math.ceil(
+          totalBytes / RELAY_UPLOAD_CHUNK_SIZE,
+        )
+      ) {
+        this.sendUploadError(ws, uploadId, "unknown_or_invalid_transfer");
+        return;
+      }
+
+      const expectedLength = chunkIndex === chunkCount - 1
+        ? totalBytes - RELAY_UPLOAD_CHUNK_SIZE * (chunkCount - 1)
+        : RELAY_UPLOAD_CHUNK_SIZE;
+
+      if (chunk.length !== expectedLength) {
+        this.sendUploadError(ws, uploadId, "invalid_chunk_size");
+        return;
+      }
+
+      const previous = this.ctx.storage.sql.exec(
+        `SELECT chunk FROM relay_upload_chunks
+         WHERE upload_id = ? AND chunk_index = ?`,
+        uploadId,
+        chunkIndex,
+      ).one();
+
+      if (previous) {
+        const previousBytes = new Uint8Array(previous.chunk);
+        const identical =
+          previousBytes.length === chunk.length &&
+          previousBytes.every(
+            (value, index) => value === chunk[index],
+          );
+
+        if (!identical) {
+          this.sendUploadError(ws, uploadId, "chunk_conflict");
+          return;
+        }
+      } else {
+        this.ctx.storage.sql.exec(
+          `INSERT INTO relay_upload_chunks
+            (upload_id, chunk_index, chunk)
+           VALUES (?, ?, ?)`,
+          uploadId,
+          chunkIndex,
+          chunk,
+        );
+
+        this.ctx.storage.sql.exec(
+          `UPDATE relay_upload_transfers
+           SET received_count = received_count + 1
+           WHERE upload_id = ? AND status = 'uploading'`,
+          uploadId,
+        );
+      }
+
+      const sum = this.ctx.storage.sql.exec(
+        `SELECT COALESCE(SUM(length(chunk)), 0) AS received_bytes
+         FROM relay_upload_chunks WHERE upload_id = ?`,
+        uploadId,
+      ).one();
+
+      ws.send(`${RELAY_UPLOAD_ACK_PREFIX}${JSON.stringify({
+        type: "chunk",
+        uploadId,
+        index: chunkIndex,
+        receivedBytes: Number(sum?.received_bytes || 0),
+        totalBytes,
+      })}`);
+    } catch (_) {
+      this.sendUploadError(ws, uploadId, "chunk_storage_failed");
+    }
+  }
+
+  async handleUploadDone(ws, payload, sender) {
+    let uploadId = "";
+
+    try {
+      const meta = JSON.parse(payload);
+      uploadId = String(meta.uploadId || "");
+
+      if (!/^[0-9a-f-]{36}$/i.test(uploadId) || !sender) {
+        this.sendUploadError(ws, uploadId, "invalid_done");
+        return;
+      }
+
+      const transfer = this.ctx.storage.sql.exec(
+        `SELECT upload_id, sender, recipient, total_bytes, chunk_count,
+                received_count, expires_at, status
+         FROM relay_upload_transfers WHERE upload_id = ?`,
+        uploadId,
+      ).one();
+
+      if (!transfer || transfer.sender !== sender) {
+        this.sendUploadError(ws, uploadId, "unknown_transfer");
+        return;
+      }
+
+      // A concurrent DONE must not start a second delivery.
+      if (transfer.status === "finalizing") {
+        this.sendUploadError(ws, uploadId, "upload_in_progress");
+        return;
+      }
+
+      // Make a repeated DONE request safe if the final ACK was lost.
+      if (transfer.status === "completed") {
+        ws.send(`${RELAY_UPLOAD_ACK_PREFIX}${JSON.stringify({
+          type: "done",
+          uploadId,
+          totalBytes: Number(transfer.total_bytes),
+          delivery: "accepted",
+        })}`);
+        return;
+      }
+
+      if (
+        transfer.status !== "uploading" ||
+        Number(transfer.expires_at) <= Date.now() ||
+        Number(transfer.received_count) !== Number(transfer.chunk_count)
+      ) {
+        this.sendUploadError(
+          ws,
+          uploadId,
+          "upload_incomplete_or_expired",
+        );
+        return;
+      }
+
+      const rows = Array.from(this.ctx.storage.sql.exec(
+        `SELECT chunk_index, chunk FROM relay_upload_chunks
+         WHERE upload_id = ? ORDER BY chunk_index ASC`,
+        uploadId,
+      ));
+
+      if (rows.length !== Number(transfer.chunk_count)) {
+        this.sendUploadError(ws, uploadId, "missing_chunks");
+        return;
+      }
+
+      const envelope = new Uint8Array(Number(transfer.total_bytes));
+      let offset = 0;
+
+      for (let index = 0; index < rows.length; index++) {
+        if (Number(rows[index].chunk_index) !== index) {
+          this.sendUploadError(ws, uploadId, "chunk_order_invalid");
+          return;
+        }
+
+        const part = new Uint8Array(rows[index].chunk);
+
+        if (offset + part.length > envelope.length) {
+          this.sendUploadError(ws, uploadId, "envelope_size_invalid");
+          return;
+        }
+
+        envelope.set(part, offset);
+        offset += part.length;
+      }
+
+      if (offset !== envelope.length) {
+        this.sendUploadError(ws, uploadId, "envelope_size_invalid");
+        return;
+      }
+
+      const envelopeRecipient = decodeRecipientRoute(envelope)
+        .trim()
+        .toLowerCase();
+
+      if (
+        !envelopeRecipient ||
+        envelopeRecipient !== transfer.recipient
+      ) {
+        this.sendUploadError(ws, uploadId, "recipient_mismatch");
+        return;
+      }
+
+      // Atomically claim finalization to prevent duplicate delivery.
+      const claim = this.ctx.storage.sql.exec(
+        `UPDATE relay_upload_transfers
+         SET status = 'finalizing'
+         WHERE upload_id = ? AND sender = ? AND status = 'uploading'
+         RETURNING upload_id`,
+        uploadId,
+        sender,
+      );
+
+      if (claim.toArray().length === 0) {
+        const latest = this.ctx.storage.sql.exec(
+          `SELECT upload_id, sender, recipient, total_bytes, chunk_count,
+                  received_count, expires_at, status
+           FROM relay_upload_transfers WHERE upload_id = ?`,
+          uploadId,
+        ).one();
+
+        if (latest?.status === "completed" && latest.sender === sender) {
+          ws.send(`${RELAY_UPLOAD_ACK_PREFIX}${JSON.stringify({
+            type: "done",
+            uploadId,
+            totalBytes: Number(latest.total_bytes),
+            delivery: "accepted",
+          })}`);
+        } else if (
+          latest?.status === "finalizing" &&
+          latest.sender === sender
+        ) {
+          this.sendUploadError(ws, uploadId, "upload_in_progress");
+        } else {
+          this.sendUploadError(
+            ws,
+            uploadId,
+            "upload_incomplete_or_expired",
+          );
+        }
+        return;
+      }
+
+      const delivery = await this.deliverUploadedEnvelope(
+        ws,
+        transfer.recipient,
+        sender,
+        envelope,
+      );
+
+      this.ctx.storage.sql.exec(
+        `UPDATE relay_upload_transfers
+         SET status = 'completed'
+         WHERE upload_id = ? AND sender = ? AND status = 'finalizing'`,
+        uploadId,
+        sender,
+      );
+
+      this.ctx.storage.sql.exec(
+        `DELETE FROM relay_upload_chunks WHERE upload_id = ?`,
+        uploadId,
+      );
+
+      ws.send(`${RELAY_UPLOAD_ACK_PREFIX}${JSON.stringify({
+        type: "done",
+        uploadId,
+        totalBytes: envelope.length,
+        delivery,
+      })}`);
+    } catch (_) {
+      this.sendUploadError(ws, uploadId, "finalize_failed");
+    }
+  }
+
+  async deliverUploadedEnvelope(senderSocket, recipient, sender, envelope) {
+    for (const peer of this.ctx.getWebSockets()) {
+      if (peer === senderSocket) continue;
+
+      try {
+        const peerAttachment = peer.deserializeAttachment();
+
+        if (
+          peerAttachment?.authenticated === true &&
+          peerAttachment?.authState === "authenticated" &&
+          String(peerAttachment.peer || "").trim().toLowerCase() === recipient
+        ) {
+          peer.send(`${RELAY_SENDER_PREFIX}${sender}`);
+          peer.send(envelope);
+          return "online";
+        }
+      } catch (_) {
+        // Ignore disconnected peers; continue to the durable queue.
+      }
+    }
+
+    await this.queueEnvelope(recipient, sender, envelope);
+
+    this.ctx.waitUntil(
+      this.sendPushWake(recipient).catch(() => {
+        console.error("FCM_UPLOAD_WAKE_FAILED");
+      }),
+    );
+
+    return "queued";
   }
 
   async flushQueue(ws, recipient) {
@@ -1280,6 +1741,56 @@ export class RelayRoom {
         `${RELAY_ACK_OK_PREFIX}${deliveryId}`,
       );
 
+      return;
+    }
+
+    if (
+      typeof message === "string" &&
+      message.startsWith(RELAY_UPLOAD_START_PREFIX)
+    ) {
+      await this.handleUploadStart(
+        ws,
+        message.slice(RELAY_UPLOAD_START_PREFIX.length),
+        String(attachment.peer || "").trim().toLowerCase(),
+      );
+      return;
+    }
+
+    if (message instanceof ArrayBuffer || ArrayBuffer.isView(message)) {
+      const uploadBytes = message instanceof ArrayBuffer
+        ? new Uint8Array(message)
+        : new Uint8Array(
+            message.buffer,
+            message.byteOffset,
+            message.byteLength,
+          );
+
+      const magic = new TextEncoder().encode(RELAY_UPLOAD_FRAME_MAGIC);
+      let isUploadFrame = uploadBytes.length >= magic.length;
+
+      for (let i = 0; isUploadFrame && i < magic.length; i++) {
+        if (uploadBytes[i] !== magic[i]) isUploadFrame = false;
+      }
+
+      if (isUploadFrame) {
+        await this.handleUploadChunk(
+          ws,
+          uploadBytes,
+          String(attachment.peer || "").trim().toLowerCase(),
+        );
+        return;
+      }
+    }
+
+    if (
+      typeof message === "string" &&
+      message.startsWith(RELAY_UPLOAD_DONE_PREFIX)
+    ) {
+      await this.handleUploadDone(
+        ws,
+        message.slice(RELAY_UPLOAD_DONE_PREFIX.length),
+        String(attachment.peer || "").trim().toLowerCase(),
+      );
       return;
     }
 

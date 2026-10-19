@@ -111,6 +111,24 @@ class RelayClient {
   static const _ackOkPrefix =
       'STELLAR_RELAY_ACK_OK_V1:';
 
+  static const _uploadStartPrefix =
+      'STELLAR_UPLOAD_START_V1:';
+
+  static const _uploadFrameMagic = 'STUP1';
+
+  static const _uploadAckPrefix =
+      'STELLAR_UPLOAD_ACK_V1:';
+
+  static const _uploadDonePrefix =
+      'STELLAR_UPLOAD_DONE_V1:';
+
+  static const _uploadErrorPrefix =
+      'STELLAR_UPLOAD_ERROR_V1:';
+
+  static const _uploadChunkSize = 128 * 1024;
+  static const _uploadMaxBytes = 9 * 1024 * 1024;
+  static const _directEnvelopeMaxBytes = 512 * 1024;
+
   String? _lastPeer;
 
   Stream<Uint8List> get incoming =>
@@ -169,6 +187,10 @@ class RelayClient {
   Completer<void>? _authCompleter;
   final Map<int, Completer<void>> _ackWaiters =
       <int, Completer<void>>{};
+
+  final Map<String, Completer<Map<String, dynamic>>>
+      _uploadAckWaiters =
+      <String, Completer<Map<String, dynamic>>>{};
 
   Future<void> connect({
     required String peer,
@@ -313,6 +335,46 @@ class RelayClient {
               ),
             );
           } else if (data is String) {
+            if (data.startsWith(_uploadAckPrefix)) {
+              try {
+                final value = jsonDecode(
+                  data.substring(_uploadAckPrefix.length),
+                );
+                if (value is Map<String, dynamic>) {
+                  final uploadId = value['uploadId']?.toString() ?? '';
+                  final waiter = _uploadAckWaiters[uploadId];
+                  if (waiter != null && !waiter.isCompleted) {
+                    waiter.complete(value);
+                  }
+                }
+              } catch (_) {
+                // Ignore malformed upload control frames.
+              }
+              return;
+            }
+
+            if (data.startsWith(_uploadErrorPrefix)) {
+              try {
+                final value = jsonDecode(
+                  data.substring(_uploadErrorPrefix.length),
+                );
+                if (value is Map<String, dynamic>) {
+                  final uploadId = value['uploadId']?.toString() ?? '';
+                  final code = value['code']?.toString() ??
+                      'upload_failed';
+                  final waiter = _uploadAckWaiters[uploadId];
+                  if (waiter != null && !waiter.isCompleted) {
+                    waiter.completeError(
+                      StateError('Relay upload failed: $code'),
+                    );
+                  }
+                }
+              } catch (_) {
+                // Ignore malformed upload control frames.
+              }
+              return;
+            }
+
             if (data.startsWith(_ackOkPrefix)) {
               final deliveryId = int.tryParse(
                 data.substring(_ackOkPrefix.length),
@@ -607,6 +669,18 @@ class RelayClient {
 
     _ackWaiters.clear();
 
+    for (final waiter in _uploadAckWaiters.values) {
+      if (!waiter.isCompleted) {
+        waiter.completeError(
+          StateError(
+            'Relay connection closed during attachment upload',
+          ),
+        );
+      }
+    }
+
+    _uploadAckWaiters.clear();
+
     _channel = null;
     _ready = false;
 
@@ -649,6 +723,164 @@ class RelayClient {
     );
   }
 
+  Future<Map<String, dynamic>> _waitForUploadAck(
+    String uploadId,
+  ) async {
+    if (_uploadAckWaiters.containsKey(uploadId)) {
+      throw StateError('Upload ACK waiter already exists');
+    }
+
+    final completer = Completer<Map<String, dynamic>>();
+    _uploadAckWaiters[uploadId] = completer;
+
+    try {
+      return await completer.future.timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw TimeoutException(
+          'Timed out waiting for relay upload ACK',
+        ),
+      );
+    } finally {
+      if (identical(_uploadAckWaiters[uploadId], completer)) {
+        _uploadAckWaiters.remove(uploadId);
+      }
+    }
+  }
+
+  String _newUploadId() {
+    const digits = '0123456789abcdef';
+    final random = Random.secure();
+    final hex = List<String>.generate(
+      32,
+      (_) => digits[random.nextInt(digits.length)],
+    ).join();
+
+    return '${hex.substring(0, 8)}-'
+        '${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-'
+        '${hex.substring(16, 20)}-'
+        '${hex.substring(20, 32)}';
+  }
+
+  void _requireUploadAck(
+    Map<String, dynamic> ack, {
+    required String type,
+    required String uploadId,
+    int? index,
+  }) {
+    if (ack['type'] != type || ack['uploadId'] != uploadId) {
+      throw StateError('Unexpected relay upload ACK');
+    }
+
+    if (index != null && ack['index'] != index) {
+      throw StateError('Relay acknowledged an unexpected chunk');
+    }
+  }
+
+  Future<void> _sendLargeEnvelope(Uint8List envelopeBytes) async {
+    if (envelopeBytes.isEmpty ||
+        envelopeBytes.length > _uploadMaxBytes) {
+      throw ArgumentError(
+        'Envelope size is outside the supported upload limit',
+      );
+    }
+
+    final channel = _channel;
+    if (channel == null || _ready != true) {
+      throw StateError('Relay is not connected and ready');
+    }
+
+    final envelope = Envelope.decode(envelopeBytes);
+    final recipient = envelope.recipientRoute;
+
+    if (recipient.trim().isEmpty || recipient.length > 128) {
+      throw ArgumentError('Invalid envelope recipient');
+    }
+
+    final uploadId = _newUploadId();
+    final chunkCount =
+        (envelopeBytes.length + _uploadChunkSize - 1) ~/
+            _uploadChunkSize;
+
+    final startFuture = _waitForUploadAck(uploadId);
+    channel.sink.add(
+      '$_uploadStartPrefix${jsonEncode({
+        'uploadId': uploadId,
+        'recipient': recipient,
+        'totalBytes': envelopeBytes.length,
+        'chunkCount': chunkCount,
+      })}',
+    );
+
+    final startAck = await startFuture;
+    _requireUploadAck(
+      startAck,
+      type: 'started',
+      uploadId: uploadId,
+    );
+
+    for (var index = 0; index < chunkCount; index++) {
+      if (!identical(_channel, channel) || _ready != true) {
+        throw StateError('Relay disconnected during attachment upload');
+      }
+
+      final start = index * _uploadChunkSize;
+      final end = (start + _uploadChunkSize < envelopeBytes.length)
+          ? start + _uploadChunkSize
+          : envelopeBytes.length;
+      final chunk = envelopeBytes.sublist(start, end);
+
+      // Wire header: STUP1 (5 bytes), UUID (36 bytes), then
+      // chunk index, chunk count and total envelope size (u32 BE).
+      final frame = Uint8List(53 + chunk.length);
+      frame.setRange(0, 5, _uploadFrameMagic.codeUnits);
+      frame.setRange(5, 41, uploadId.codeUnits);
+
+      final header = ByteData.sublistView(frame);
+      header.setUint32(41, index, Endian.big);
+      header.setUint32(45, chunkCount, Endian.big);
+      header.setUint32(49, envelopeBytes.length, Endian.big);
+      frame.setRange(53, frame.length, chunk);
+
+      final chunkFuture = _waitForUploadAck(uploadId);
+      channel.sink.add(frame);
+
+      final chunkAck = await chunkFuture;
+      _requireUploadAck(
+        chunkAck,
+        type: 'chunk',
+        uploadId: uploadId,
+        index: index,
+      );
+
+      if (chunkAck['receivedBytes'] != end) {
+        throw StateError('Relay reported an unexpected received byte count');
+      }
+    }
+
+    if (!identical(_channel, channel) || _ready != true) {
+      throw StateError('Relay disconnected before upload completion');
+    }
+
+    final doneFuture = _waitForUploadAck(uploadId);
+    channel.sink.add(
+      '$_uploadDonePrefix${jsonEncode({
+        'uploadId': uploadId,
+      })}',
+    );
+
+    final doneAck = await doneFuture;
+    _requireUploadAck(
+      doneAck,
+      type: 'done',
+      uploadId: uploadId,
+    );
+
+    if (doneAck['totalBytes'] != envelopeBytes.length) {
+      throw StateError('Relay confirmed an unexpected envelope size');
+    }
+  }
+
   Future<void> send(Uint8List envelopeBytes) async {
     final channel = _channel;
 
@@ -656,6 +888,11 @@ class RelayClient {
       throw StateError(
         'Relay is not connected and ready',
       );
+    }
+
+    if (envelopeBytes.length > _directEnvelopeMaxBytes) {
+      await _sendLargeEnvelope(envelopeBytes);
+      return;
     }
 
     channel.sink.add(envelopeBytes);
