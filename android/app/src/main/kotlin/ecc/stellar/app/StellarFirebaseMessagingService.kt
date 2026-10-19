@@ -37,6 +37,8 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         if (data["wake"] == "1") {
+            // Show notification immediately; background sync handles delivery.
+            showGenericMessageNotification()
             scheduleBackgroundMessageSync()
             return
         }
