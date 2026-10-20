@@ -82,6 +82,8 @@ class RelayClient {
   final List<_PendingRelayDelivery> _pendingDeliveries =
       <_PendingRelayDelivery>[];
 
+  _PendingRelayDelivery? _expectedChunkBinary;
+
   bool _manuallyDisconnected = false;
   int _backoffMs = 500;
 
@@ -244,6 +246,7 @@ class RelayClient {
       _channel = connectedChannel;
       _ready = false;
       _pendingDeliveries.clear();
+      _expectedChunkBinary = null;
 
       print('RELAY_DEBUG: BEFORE_READY peer=$peer');
       await connectedChannel.ready;
@@ -267,18 +270,16 @@ class RelayClient {
           if (data is List<int>) {
             final bytes = Uint8List.fromList(data);
 
-            _PendingRelayDelivery? chunkedPending;
+            // Only consume a binary frame as a chunk when the immediately
+            // preceding valid chunk-control frame selected this delivery.
+            final chunkedPending = _expectedChunkBinary;
+            _expectedChunkBinary = null;
 
-            for (final pending in _pendingDeliveries) {
-              if (pending.isChunked &&
-                  pending.nextChunkIndex <
-                      (pending.chunkCount ?? 0)) {
-                chunkedPending = pending;
-                break;
-              }
-            }
-
-            if (chunkedPending != null) {
+            if (chunkedPending != null &&
+                _pendingDeliveries.contains(chunkedPending) &&
+                chunkedPending.isChunked &&
+                chunkedPending.nextChunkIndex <
+                    (chunkedPending.chunkCount ?? 0)) {
               chunkedPending.chunks.add(bytes);
               chunkedPending.nextChunkIndex++;
 
@@ -318,10 +319,18 @@ class RelayClient {
               return;
             }
 
-            final pending =
-                _pendingDeliveries.isEmpty
-                    ? null
-                    : _pendingDeliveries.removeAt(0);
+            // A normal whole-envelope frame must not consume an unfinished
+            // chunked delivery's routing metadata.
+            _PendingRelayDelivery? pending;
+            for (final candidate in _pendingDeliveries) {
+              if (!candidate.isChunked) {
+                pending = candidate;
+                break;
+              }
+            }
+            if (pending != null) {
+              _pendingDeliveries.remove(pending);
+            }
 
             (_incomingController ??=
                     StreamController<Uint8List>.broadcast())
@@ -335,6 +344,8 @@ class RelayClient {
               ),
             );
           } else if (data is String) {
+            _expectedChunkBinary = null;
+
             if (data.startsWith(_uploadAckPrefix)) {
               try {
                 final value = jsonDecode(
@@ -515,6 +526,7 @@ class RelayClient {
                 return;
               }
 
+              _expectedChunkBinary = target;
               return;
             }
 
@@ -683,6 +695,7 @@ class RelayClient {
 
     _channel = null;
     _ready = false;
+    _expectedChunkBinary = null;
 
     if (!_manuallyDisconnected) {
       _scheduleReconnect();

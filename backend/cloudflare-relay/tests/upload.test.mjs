@@ -580,3 +580,101 @@ test("concurrent DONE only delivers once", async () => {
   assert.equal(deliveryCalls, 1);
   assert.equal(transfers.get(uploadId).status, "completed");
 });
+
+test("large upload preserves every byte at 2, 5 and 7 MiB", async (t) => {
+  const MiB = 1024 * 1024;
+  const chunkSize = 128 * 1024;
+
+  for (const sizeMiB of [2, 5, 7]) {
+    await t.test(`${sizeMiB} MiB`, async () => {
+      const totalBytes = sizeMiB * MiB;
+      const route = new TextEncoder().encode("bob");
+      const token = new TextEncoder().encode("t");
+
+      // Valid envelope header followed by deterministic ciphertext bytes.
+      const headerBytes = 2 + 4 + 2 + token.length + 2 + route.length + 4;
+      const ciphertextLength = totalBytes - headerBytes;
+      assert.ok(ciphertextLength > 0);
+
+      const envelope = new Uint8Array(totalBytes);
+      const view = new DataView(envelope.buffer);
+      let offset = 0;
+
+      view.setUint16(offset, 1, false);
+      offset += 2;
+      view.setUint32(offset, 3600, false);
+      offset += 4;
+      view.setUint16(offset, token.length, false);
+      offset += 2;
+      envelope.set(token, offset);
+      offset += token.length;
+      view.setUint16(offset, route.length, false);
+      offset += 2;
+      envelope.set(route, offset);
+      offset += route.length;
+      view.setUint32(offset, ciphertextLength, false);
+      offset += 4;
+
+      for (let i = offset; i < envelope.length; i++) {
+        envelope[i] = (i * 31 + 17) & 0xff;
+      }
+
+      const chunkCount = Math.ceil(totalBytes / chunkSize);
+      const { room, ws, sent, transfers } = createHarness();
+
+      await room.handleUploadStart(
+        ws,
+        startPayload({ totalBytes, chunkCount }),
+        "alice",
+      );
+
+      assert.equal(transfers.get(uploadId)?.status, "uploading");
+
+      for (let index = 0; index < chunkCount; index++) {
+        const start = index * chunkSize;
+        const end = Math.min(start + chunkSize, totalBytes);
+        const chunk = envelope.slice(start, end);
+
+        await room.handleUploadChunk(
+          ws,
+          makeChunkFrame(chunk, {
+            index,
+            chunkCount,
+            totalBytes,
+          }),
+          "alice",
+        );
+      }
+
+      assert.equal(transfers.get(uploadId).received_count, chunkCount);
+
+      let delivered = null;
+      room.deliverUploadedEnvelope = async (...args) => {
+        delivered = args;
+        return "queued";
+      };
+
+      sent.length = 0;
+
+      await room.handleUploadDone(
+        ws,
+        JSON.stringify({ uploadId }),
+        "alice",
+      );
+
+      assert.equal(transfers.get(uploadId).status, "completed");
+      assert.ok(delivered, "Expected the envelope to be delivered");
+      assert.equal(delivered[1], "bob");
+      assert.equal(delivered[2], "alice");
+      assert.equal(delivered[3].length, totalBytes);
+      assert.deepEqual(delivered[3], envelope);
+
+      assert.deepEqual(parsePrefixed(sent, ACK), {
+        type: "done",
+        uploadId,
+        totalBytes,
+        delivery: "queued",
+      });
+    });
+  }
+});
