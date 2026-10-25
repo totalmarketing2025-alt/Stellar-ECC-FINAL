@@ -127,54 +127,89 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             onTap: () => _showChatTtlPicker(chat),
           ),
           Expanded(
-            child: messagesAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, st) => Center(
-                child: Text('Failed to load messages: $err',
-                    style: const TextStyle(color: StellarColors.danger)),
-              ),
-              data: (messages) {
-                if (messages.isEmpty) {
-                  return const Center(
-                    child: Text('No messages yet — say hello 👋',
-                        style: TextStyle(color: StellarColors.textSecondary)),
-                  );
-                }
-                final timeline = _buildChatTimeline(messages);
-                return ListView.builder(
-                  controller: _scrollController,
-                  reverse: true,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  itemCount: timeline.length,
-                  itemBuilder: (context, index) {
-                    final item = timeline[timeline.length - 1 - index];
-                    final localNickname = ref.read(localNicknameProvider);
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Image.asset(
+                    'assets/images/chat_background.png',
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: Colors.black.withOpacity(0.42),
+                  ),
+                ),
+                Positioned.fill(
+                  child: messagesAsync.when(
+                    loading: () =>
+                        const Center(child: CircularProgressIndicator()),
+                    error: (err, st) => Center(
+                      child: Text(
+                        'Failed to load messages: $err',
+                        style: const TextStyle(color: StellarColors.danger),
+                      ),
+                    ),
+                    data: (messages) {
+                      if (messages.isEmpty) {
+                        return const Center(
+                          child: Text(
+                            'No messages yet — say hello 👋',
+                            style: TextStyle(
+                              color: StellarColors.textSecondary,
+                            ),
+                          ),
+                        );
+                      }
+                      final timeline = _buildChatTimeline(messages);
+                      return ListView.builder(
+                        controller: _scrollController,
+                        reverse: true,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        itemCount: timeline.length,
+                        itemBuilder: (context, index) {
+                          final item = timeline[timeline.length - 1 - index];
+                          final localNickname =
+                              ref.read(localNicknameProvider);
 
-                    if (item.callGroup != null) {
-                      return CallEventCard(
-                        events: item.callGroup!.messages,
-                        localNickname: localNickname ?? '',
+                          if (item.callGroup != null) {
+                            return CallEventCard(
+                              events: item.callGroup!.messages,
+                              localNickname: localNickname ?? '',
+                            );
+                          }
+
+                          final message = item.message!;
+                          return MessageBubble(
+                            message: message,
+                            isOutgoing: message.senderId == localNickname,
+                            onReply: () =>
+                                setState(() => _replyingTo = message),
+                            onReact: (emoji) => ref
+                                .read(chatRepositoryProvider)
+                                .addReaction(message.messageId, emoji),
+                            onDelete: () async {
+                              await ref
+                                  .read(chatRepositoryProvider)
+                                  .deleteMessage(message.messageId);
+                              ref.invalidate(
+                                chatMessagesProvider(widget.chatId),
+                              );
+                              ref.invalidate(chatListProvider);
+                            },
+                            onLoadAttachment: (blobId) => ref
+                                .read(chatRepositoryProvider)
+                                .loadAttachment(blobId),
+                          );
+                        },
                       );
-                    }
-
-                    final message = item.message!;
-                    return MessageBubble(
-                      message: message,
-                      isOutgoing: message.senderId == localNickname,
-                      onReply: () => setState(() => _replyingTo = message),
-                      onReact: (emoji) =>
-                          ref.read(chatRepositoryProvider).addReaction(message.messageId, emoji),
-                      onDelete: () async {
-                        await ref.read(chatRepositoryProvider).deleteMessage(message.messageId);
-                        ref.invalidate(chatMessagesProvider(widget.chatId));
-                        ref.invalidate(chatListProvider);
-                      },
-                      onLoadAttachment: (blobId) =>
-                          ref.read(chatRepositoryProvider).loadAttachment(blobId),
-                    );
-                  },
-                );
-              },
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
           if ((chat?.unreadCount ?? 0) > 0)
