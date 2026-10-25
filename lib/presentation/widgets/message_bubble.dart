@@ -650,8 +650,8 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final alignment = isOutgoing ? CrossAxisAlignment.start : CrossAxisAlignment.end;
-    final bubbleAlignment = isOutgoing ? Alignment.centerLeft : Alignment.centerRight;
+    final alignment = isOutgoing ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    final bubbleAlignment = isOutgoing ? Alignment.centerRight : Alignment.centerLeft;
     final bubbleColor = isOutgoing ? StellarColors.accentBlue.withOpacity(0.18) : StellarColors.bgSurface;
     final borderColor = isOutgoing ? StellarColors.accentBlue : Colors.transparent;
 
