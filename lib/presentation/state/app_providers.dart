@@ -300,6 +300,7 @@ final chatRepositoryProvider = Provider<ChatRepository>((ref) {
   final repository = ChatRepository(
     db: ref.watch(databaseProvider),
     sessionManager: ref.watch(sessionManagerProvider),
+    groupCrypto: ref.watch(groupCryptoProvider),
     relayClient: ref.watch(relayClientProvider),
     directoryClient: ref.watch(directoryClientProvider),
     localNickname: nickname,

@@ -422,6 +422,11 @@ const RELAY_ACK_PREFIX =
 const RELAY_ACK_OK_PREFIX =
   "STELLAR_RELAY_ACK_OK_V1:";
 
+// Sender-side durable acceptance receipt. This is separate from
+// the recipient's STELLAR_RELAY_ACK_V1 delivery acknowledgement.
+const RELAY_SEND_PREFIX = "STELLAR_RELAY_SEND_V1:";
+const RELAY_SEND_OK_PREFIX = "STELLAR_RELAY_SEND_OK_V1:";
+
 // Sender-side attachment upload protocol.
 // Separate from recipient delivery ACK/chunk protocol.
 const RELAY_UPLOAD_CHUNK_PREFIX =
@@ -624,6 +629,21 @@ export class RelayRoom {
       )
     `);
 
+    // Idempotency ledger for sender-side durable acceptance receipts.
+    // Keep entries after queue delivery ACKs so retrying the same
+    // receipt ID can never create another queued envelope.
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS relay_send_receipts (
+        sender TEXT NOT NULL,
+        receipt_id TEXT NOT NULL,
+        recipient TEXT NOT NULL,
+        envelope_hash TEXT NOT NULL,
+        delivery_id INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (sender, receipt_id)
+      )
+    `);
+
     // Temporary sender-side attachment uploads.
     this.ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS relay_upload_transfers (
@@ -734,6 +754,205 @@ export class RelayRoom {
     }
 
     return deliveryId;
+  }
+
+  async queueEnvelopeWithReceipt(recipient, sender, message, receiptId) {
+    const bytes =
+      typeof message === "string"
+        ? new TextEncoder().encode(message)
+        : message instanceof ArrayBuffer
+          ? new Uint8Array(message)
+          : new Uint8Array(
+              message.buffer,
+              message.byteOffset,
+              message.byteLength,
+            );
+
+    if (bytes.length < 8) {
+      throw new Error("Invalid envelope");
+    }
+
+    const decodedRecipient = decodeRecipientRoute(bytes)
+      .trim()
+      .toLowerCase();
+
+    if (!decodedRecipient || decodedRecipient !== recipient) {
+      throw new Error("Receipt envelope recipient mismatch");
+    }
+
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const envelopeHash = Array.from(new Uint8Array(digest))
+      .map((value) => value.toString(16).padStart(2, "0"))
+      .join("");
+
+    const createdAt = Date.now();
+    const expiresAt = createdAt + readU32(bytes, 2) * 1000;
+    const chunked = bytes.length > RELAY_CHUNK_SIZE;
+    const chunkCount = chunked
+      ? Math.ceil(bytes.length / RELAY_CHUNK_SIZE)
+      : 0;
+
+    /*
+     * The receipt ledger and queued envelope must commit together.
+     * A retry with the same sender, receipt ID, recipient and bytes
+     * returns the original delivery ID instead of creating a duplicate.
+     */
+    return this.ctx.storage.transactionSync(() => {
+      const existingRows = Array.from(
+        this.ctx.storage.sql.exec(
+          `SELECT recipient, envelope_hash, delivery_id
+           FROM relay_send_receipts
+           WHERE sender = ? AND receipt_id = ?`,
+          sender,
+          receiptId,
+        ),
+      );
+
+      if (existingRows.length > 0) {
+        const existing = existingRows[0];
+
+        if (
+          existing.recipient !== recipient ||
+          existing.envelope_hash !== envelopeHash
+        ) {
+          throw new Error("RELAY_RECEIPT_ID_CONFLICT");
+        }
+
+        return {
+          deliveryId: Number(existing.delivery_id),
+          duplicate: true,
+        };
+      }
+
+      this.ctx.storage.sql.exec(
+        `INSERT INTO relay_queue
+          (recipient, sender, envelope, created_at, expires_at,
+           chunked, chunk_count)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        recipient,
+        sender,
+        chunked ? new Uint8Array(0) : bytes,
+        createdAt,
+        expiresAt,
+        chunked ? 1 : 0,
+        chunkCount,
+      );
+
+      const row = this.ctx.storage.sql
+        .exec(`SELECT last_insert_rowid() AS id`)
+        .one();
+
+      const deliveryId = Number(row.id);
+
+      if (chunked) {
+        for (
+          let chunkIndex = 0;
+          chunkIndex < chunkCount;
+          chunkIndex++
+        ) {
+          const start = chunkIndex * RELAY_CHUNK_SIZE;
+          const end = Math.min(start + RELAY_CHUNK_SIZE, bytes.length);
+
+          this.ctx.storage.sql.exec(
+            `INSERT INTO relay_queue_chunks
+              (delivery_id, chunk_index, chunk)
+             VALUES (?, ?, ?)`,
+            deliveryId,
+            chunkIndex,
+            bytes.slice(start, end),
+          );
+        }
+      }
+
+      this.ctx.storage.sql.exec(
+        `INSERT INTO relay_send_receipts
+          (sender, receipt_id, recipient, envelope_hash,
+           delivery_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        sender,
+        receiptId,
+        recipient,
+        envelopeHash,
+        deliveryId,
+        createdAt,
+      );
+
+      return { deliveryId, duplicate: false };
+    });
+  }
+
+  async handleSendWithReceipt(ws, receiptId, message) {
+    const attachment = ws.deserializeAttachment() || {};
+
+    if (
+      attachment.authenticated !== true ||
+      attachment.authState !== "authenticated"
+    ) {
+      throw new Error("Relay authentication required");
+    }
+
+    const sender = String(attachment.peer || "").trim().toLowerCase();
+
+    if (!sender) {
+      throw new Error("Missing authenticated sender");
+    }
+
+    const bytes =
+      message instanceof ArrayBuffer
+        ? new Uint8Array(message)
+        : new Uint8Array(
+            message.buffer,
+            message.byteOffset,
+            message.byteLength,
+          );
+
+    const recipient = decodeRecipientRoute(bytes).trim().toLowerCase();
+
+    if (!recipient) {
+      throw new Error("Missing envelope recipient");
+    }
+
+    const result = await this.queueEnvelopeWithReceipt(
+      recipient,
+      sender,
+      bytes,
+      receiptId,
+    );
+
+    // The envelope and idempotency record are durable before this ACK.
+    ws.send(`${RELAY_SEND_OK_PREFIX}${receiptId}`);
+
+    // Online delivery still uses the existing queue/chunk/recipient-ACK
+    // protocol. The queued row is NOT deleted by this sender receipt.
+    for (const peer of this.ctx.getWebSockets()) {
+      if (peer === ws) continue;
+
+      try {
+        const peerAttachment = peer.deserializeAttachment();
+
+        if (
+          peerAttachment?.authenticated === true &&
+          peerAttachment?.authState === "authenticated" &&
+          String(peerAttachment.peer || "").trim().toLowerCase() === recipient
+        ) {
+          await this.flushQueue(peer, recipient);
+          break;
+        }
+      } catch (_) {
+        // Ignore a disconnected peer; the durable queue remains.
+      }
+    }
+
+    console.log(
+      "RELAY_SEND_RECEIPT_ACCEPTED",
+      JSON.stringify({
+        sender,
+        recipient,
+        receiptId,
+        deliveryId: result.deliveryId,
+        duplicate: result.duplicate,
+      }),
+    );
   }
 
   sendUploadError(ws, uploadId, code) {
@@ -1688,6 +1907,74 @@ export class RelayRoom {
       return;
     }
 
+    /*
+     * Sender-side receipt protocol:
+     * a control text frame arms the next binary frame on this socket.
+     * The marker is one-shot and is cleared before asynchronous work.
+     */
+    if (
+      typeof message === "string" &&
+      message.startsWith(RELAY_SEND_PREFIX)
+    ) {
+      const receiptId = message.slice(RELAY_SEND_PREFIX.length).trim();
+
+      if (
+        attachment.pendingSendReceiptId ||
+        !/^[A-Za-z0-9_-]{1,128}$/.test(receiptId)
+      ) {
+        try {
+          ws.close(1008, "Invalid relay send receipt");
+        } catch (_) {}
+        return;
+      }
+
+      ws.serializeAttachment({
+        ...attachment,
+        pendingSendReceiptId: receiptId,
+      });
+      return;
+    }
+
+    if (attachment.pendingSendReceiptId) {
+      const receiptId = String(attachment.pendingSendReceiptId);
+
+      if (
+        typeof message === "string" ||
+        !(message instanceof ArrayBuffer || ArrayBuffer.isView(message))
+      ) {
+        try {
+          ws.close(1008, "Expected binary envelope after send receipt");
+        } catch (_) {}
+        return;
+      }
+
+      // Clear first, so this receipt ID cannot accidentally apply to
+      // a later unrelated message if processing fails.
+      ws.serializeAttachment({
+        ...attachment,
+        pendingSendReceiptId: null,
+      });
+
+      try {
+        await this.handleSendWithReceipt(ws, receiptId, message);
+      } catch (error) {
+        console.error(
+          "RELAY_SEND_RECEIPT_FAILED",
+          String(error?.message || error),
+        );
+
+        try {
+          if (String(error?.message || error) === "RELAY_RECEIPT_ID_CONFLICT") {
+            ws.close(1008, "Relay receipt ID conflict");
+          } else {
+            ws.close(1011, "Relay send receipt failed");
+          }
+        } catch (_) {}
+      }
+
+      return;
+    }
+
     if (
       typeof message === "string" &&
       message.startsWith(RELAY_ACK_PREFIX)
@@ -1973,6 +2260,16 @@ export class ModerationRoom {
     `);
 
     this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS moderation_groups (
+        group_id TEXT PRIMARY KEY,
+        group_name TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
+    this.ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS moderation_broadcasts (
         broadcast_id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
@@ -2080,6 +2377,255 @@ export class ModerationRoom {
     }
 
     return session;
+  }
+
+  async registerGroup(request) {
+    const session = await this.authenticateModerationSession(request);
+
+    if (!session) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    let body;
+    try {
+      body = await request.json();
+    } catch (_) {
+      return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return Response.json(
+        { error: "Request body must be a JSON object" },
+        { status: 400 },
+      );
+    }
+
+    const groupId =
+      typeof body.groupId === "string" ? body.groupId.trim() : "";
+    const groupName =
+      typeof body.groupName === "string" ? body.groupName.trim() : "";
+    const creator = session.nickname;
+
+    // New group IDs must match the UUID v4 format used by the app.
+    // Older, already-stored groups remain discoverable through message history.
+    if (
+      typeof groupId !== "string" ||
+      !/^group_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(groupId)
+    ) {
+      return Response.json({ error: "Invalid groupId" }, { status: 400 });
+    }
+
+    if (!groupName || groupName.length > 160) {
+      return Response.json({ error: "Invalid groupName" }, { status: 400 });
+    }
+
+    const now = Date.now();
+
+    this.ctx.storage.sql.exec(
+      `INSERT OR IGNORE INTO moderation_groups
+       (group_id, group_name, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      groupId,
+      groupName,
+      creator,
+      now,
+      now,
+    );
+
+    const existing = this.ctx.storage.sql.exec(
+      `SELECT group_id, group_name, created_by, created_at, updated_at
+         FROM moderation_groups
+        WHERE group_id = ?`,
+      groupId,
+    ).one();
+
+    if (!existing) {
+      return Response.json({ error: "Group registration failed" }, { status: 500 });
+    }
+
+    // Only the originally registered creator can rename this group.
+    if (
+      String(existing.created_by).toLowerCase() !== creator.toLowerCase()
+    ) {
+      return Response.json(
+        { error: "Group is already registered to another creator" },
+        { status: 409 },
+      );
+    }
+
+    if (existing.group_name !== groupName) {
+      this.ctx.storage.sql.exec(
+        `UPDATE moderation_groups
+            SET group_name = ?, updated_at = ?
+          WHERE group_id = ? AND lower(created_by) = lower(?)`,
+        groupName,
+        now,
+        groupId,
+        creator,
+      );
+    }
+
+    const group = this.ctx.storage.sql.exec(
+      `SELECT group_id, group_name, created_by, created_at, updated_at
+         FROM moderation_groups
+        WHERE group_id = ?`,
+      groupId,
+    ).one();
+
+    return Response.json({ ok: true, group }, { status: 200 });
+  }
+
+  async listAdminGroups(request) {
+    const session = await this.authenticateModerationAdminSession(request);
+
+    if (!session) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const url = new URL(request.url);
+    const rawLimit = url.searchParams.get("limit");
+    const rawOffset = url.searchParams.get("offset");
+    const limit = rawLimit == null ? 50 : Number(rawLimit);
+    const offset = rawOffset == null ? 0 : Number(rawOffset);
+    const query = (url.searchParams.get("q") || "")
+      .trim()
+      .toLowerCase()
+      .slice(0, 120);
+
+    if (
+      !Number.isSafeInteger(limit) || limit < 1 || limit > 100 ||
+      !Number.isSafeInteger(offset) || offset < 0
+    ) {
+      return Response.json(
+        { error: "Invalid pagination parameters" },
+        { status: 400 },
+      );
+    }
+
+    const registered = this.ctx.storage.sql.exec(
+      `SELECT group_id, group_name, created_by, created_at, updated_at
+         FROM moderation_groups
+        ORDER BY updated_at DESC`,
+    ).toArray();
+
+    const now = Date.now();
+    const discovered = this.ctx.storage.sql.exec(
+      `SELECT DISTINCT substr(recipient, 7) AS group_id
+         FROM moderation_messages
+        WHERE expires_at > ?
+          AND recipient LIKE 'group:%'
+          AND length(substr(recipient, 7)) > 0
+        ORDER BY group_id
+        LIMIT 500`,
+      now,
+    ).toArray();
+
+    const groupsById = new Map();
+    for (const group of registered) {
+      groupsById.set(group.group_id, {
+        ...group,
+        registered: true,
+      });
+    }
+
+    for (const row of discovered) {
+      if (!groupsById.has(row.group_id)) {
+        groupsById.set(row.group_id, {
+          group_id: row.group_id,
+          group_name: row.group_id,
+          created_by: "Unknown creator",
+          created_at: null,
+          updated_at: null,
+          registered: false,
+        });
+      }
+    }
+
+    let groups = Array.from(groupsById.values());
+
+    if (query) {
+      groups = groups.filter((group) =>
+        [group.group_id, group.group_name, group.created_by]
+          .some((value) =>
+            String(value || "").toLowerCase().includes(query)
+          )
+      );
+    }
+
+    for (const group of groups) {
+      const stats = this.ctx.storage.sql.exec(
+        `SELECT COUNT(*) AS message_count,
+                MAX(created_at) AS last_message_at
+           FROM moderation_messages
+          WHERE expires_at > ?
+            AND (chat_id = ? OR recipient = ?)`,
+        now,
+        group.group_id,
+        `group:${group.group_id}`,
+      ).one();
+
+      group.message_count = Number(stats?.message_count || 0);
+      group.last_message_at = stats?.last_message_at ?? null;
+    }
+
+    groups.sort((a, b) =>
+      Number(b.last_message_at || b.updated_at || 0) -
+      Number(a.last_message_at || a.updated_at || 0)
+    );
+
+    return Response.json({
+      groups: groups.slice(offset, offset + limit),
+      total: groups.length,
+    });
+  }
+
+  async listAdminGroupMessages(request, groupId) {
+    const session = await this.authenticateModerationAdminSession(request);
+
+    if (!session) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (
+      typeof groupId !== "string" ||
+      groupId.length === 0 ||
+      groupId.length > 256
+    ) {
+      return Response.json({ error: "Invalid groupId" }, { status: 400 });
+    }
+
+    const url = new URL(request.url);
+    const rawLimit = url.searchParams.get("limit");
+    const rawOffset = url.searchParams.get("offset");
+    const limit = rawLimit == null ? 100 : Number(rawLimit);
+    const offset = rawOffset == null ? 0 : Number(rawOffset);
+
+    if (
+      !Number.isSafeInteger(limit) || limit < 1 || limit > 100 ||
+      !Number.isSafeInteger(offset) || offset < 0
+    ) {
+      return Response.json(
+        { error: "Invalid pagination parameters" },
+        { status: 400 },
+      );
+    }
+
+    const messages = this.ctx.storage.sql.exec(
+      `SELECT message_id, sender, recipient, chat_id, created_at,
+              expires_at, content_type, plaintext, attachment_mime_type
+         FROM moderation_messages
+        WHERE expires_at > ?
+          AND (chat_id = ? OR recipient = ?)
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?`,
+      Date.now(),
+      groupId,
+      `group:${groupId}`,
+      limit,
+      offset,
+    ).toArray();
+
+    return Response.json({ groupId, messages });
   }
 
   async createBroadcast(request) {
@@ -2406,6 +2952,47 @@ export class ModerationRoom {
 
   async fetch(request) {
     const url = new URL(request.url);
+
+    if (url.pathname === "/v1/moderation/groups/register") {
+      if (request.method !== "POST") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "POST" },
+        });
+      }
+      return this.registerGroup(request);
+    }
+
+    if (url.pathname === "/v1/moderation/admin/groups") {
+      if (request.method !== "GET") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "GET" },
+        });
+      }
+      return this.listAdminGroups(request);
+    }
+
+    const adminGroupMessagesMatch = url.pathname.match(
+      /^\/v1\/moderation\/admin\/groups\/([^/]+)\/messages$/,
+    );
+    if (adminGroupMessagesMatch) {
+      if (request.method !== "GET") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "GET" },
+        });
+      }
+
+      let groupId;
+      try {
+        groupId = decodeURIComponent(adminGroupMessagesMatch[1]);
+      } catch (_) {
+        return Response.json({ error: "Invalid groupId encoding" }, { status: 400 });
+      }
+
+      return this.listAdminGroupMessages(request, groupId);
+    }
 
     if (
       url.pathname === "/v1/moderation/admin/broadcasts" &&
@@ -4209,6 +4796,15 @@ export default {
     const isModerationAdminMessages =
       url.pathname === "/v1/moderation/admin/messages";
 
+    const isModerationGroupRegistration =
+      url.pathname === "/v1/moderation/groups/register";
+
+    const isModerationAdminGroups =
+      url.pathname === "/v1/moderation/admin/groups";
+
+    const isModerationAdminGroupMessages =
+      /^\/v1\/moderation\/admin\/groups\/[^/]+\/messages$/.test(url.pathname);
+
     const isModerationReports =
       url.pathname === "/v1/moderation/reports";
 
@@ -4246,6 +4842,9 @@ export default {
       isModerationAdminUsers ||
       isModerationAdminUserDossier ||
       isModerationAdminMessages ||
+      isModerationGroupRegistration ||
+      isModerationAdminGroups ||
+      isModerationAdminGroupMessages ||
       isModerationAdminAttachment
     ) {
       const isAdminDashboardGet =
@@ -4280,6 +4879,10 @@ export default {
         isModerationAdminMessages &&
         request.method === "GET";
 
+      const isAdminGroupsGet =
+        (isModerationAdminGroups || isModerationAdminGroupMessages) &&
+        request.method === "GET";
+
       const isAdminAttachmentGet =
         isModerationAdminAttachment &&
         request.method === "GET";
@@ -4293,6 +4896,7 @@ export default {
         !isAdminUserDossierGet &&
         !isAdminReportsGet &&
         !isAdminMessagesGet &&
+        !isAdminGroupsGet &&
         !isAdminAttachmentGet &&
         request.method !== "POST"
       ) {
@@ -4309,6 +4913,8 @@ export default {
                   isModerationAdminUserDossier ||
                   isModerationAdminReports ||
                   isModerationAdminMessages ||
+                  isModerationAdminGroups ||
+                  isModerationAdminGroupMessages ||
                   isModerationAdminAttachment
                 )
                 ? "GET"

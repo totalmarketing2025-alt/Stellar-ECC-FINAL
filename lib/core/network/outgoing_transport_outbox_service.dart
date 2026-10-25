@@ -24,6 +24,8 @@ class OutgoingTransportOutboxService {
 
   Timer? _timer;
   bool _running = false;
+  bool _flushRequested = false;
+  Completer<void>? _activeFlush;
   bool _disposed = false;
 
   Future<void> start() async {
@@ -43,54 +45,91 @@ class OutgoingTransportOutboxService {
   }
 
   Future<void> flush() async {
-    if (_disposed || _running) return;
+    if (_disposed) return;
 
+    final active = _activeFlush;
+    if (active != null) {
+      _flushRequested = true;
+      await active.future;
+      return;
+    }
+
+    final completion = Completer<void>();
+    _activeFlush = completion;
     _running = true;
 
     try {
-      while (!_disposed) {
-        final rows = await db.transportOutboxDao.due(limit: 10);
+      do {
+        _flushRequested = false;
 
-        if (rows.isEmpty) {
-          break;
-        }
+        while (!_disposed) {
+          final rows = await db.transportOutboxDao.due(limit: 10);
 
-        for (final row in rows) {
-          if (_disposed) break;
-          await _process(row);
+          if (rows.isEmpty) {
+            break;
+          }
+
+          for (final row in rows) {
+            if (_disposed) break;
+            await _process(row);
+          }
         }
-      }
+      } while (!_disposed && _flushRequested);
     } finally {
       _running = false;
+      _activeFlush = null;
+      completion.complete();
     }
   }
 
   Future<void> _process(Map<String, Object?> row) async {
-    final messageId = row['message_id'] as String;
+    final transportId = row['transport_id'] as String;
     final envelopeBytes = row['envelope_bytes'] as Uint8List;
     final state = row['state'] as String;
 
     try {
+      final transportType =
+          row['transport_type'] as String? ?? 'message';
+
+      if (transportType == 'ack') {
+        // Retry the exact same persisted encrypted envelope and receipt ID.
+        // The relay's durable idempotency ledger prevents duplicate queue rows.
+        await relayClient.sendWithReceipt(
+          receiptId: transportId,
+          envelopeBytes: envelopeBytes,
+        );
+
+        await db.transportOutboxDao.markRelaySent(transportId);
+
+        print(
+          'TRANSPORT_OUTBOX_ACK_RECEIPT_CONFIRMED: '
+          'transportId=$transportId',
+        );
+
+        await onRelaySent(transportId);
+        return;
+      }
+
       if (state == 'pending') {
         await relayClient.send(envelopeBytes);
 
-        await db.transportOutboxDao.markRelaySent(messageId);
+        await db.transportOutboxDao.markRelaySent(transportId);
 
         print(
           'TRANSPORT_OUTBOX_RELAY_SENT: '
-          'messageId=$messageId',
+          'transportId=$transportId',
         );
 
-        await onRelaySent(messageId);
+        await onRelaySent(transportId);
       } else if (state == 'relay_sent') {
         // The relay send already succeeded before a possible crash.
         // Recover the post-send lifecycle through ChatRepository.
         print(
           'TRANSPORT_OUTBOX_RELAY_ALREADY_SENT: '
-          'messageId=$messageId',
+          'transportId=$transportId',
         );
 
-        await onRelaySent(messageId);
+        await onRelaySent(transportId);
       } else {
         throw StateError(
           'Unknown transport outbox state: $state',
@@ -104,7 +143,7 @@ class OutgoingTransportOutboxService {
               delaySeconds;
 
       await db.transportOutboxDao.retry(
-        messageId: messageId,
+        transportId: transportId,
         attemptCount: attempt,
         nextAttemptAt: nextAttemptAt,
         lastError: error.toString(),
@@ -112,7 +151,7 @@ class OutgoingTransportOutboxService {
 
       print(
         'TRANSPORT_OUTBOX_RETRY: '
-        'messageId=$messageId '
+        'transportId=$transportId '
         'attempt=$attempt '
         'next=${delaySeconds}s '
         'error=$error',

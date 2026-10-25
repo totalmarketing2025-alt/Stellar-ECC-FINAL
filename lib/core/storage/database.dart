@@ -74,6 +74,69 @@ class StellarDatabase {
     }
   }
 
+  static void _ensureTransportOutboxSchema(Database db) {
+    final columns = db.select('PRAGMA table_info(transport_outbox);');
+    final hasTransportId =
+        columns.any((row) => row['name'] == 'transport_id');
+
+    if (!hasTransportId) {
+      // Preserve every pending legacy envelope. Existing direct-message
+      // rows retain message_id as their transport_id.
+      db.execute('DROP INDEX IF EXISTS idx_transport_outbox_due;');
+      db.execute('ALTER TABLE transport_outbox RENAME TO transport_outbox_legacy;');
+
+      db.execute('''
+        CREATE TABLE transport_outbox (
+          transport_id    TEXT PRIMARY KEY,
+          message_id      TEXT NOT NULL,
+          delivery_token  BLOB NOT NULL,
+          recipient_route TEXT NOT NULL,
+          envelope_bytes  BLOB NOT NULL,
+          created_at      INTEGER NOT NULL,
+          state           TEXT NOT NULL,
+          attempt_count   INTEGER NOT NULL DEFAULT 0,
+          next_attempt_at INTEGER NOT NULL,
+          last_error      TEXT
+        );
+      ''');
+
+      db.execute('''
+        INSERT INTO transport_outbox (
+          transport_id, message_id, delivery_token, recipient_route,
+          envelope_bytes, created_at, state, attempt_count,
+          next_attempt_at, last_error
+        )
+        SELECT
+          message_id, message_id, delivery_token, recipient_route,
+          envelope_bytes, created_at, state, attempt_count,
+          next_attempt_at, last_error
+        FROM transport_outbox_legacy;
+      ''');
+
+      db.execute('DROP TABLE transport_outbox_legacy;');
+    }
+
+    // Existing records are normal messages by default. Distribution
+    // records use a dedicated callback lifecycle.
+    final refreshedColumns =
+        db.select('PRAGMA table_info(transport_outbox);');
+    final hasTransportType = refreshedColumns.any(
+      (row) => row['name'] == 'transport_type',
+    );
+
+    if (!hasTransportType) {
+      db.execute(
+        "ALTER TABLE transport_outbox "
+        "ADD COLUMN transport_type TEXT NOT NULL DEFAULT 'message';",
+      );
+    }
+
+    db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_transport_outbox_due
+      ON transport_outbox(next_attempt_at);
+    ''');
+  }
+
   static void _runMigrations(Database db) {
     db.execute('''
       CREATE TABLE IF NOT EXISTS chat (
@@ -173,6 +236,8 @@ CREATE TABLE IF NOT EXISTS moderation_outbox (
       );
     ''');
 
+    _ensureTransportOutboxSchema(db);
+
     db.execute('''
       CREATE INDEX IF NOT EXISTS idx_moderation_outbox_due
       ON moderation_outbox(next_attempt_at);
@@ -207,6 +272,17 @@ CREATE TABLE IF NOT EXISTS moderation_outbox (
         device_id INTEGER NOT NULL,
         record    BLOB NOT NULL,
         PRIMARY KEY (name, device_id)
+      );
+    ''');
+
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS group_member (
+        group_id  TEXT NOT NULL,
+        nickname  TEXT NOT NULL,
+        role      TEXT NOT NULL DEFAULT 'member',
+        joined_at INTEGER NOT NULL,
+        PRIMARY KEY (group_id, nickname),
+        FOREIGN KEY (group_id) REFERENCES chat(chat_id) ON DELETE CASCADE
       );
     ''');
 
@@ -487,6 +563,27 @@ class ChatDao {
     return rows.isEmpty ? null : rows.first;
   }
 
+  Future<void> addGroupMember(String groupId, String nickname, {String role = 'member'}) async {
+    _db.execute(
+      'INSERT OR REPLACE INTO group_member (group_id, nickname, role, joined_at) VALUES (?, ?, ?, ?)',
+      [groupId, nickname, role, DateTime.now().millisecondsSinceEpoch ~/ 1000],
+    );
+  }
+
+  Future<List<Map<String, Object?>>> groupMembers(String groupId) async {
+    return _db.select(
+      'SELECT * FROM group_member WHERE group_id = ? ORDER BY joined_at',
+      [groupId],
+    );
+  }
+
+  Future<void> removeGroupMember(String groupId, String nickname) async {
+    _db.execute(
+      'DELETE FROM group_member WHERE group_id = ? AND nickname = ?',
+      [groupId, nickname],
+    );
+  }
+
   Future<void> updateDefaultTtl(String chatId, int ttlSec) async {
     _db.execute('UPDATE chat SET default_ttl_sec = ? WHERE chat_id = ?', [ttlSec, chatId]);
   }
@@ -578,6 +675,15 @@ class MessageDao {
 
   Future<void> updateStatus(String messageId, String status) async {
     _db.execute('UPDATE message SET status = ? WHERE message_id = ?', [status, messageId]);
+  }
+
+  /// Mark transport submission without downgrading an acknowledged message.
+  Future<void> markSent(String messageId) async {
+    _db.execute(
+      "UPDATE message SET status = 'sent' "
+      "WHERE message_id = ? AND status != 'delivered'",
+      [messageId],
+    );
   }
 
   Future<void> markDelivered(String messageId) async {
@@ -842,59 +948,54 @@ class TransportOutboxDao {
 
   Future<void> enqueue({
     required String messageId,
+    String? transportId,
+    String transportType = 'message',
     required Uint8List deliveryToken,
     required String recipientRoute,
     required Uint8List envelopeBytes,
     required int createdAt,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final id = transportId ?? messageId;
 
     _db.execute(
       '''
       INSERT INTO transport_outbox (
-        message_id,
-        delivery_token,
-        recipient_route,
-        envelope_bytes,
-        created_at,
-        state,
-        attempt_count,
-        next_attempt_at,
-        last_error
-      ) VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, NULL)
-      ON CONFLICT(message_id) DO UPDATE SET
+        transport_id, message_id, transport_type, delivery_token,
+        recipient_route, envelope_bytes, created_at, state,
+        attempt_count, next_attempt_at, last_error
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, NULL)
+      ON CONFLICT(transport_id) DO UPDATE SET
+        message_id = excluded.message_id,
         delivery_token = excluded.delivery_token,
         recipient_route = excluded.recipient_route,
         envelope_bytes = excluded.envelope_bytes,
         created_at = excluded.created_at
       ''',
       [
-        messageId,
-        deliveryToken,
-        recipientRoute,
-        envelopeBytes,
-        createdAt,
-        now,
+        id, messageId, transportType, deliveryToken, recipientRoute,
+        envelopeBytes, createdAt, now,
       ],
     );
   }
 
-  Future<Map<String, Object?>?> byId(String messageId) async {
-    final rows = _db.select(
-      '''
-      SELECT *
-      FROM transport_outbox
-      WHERE message_id = ?
-      LIMIT 1
-      ''',
+  Future<List<Map<String, Object?>>> forMessageId(String messageId) async {
+    return _db.select(
+      'SELECT * FROM transport_outbox WHERE message_id = ?',
       [messageId],
+    );
+  }
+
+  Future<Map<String, Object?>?> byId(String transportId) async {
+    final rows = _db.select(
+      'SELECT * FROM transport_outbox WHERE transport_id = ? LIMIT 1',
+      [transportId],
     );
     return rows.isEmpty ? null : rows.first;
   }
 
   Future<List<Map<String, Object?>>> due({int limit = 10}) async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-
     return _db.select(
       '''
       SELECT *
@@ -908,20 +1009,36 @@ class TransportOutboxDao {
     );
   }
 
-  Future<void> markRelaySent(String messageId) async {
+  Future<void> markRelaySent(String transportId) async {
     _db.execute(
       '''
       UPDATE transport_outbox
-      SET state = 'relay_sent',
-          last_error = NULL
-      WHERE message_id = ?
+      SET state = 'relay_sent', last_error = NULL
+      WHERE transport_id = ?
       ''',
-      [messageId],
+      [transportId],
+    );
+  }
+
+  Future<void> defer(
+    String transportId, {
+    int delaySeconds = 30,
+  }) async {
+    final nextAttemptAt =
+        DateTime.now().millisecondsSinceEpoch ~/ 1000 + delaySeconds;
+
+    _db.execute(
+      '''
+      UPDATE transport_outbox
+      SET next_attempt_at = ?
+      WHERE transport_id = ? AND state = 'relay_sent'
+      ''',
+      [nextAttemptAt, transportId],
     );
   }
 
   Future<void> retry({
-    required String messageId,
+    required String transportId,
     required int attemptCount,
     required int nextAttemptAt,
     String? lastError,
@@ -929,24 +1046,17 @@ class TransportOutboxDao {
     _db.execute(
       '''
       UPDATE transport_outbox
-      SET attempt_count = ?,
-          next_attempt_at = ?,
-          last_error = ?
-      WHERE message_id = ?
+      SET attempt_count = ?, next_attempt_at = ?, last_error = ?
+      WHERE transport_id = ?
       ''',
-      [
-        attemptCount,
-        nextAttemptAt,
-        lastError,
-        messageId,
-      ],
+      [attemptCount, nextAttemptAt, lastError, transportId],
     );
   }
 
-  Future<void> delete(String messageId) async {
+  Future<void> delete(String transportId) async {
     _db.execute(
-      'DELETE FROM transport_outbox WHERE message_id = ?',
-      [messageId],
+      'DELETE FROM transport_outbox WHERE transport_id = ?',
+      [transportId],
     );
   }
 }

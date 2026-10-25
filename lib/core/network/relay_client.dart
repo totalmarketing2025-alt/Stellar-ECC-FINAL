@@ -113,6 +113,13 @@ class RelayClient {
   static const _ackOkPrefix =
       'STELLAR_RELAY_ACK_OK_V1:';
 
+  // Transport-level confirmation for an outgoing envelope.
+  static const _sendReceiptPrefix =
+      'STELLAR_RELAY_SEND_V1:';
+
+  static const _sendReceiptOkPrefix =
+      'STELLAR_RELAY_SEND_OK_V1:';
+
   static const _uploadStartPrefix =
       'STELLAR_UPLOAD_START_V1:';
 
@@ -189,6 +196,9 @@ class RelayClient {
   Completer<void>? _authCompleter;
   final Map<int, Completer<void>> _ackWaiters =
       <int, Completer<void>>{};
+
+  final Map<String, Completer<void>> _sendReceiptWaiters =
+      <String, Completer<void>>{};
 
   final Map<String, Completer<Map<String, dynamic>>>
       _uploadAckWaiters =
@@ -383,6 +393,20 @@ class RelayClient {
               } catch (_) {
                 // Ignore malformed upload control frames.
               }
+              return;
+            }
+
+            if (data.startsWith(_sendReceiptOkPrefix)) {
+              final receiptId =
+                  data.substring(_sendReceiptOkPrefix.length).trim();
+
+              if (receiptId.isNotEmpty) {
+                final waiter = _sendReceiptWaiters.remove(receiptId);
+                if (waiter != null && !waiter.isCompleted) {
+                  waiter.complete();
+                }
+              }
+
               return;
             }
 
@@ -693,6 +717,18 @@ class RelayClient {
 
     _uploadAckWaiters.clear();
 
+    for (final waiter in _sendReceiptWaiters.values) {
+      if (!waiter.isCompleted) {
+        waiter.completeError(
+          StateError(
+            'Relay connection closed before send receipt confirmation',
+          ),
+        );
+      }
+    }
+
+    _sendReceiptWaiters.clear();
+
     _channel = null;
     _ready = false;
     _expectedChunkBinary = null;
@@ -911,6 +947,58 @@ class RelayClient {
     channel.sink.add(envelopeBytes);
   }
 
+  /// Sends an envelope with a relay-level acceptance receipt.
+  ///
+  /// The relay server must implement STELLAR_RELAY_SEND_V1 and return
+  /// STELLAR_RELAY_SEND_OK_V1 with the same receipt ID only after it
+  /// has accepted responsibility for the envelope.
+  ///
+  /// This method is introduced separately; existing send() behavior
+  /// remains unchanged until the server and outbox patches are applied.
+  Future<void> sendWithReceipt({
+    required String receiptId,
+    required Uint8List envelopeBytes,
+  }) async {
+    final id = receiptId.trim();
+    if (id.isEmpty) {
+      throw ArgumentError.value(receiptId, 'receiptId', 'Must not be empty');
+    }
+
+    final channel = _channel;
+    if (channel == null || _ready != true) {
+      throw StateError('Relay is not connected and ready');
+    }
+
+    if (envelopeBytes.length > _directEnvelopeMaxBytes) {
+      throw StateError(
+        'Receipt-based send currently supports direct envelopes only',
+      );
+    }
+
+    if (_sendReceiptWaiters.containsKey(id)) {
+      throw StateError('A send receipt is already pending for ID: $id');
+    }
+
+    final waiter = Completer<void>();
+    _sendReceiptWaiters[id] = waiter;
+
+    try {
+      channel.sink.add('$_sendReceiptPrefix$id');
+      channel.sink.add(envelopeBytes);
+
+      await waiter.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          throw StateError('Relay send receipt timed out: $id');
+        },
+      );
+    } finally {
+      if (identical(_sendReceiptWaiters[id], waiter)) {
+        _sendReceiptWaiters.remove(id);
+      }
+    }
+  }
+
   Future<void> sendCallSignal({
     required String recipient,
     required Uint8List plaintext,
@@ -1086,6 +1174,18 @@ class RelayClient {
     }
 
     _ackWaiters.clear();
+
+    for (final waiter in _sendReceiptWaiters.values) {
+      if (!waiter.isCompleted) {
+        waiter.completeError(
+          StateError(
+            'Relay manually disconnected before send receipt confirmation',
+          ),
+        );
+      }
+    }
+
+    _sendReceiptWaiters.clear();
 
     final channel = _channel;
     _channel = null;

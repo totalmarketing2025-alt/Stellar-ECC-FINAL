@@ -15,7 +15,7 @@ class GroupCrypto {
   final StellarSenderKeyStore senderKeyStore;
   final SessionManager sessionManager;
 
-  Future<dynamic> createOrRotateSenderKey(
+  Future<Uint8List> createOrRotateSenderKey(
     SenderKeyName groupSenderKeyName,
   ) async {
     final builder = GroupSessionBuilder(senderKeyStore);
@@ -23,7 +23,7 @@ class GroupCrypto {
     final distributionMessage =
         await builder.create(groupSenderKeyName);
 
-    return distributionMessage;
+    return Uint8List.fromList(distributionMessage.serialize());
   }
 
   Future<void> processIncomingDistributionMessage(

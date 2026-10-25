@@ -166,6 +166,60 @@ class ModerationClient {
     _sessionExpiresAt = expiresAt.toInt();
   }
 
+  Future<void> registerGroup({
+    required String groupId,
+    required String groupName,
+    required String nickname,
+  }) async {
+    final normalizedId = groupId.trim();
+    final normalizedName = groupName.trim();
+
+    if (!RegExp(
+      r'^group_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+      caseSensitive: false,
+    ).hasMatch(normalizedId)) {
+      throw ArgumentError('Invalid group ID');
+    }
+
+    if (normalizedName.isEmpty || normalizedName.length > 160) {
+      throw ArgumentError('Invalid group name');
+    }
+
+    if (nickname.trim().isEmpty) {
+      throw ArgumentError('Nickname is required');
+    }
+
+    await _ensureAuthenticated(nickname);
+
+    final request = await _client.postUrl(
+      Uri.parse('$baseUrl/v1/moderation/groups/register'),
+    );
+
+    request.headers.contentType = ContentType.json;
+    request.headers.set(
+      HttpHeaders.authorizationHeader,
+      'Bearer $_sessionToken',
+    );
+
+    request.write(jsonEncode({
+      'groupId': normalizedId,
+      'groupName': normalizedName,
+    }));
+
+    final response = await request.close().timeout(
+      const Duration(seconds: 15),
+    );
+
+    final body = await utf8.decoder.bind(response).join();
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ModerationException(
+        body.isEmpty ? 'Group registration failed' : body,
+        response.statusCode,
+      );
+    }
+  }
+
   Future<void> sendMessage(
     ModerationMessage message, {
     required String nickname,

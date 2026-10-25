@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/storage/database.dart';
 import '../../core/crypto/session_manager.dart';
+import '../../core/crypto/group_crypto.dart';
 import '../../core/network/relay_client.dart';
 import '../../core/network/directory_client.dart';
 import '../../core/network/envelope.dart';
@@ -26,6 +27,7 @@ class ChatRepository {
   ChatRepository({
     required this.db,
     required this.sessionManager,
+    required this.groupCrypto,
     required this.relayClient,
     required this.directoryClient,
     required this.localNickname,
@@ -51,6 +53,7 @@ class ChatRepository {
 
   final StellarDatabase db;
   final SessionManager sessionManager;
+  final GroupCrypto groupCrypto;
   final RelayClient relayClient;
   final DirectoryClient directoryClient;
   final String localNickname;
@@ -66,16 +69,45 @@ class ChatRepository {
   }
 
 
-  Future<void> _onTransportRelaySent(String messageId) async {
-    final transportRow =
-        await db.transportOutboxDao.byId(messageId);
+  Future<void> _onTransportRelaySent(String transportId) async {
+    final transportRow = await db.transportOutboxDao.byId(transportId);
+    if (transportRow == null) return;
 
-    if (transportRow == null) {
+    final transportType =
+        transportRow['transport_type'] as String? ?? 'message';
+
+    if (transportType == 'group_distribution') {
+      // The distribution envelope is already encrypted and persisted.
+      // Once handed to the relay, no message/moderation row is required.
+      await db.transportOutboxDao.delete(transportId);
+      print(
+        'GROUP_DISTRIBUTION_OUTBOX_COMPLETE: '
+        'transportId=$transportId',
+      );
       return;
     }
 
-    final messageRow = await db.messageDao.byId(messageId);
+    if (transportType == 'ack') {
+      // OutgoingTransportOutboxService calls this only after the relay
+      // has confirmed durable acceptance for this receipt ID.
+      // The recipient's separate delivery ACK protocol remains unchanged.
+      await db.transportOutboxDao.delete(transportId);
 
+      print(
+        'DELIVERY_ACK_OUTBOX_COMPLETE: '
+        'transportId=$transportId',
+      );
+      return;
+    }
+
+    if (transportType != 'message') {
+      throw StateError(
+        'Unknown transport type: $transportType',
+      );
+    }
+
+    final messageId = transportRow['message_id'] as String;
+    final messageRow = await db.messageDao.byId(messageId);
     if (messageRow == null) {
       throw StateError(
         'Transport recovery source message missing: $messageId',
@@ -83,21 +115,39 @@ class ChatRepository {
     }
 
     final chatId = messageRow['chat_id'] as String;
+    final chatRow = await db.chatDao.byId(chatId);
+    final isGroup = chatRow?['chat_type'] == 'group';
+
+    List<Map<String, Object?>>? groupTransports;
+
+    if (isGroup) {
+      groupTransports =
+          await db.transportOutboxDao.forMessageId(messageId);
+
+      final unfinishedTransports = groupTransports
+          .where((row) => row['state'] != 'relay_sent')
+          .toList();
+
+      if (unfinishedTransports.isNotEmpty) {
+        await db.transportOutboxDao.defer(transportId);
+
+        print(
+          'GROUP_TRANSPORT_WAITING: '
+          'messageId=$messageId '
+          'unfinished=${unfinishedTransports.length} '
+          'retryIn=30s',
+        );
+        return;
+      }
+    }
+
     final plaintext = messageRow['body_plaintext'] as String? ?? '';
+    final recipientRoute = isGroup
+        ? 'group:$chatId'
+        : transportRow['recipient_route'] as String;
 
-    final recipientRoute =
-        transportRow['recipient_route'] as String;
-
-    final blob =
-        await db.mediaBlobDao.byMessageId(messageId);
-
-    final attachmentMimeType =
-        blob?['mime_type'] as String?;
-
-    await db.messageDao.updateStatus(
-      messageId,
-      'sent',
-    );
+    final blob = await db.mediaBlobDao.byMessageId(messageId);
+    final attachmentMimeType = blob?['mime_type'] as String?;
 
     await db.moderationOutboxDao.enqueue(
       messageId: messageId,
@@ -114,13 +164,22 @@ class ChatRepository {
       createdAt: messageRow['sent_at'] as int,
     );
 
-    moderationOutbox.scheduleFlush();
+    await db.messageDao.markSent(messageId);
 
-    await db.transportOutboxDao.delete(messageId);
+    if (isGroup) {
+      for (final transport in groupTransports!) {
+        final id = transport['transport_id'] as String;
+        await db.transportOutboxDao.delete(id);
+      }
+    } else {
+      await db.transportOutboxDao.delete(transportId);
+    }
+
+    moderationOutbox.scheduleFlush();
 
     print(
       'TRANSPORT_OUTBOX_COMPLETE: '
-      'messageId=$messageId',
+      'messageId=$messageId transportId=$transportId',
     );
   }
 
@@ -284,7 +343,20 @@ class ChatRepository {
     bool forceSessionReset = false,
   }) async {
     final chatRow = await db.chatDao.byId(chatId);
-    final peerName = chatRow?['peer_name'] as String?;
+    if (chatRow == null) {
+      throw StateError('Chat does not exist: $chatId');
+    }
+    if (chatRow['chat_type'] == 'group') {
+      return _sendGroupMessage(
+        chatId: chatId,
+        plaintext: plaintext,
+        ttlSeconds: ttlSeconds,
+        replyToId: replyToId,
+        attachmentBytes: attachmentBytes,
+        attachmentMimeType: attachmentMimeType,
+      );
+    }
+    final peerName = chatRow['peer_name'] as String?;
     final peerDeviceId = chatRow?['peer_device_id'] as int?;
 
     if (peerName == null || peerName.isEmpty || peerDeviceId == null) {
@@ -420,15 +492,24 @@ class ChatRepository {
         'messageId=$messageId',
       );
 
-      // 5. Send the exact persisted envelope.
-      print('SEND_STEP_5_BEFORE_RELAY');
-      await relayClient.send(encodedEnvelope);
-      print('SEND_STEP_6_AFTER_RELAY');
-
-      await db.transportOutboxDao.markRelaySent(messageId);
-      await _onTransportRelaySent(messageId);
+      // The durable outbox worker is the sole relay sender.
+      // Await its flush so this send gets an immediate delivery attempt.
+      print('SEND_STEP_5_OUTBOX_FLUSH');
+      await transportOutbox.flush();
+      print('SEND_STEP_6_OUTBOX_FLUSH_COMPLETE');
     } catch (e, st) {
-      await db.messageDao.updateStatus(messageId, 'failed');
+      final pendingTransport =
+          await db.transportOutboxDao.byId(messageId);
+
+      if (pendingTransport == null) {
+        await db.messageDao.updateStatus(messageId, 'failed');
+      } else {
+        print(
+          'SEND_DIRECT_MESSAGE_RETRY_PENDING: '
+          'messageId=$messageId state=${pendingTransport['state']}',
+        );
+      }
+
       print('SEND_DIRECT_MESSAGE_ERROR: $e');
       print('SEND_DIRECT_MESSAGE_STACK: $st');
       rethrow;
@@ -438,6 +519,164 @@ class ChatRepository {
     return rows
         .map(Message.fromRow)
         .firstWhere((m) => m.messageId == messageId);
+  }
+
+
+  /// Sends one authenticated Sender Key ciphertext to every current group
+  /// member. The encrypted application wrapper binds the payload to groupId.
+  Future<Message> _sendGroupMessage({
+    required String chatId,
+    required String plaintext,
+    required int ttlSeconds,
+    String? replyToId,
+    Uint8List? attachmentBytes,
+    String? attachmentMimeType,
+  }) async {
+    final hasBytes = attachmentBytes != null;
+    final hasMime = attachmentMimeType != null;
+
+    if (hasBytes != hasMime) {
+      throw StateError(
+        'Malformed attachment: bytes and MIME type must be provided together',
+      );
+    }
+    if (hasBytes && mediaService == null) {
+      throw StateError('Attachment storage service is unavailable');
+    }
+
+    final chatRow = await db.chatDao.byId(chatId);
+    if (chatRow == null || chatRow['chat_type'] != 'group') {
+      throw StateError('Group chat not found: $chatId');
+    }
+
+    final members = await db.chatDao.groupMembers(chatId);
+    final seen = <String>{};
+    final remoteMembers = <String>[];
+
+    for (final row in members) {
+      final value = row['nickname'];
+      if (value is! String || value.trim().isEmpty) continue;
+
+      final nickname = value.trim();
+      final normalized = nickname.toLowerCase();
+      if (normalized == localNickname.trim().toLowerCase()) continue;
+      if (seen.add(normalized)) remoteMembers.add(nickname);
+    }
+
+    if (remoteMembers.isEmpty) {
+      throw StateError('Group has no remote members: $chatId');
+    }
+
+    final payloadBytes = attachmentBytes != null
+        ? AttachmentPayload.encode(
+            mimeType: attachmentMimeType!,
+            bytes: attachmentBytes,
+          )
+        : Uint8List.fromList(utf8.encode(plaintext));
+
+    final messageId = _uuid.v4();
+    final deliveryToken = Uint8List.fromList(
+      utf8.encode(_uuid.v4()).take(16).toList(),
+    );
+
+    await db.messageDao.insert(
+      messageId: messageId,
+      chatId: chatId,
+      senderId: localNickname,
+      plaintext: plaintext,
+      ttlSeconds: ttlSeconds,
+      replyToId: replyToId,
+      deliveryToken: deliveryToken,
+    );
+
+    try {
+      if (attachmentBytes != null && attachmentMimeType != null) {
+        await mediaService!.storeAttachment(
+          rawBytes: attachmentBytes,
+          messageId: messageId,
+          mimeType: attachmentMimeType,
+          ttlSeconds: ttlSeconds,
+        );
+      }
+
+      final senderKeyName = SenderKeyName(
+        chatId,
+        SignalProtocolAddress(localNickname, 1),
+      );
+
+      final authenticatedPayload = Uint8List.fromList(
+        utf8.encode(
+          'STELLAR_GROUP_MESSAGE_V1:'
+          '${jsonEncode({
+            'groupId': chatId,
+            'payload': base64Encode(payloadBytes),
+          })}',
+        ),
+      );
+
+      final groupCiphertext = await groupCrypto.encryptGroupMessage(
+        senderKeyName,
+        authenticatedPayload,
+      );
+
+      // The outer wrapper is routing metadata only. Sender identity is
+      // accepted only after Sender Key authentication during decryption.
+      final outerCiphertext = Uint8List.fromList(
+        utf8.encode(
+          'STELLAR_GROUP_CIPHERTEXT_V1:'
+          '${jsonEncode({
+            'groupId': chatId,
+            'ciphertext': base64Encode(groupCiphertext),
+          })}',
+        ),
+      );
+
+      // Persist every recipient's envelope before attempting relay delivery.
+      // All recipients share this message's ACK token, so the first valid ACK
+      // can mark the local message delivered.
+      final encodedByTransport = <String, Uint8List>{};
+      final createdAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+      for (final recipient in remoteMembers) {
+        final transportId = _uuid.v4();
+        final envelope = Envelope(
+          deliveryToken: deliveryToken,
+          recipientRoute: recipient,
+          ciphertext: outerCiphertext,
+        );
+        final encoded = envelope.encode();
+
+        await db.transportOutboxDao.enqueue(
+          messageId: messageId,
+          transportId: transportId,
+          deliveryToken: deliveryToken,
+          recipientRoute: recipient,
+          envelopeBytes: encoded,
+          createdAt: createdAt,
+        );
+        encodedByTransport[transportId] = encoded;
+      }
+
+      print(
+        'GROUP_TRANSPORT_OUTBOX_ENQUEUED: '
+        'messageId=$messageId recipients=${remoteMembers.length}',
+      );
+
+      // The durable outbox worker is the sole relay sender for all
+      // recipients. Failed recipient rows remain retryable.
+      await transportOutbox.flush();
+    } catch (error, stack) {
+      // Do not mark the message failed merely because one group delivery
+      // failed; durable recipient rows may still be retried.
+      print('SEND_GROUP_MESSAGE_ERROR: $error');
+      print('SEND_GROUP_MESSAGE_STACK: $stack');
+      rethrow;
+    }
+
+    final rows = await db.messageDao.forChat(chatId);
+    return rows
+        .map(Message.fromRow)
+        .firstWhere((message) => message.messageId == messageId);
   }
 
   /// Decrypts one inbound Stellar envelope exactly once and returns the
@@ -460,6 +699,92 @@ class ChatRepository {
     String? senderNickname,
   }) async {
     final envelope = Envelope.decode(rawEnvelope);
+
+    const groupCiphertextPrefix = 'STELLAR_GROUP_CIPHERTEXT_V1:';
+    final ciphertextText = utf8.decode(
+      envelope.ciphertext,
+      allowMalformed: true,
+    );
+
+    if (ciphertextText.startsWith(groupCiphertextPrefix)) {
+      final outerJson = jsonDecode(
+        ciphertextText.substring(groupCiphertextPrefix.length),
+      );
+      if (outerJson is! Map<String, dynamic>) {
+        throw const FormatException('Invalid group ciphertext wrapper');
+      }
+
+      final groupId = outerJson['groupId'];
+      final encodedCiphertext = outerJson['ciphertext'];
+      if (groupId is! String ||
+          groupId.trim().isEmpty ||
+          encodedCiphertext is! String ||
+          encodedCiphertext.isEmpty) {
+        throw const FormatException('Missing group ciphertext fields');
+      }
+
+      final groupRow = await db.chatDao.byId(groupId);
+      if (groupRow == null || groupRow['chat_type'] != 'group') {
+        throw StateError('Unknown group ciphertext target: $groupId');
+      }
+
+      final members = await db.chatDao.groupMembers(groupId);
+      final senderKeyCiphertext = Uint8List.fromList(
+        base64Decode(encodedCiphertext),
+      );
+
+      Object? lastGroupError;
+      for (final member in members) {
+        final memberNickname = member['nickname'];
+        if (memberNickname is! String ||
+            memberNickname.trim().isEmpty ||
+            memberNickname.trim().toLowerCase() ==
+                localNickname.trim().toLowerCase()) {
+          continue;
+        }
+
+        final address = SignalProtocolAddress(memberNickname.trim(), 1);
+        try {
+          final decrypted = await groupCrypto.decryptGroupMessage(
+            SenderKeyName(groupId, address),
+            senderKeyCiphertext,
+          );
+
+          const innerPrefix = 'STELLAR_GROUP_MESSAGE_V1:';
+          final innerText = utf8.decode(decrypted, allowMalformed: false);
+          if (!innerText.startsWith(innerPrefix)) {
+            throw const FormatException(
+              'Authenticated group payload has an invalid wrapper',
+            );
+          }
+
+          final innerJson = jsonDecode(innerText.substring(innerPrefix.length));
+          if (innerJson is! Map<String, dynamic> ||
+              innerJson['groupId'] != groupId ||
+              innerJson['payload'] is! String) {
+            throw const FormatException(
+              'Authenticated group payload fields are invalid',
+            );
+          }
+
+          return (
+            envelope: envelope,
+            chatId: groupId,
+            senderNickname: memberNickname.trim(),
+            senderAddress: address,
+            plaintextBytes: Uint8List.fromList(
+              base64Decode(innerJson['payload'] as String),
+            ),
+          );
+        } catch (error) {
+          lastGroupError = error;
+        }
+      }
+
+      throw StateError(
+        'Unable to authenticate group ciphertext for $groupId: $lastGroupError',
+      );
+    }
 
     final normalizedSender = senderNickname?.trim().toLowerCase();
     final knownPeers = await _knownDirectPeers();
@@ -559,10 +884,11 @@ class ChatRepository {
       plaintext,
     );
 
-    // Use a fresh relay token for the ACK itself. The original delivery
-    // token remains inside the Signal-encrypted ACK payload.
+    // Persist the already-encrypted ACK so retries never advance
+    // the Signal ratchet a second time.
+    final ackId = _uuid.v4();
     final ackRelayToken = Uint8List.fromList(
-      utf8.encode(_uuid.v4()).take(16).toList(),
+      utf8.encode(ackId).take(16).toList(),
     );
 
     final envelope = Envelope(
@@ -571,7 +897,17 @@ class ChatRepository {
       ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
     );
 
-    await relayClient.send(envelope.encode());
+    await db.transportOutboxDao.enqueue(
+      messageId: 'delivery-ack:$ackId',
+      transportId: ackId,
+      transportType: 'ack',
+      deliveryToken: ackRelayToken,
+      recipientRoute: recipientRoute,
+      envelopeBytes: envelope.encode(),
+      createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    );
+
+    await transportOutbox.flush();
   }
 
   /// Processes an envelope after it has already been decrypted by
@@ -593,6 +929,168 @@ class ChatRepository {
     final senderAddress = decrypted.senderAddress;
     final plaintextBytes = decrypted.plaintextBytes;
 
+    // Group Sender Key distributions arrive inside an authenticated
+    // pairwise Signal message. Never treat them as ordinary chat text.
+    const groupDistributionPrefix = 'STELLAR_GROUP_DISTRIBUTION_V1:';
+
+    if (plaintextBytes.length >= groupDistributionPrefix.length) {
+      final decodedPayload = utf8.decode(plaintextBytes, allowMalformed: true);
+
+      if (decodedPayload.startsWith(groupDistributionPrefix)) {
+        final rawJson = decodedPayload.substring(
+          groupDistributionPrefix.length,
+        );
+        final decoded = jsonDecode(rawJson);
+
+        if (decoded is! Map<String, dynamic>) {
+          throw const FormatException(
+            'Invalid group distribution payload',
+          );
+        }
+
+        final groupId = decoded['groupId'];
+        final groupName = decoded['groupName'];
+        final distribution = decoded['distribution'];
+
+        if (groupId is! String ||
+            groupId.trim().isEmpty ||
+            groupName is! String ||
+            groupName.trim().isEmpty ||
+            distribution is! String ||
+            distribution.isEmpty) {
+          throw const FormatException(
+            'Missing group distribution fields',
+          );
+        }
+
+        // The pairwise Signal session is the source of sender identity.
+        // Do not trust senderNickname or senderDeviceId in the JSON.
+        final authenticatedSender = senderAddress.getName();
+        final senderKeyName = SenderKeyName(
+          groupId,
+          senderAddress,
+        );
+
+        await groupCrypto.processIncomingDistributionMessage(
+          senderKeyName,
+          Uint8List.fromList(base64Decode(distribution)),
+        );
+
+        var groupRow = await db.chatDao.byId(groupId);
+
+        if (groupRow != null && groupRow['chat_type'] != 'group') {
+          throw StateError(
+            'Group ID conflicts with an existing non-group chat: $groupId',
+          );
+        }
+
+        final createdFromDistribution = groupRow == null;
+
+        if (groupRow == null) {
+          await db.chatDao.insert(
+            chatId: groupId,
+            chatType: 'group',
+            displayName: groupName.trim(),
+            defaultTtlSec: 3600,
+          );
+          groupRow = await db.chatDao.byId(groupId);
+        }
+
+        final membersBefore = await db.chatDao.groupMembers(groupId);
+        final senderWasKnown = membersBefore.any((member) {
+          final nickname = member['nickname'];
+          return nickname is String &&
+              nickname.trim().toLowerCase() ==
+                  authenticatedSender.trim().toLowerCase();
+        });
+
+        final localSenderKeyRecord = await db.senderKeyDao.get(
+          groupId,
+          localNickname,
+          1,
+        );
+
+        final localMemberWasKnown = membersBefore.any((member) {
+          final nickname = member['nickname'];
+          return nickname is String &&
+              nickname.trim().toLowerCase() ==
+                  localNickname.trim().toLowerCase();
+        });
+
+        // Do not overwrite an existing member's role.
+        if (!localMemberWasKnown) {
+          await db.chatDao.addGroupMember(
+            groupId,
+            localNickname,
+            role: 'member',
+          );
+        }
+
+        // Only add the sender if not already present, preserving any
+        // previously assigned owner role.
+        if (!senderWasKnown) {
+          await db.chatDao.addGroupMember(
+            groupId,
+            authenticatedSender,
+            role: createdFromDistribution ? 'owner' : 'member',
+          );
+        }
+
+        final shouldPublishLocalKey =
+            localSenderKeyRecord == null || !senderWasKnown;
+
+        if (shouldPublishLocalKey) {
+          final localSenderKeyName = SenderKeyName(
+            groupId,
+            SignalProtocolAddress(localNickname, 1),
+          );
+
+          final localDistributionBytes =
+              await groupCrypto.createOrRotateSenderKey(
+            localSenderKeyName,
+          );
+
+          final currentMembers = await db.chatDao.groupMembers(groupId);
+          final publishedTo = <String>{};
+
+          for (final member in currentMembers) {
+            final value = member['nickname'];
+            if (value is! String || value.trim().isEmpty) continue;
+
+            final peerName = value.trim();
+            final normalizedPeer = peerName.toLowerCase();
+
+            if (normalizedPeer == localNickname.trim().toLowerCase()) {
+              continue;
+            }
+            if (!publishedTo.add(normalizedPeer)) continue;
+
+            try {
+              await _sendGroupDistributionToMember(
+                groupId: groupId,
+                groupName: groupName.trim(),
+                peerName: peerName,
+                distributionBytes: localDistributionBytes,
+              );
+            } catch (error) {
+              print(
+                'GROUP_KEY_DISTRIBUTION_SEND_FAILED: '
+                'groupId=$groupId peer=$peerName error=$error',
+              );
+            }
+          }
+        }
+
+        print(
+          'GROUP_DISTRIBUTION_PROCESSED: '
+          'groupId=$groupId sender=$authenticatedSender '
+          'senderWasKnown=$senderWasKnown '
+          'publishedLocalKey=$shouldPublishLocalKey',
+        );
+        return null;
+      }
+    }
+
     // ACKs are Signal-encrypted control messages. They must be handled
     // immediately after decryption and must never become chat messages.
     final ackToken = _decodeDeliveryAck(plaintextBytes);
@@ -610,6 +1108,10 @@ class ChatRepository {
     var chatRow = await db.chatDao.byId(chatId);
 
     if (chatRow == null) {
+      if (chatId.startsWith('group_') ||
+          chatId.startsWith('group-')) {
+        throw StateError('Unknown group chat: $chatId');
+      }
       await createDirectChat(
         chatId: chatId,
         displayName: senderNickname,
@@ -734,6 +1236,140 @@ class ChatRepository {
 
   Future<void> updateChatTtl(String chatId, int ttlSeconds) async {
     await db.chatDao.updateDefaultTtl(chatId, ttlSeconds);
+  }
+
+  /// Sends a Sender Key distribution message individually over Signal.
+  /// The distribution payload is authenticated by the pairwise Signal session.
+  Future<void> _sendGroupDistributionToMember({
+    required String groupId,
+    required String groupName,
+    required String peerName,
+    required Uint8List distributionBytes,
+  }) async {
+    final peerDeviceId = 1;
+
+    await _ensureDirectSession(
+      peerName: peerName,
+      peerDeviceId: peerDeviceId,
+    );
+
+    final payload = Uint8List.fromList(
+      utf8.encode(
+        'STELLAR_GROUP_DISTRIBUTION_V1:'
+        '${jsonEncode({
+          'groupId': groupId,
+          'groupName': groupName,
+          'senderNickname': localNickname,
+          'senderDeviceId': 1,
+          'distribution': base64Encode(distributionBytes),
+        })}',
+      ),
+    );
+
+    final address = SignalProtocolAddress(peerName, peerDeviceId);
+    final encrypted = await sessionManager.encryptForSend(address, payload);
+
+    final token = Uint8List.fromList(
+      utf8.encode(_uuid.v4()).take(16).toList(),
+    );
+
+    final envelope = Envelope(
+      deliveryToken: token,
+      recipientRoute: peerName,
+      ciphertext: Uint8List.fromList(encrypted.serialize()),
+    );
+
+    final encodedEnvelope = envelope.encode();
+    final transportId = _uuid.v4();
+
+    // No message row exists for a Sender Key distribution. Use a unique
+    // synthetic reference; the callback branches on transport_type before
+    // trying to load a message.
+    await db.transportOutboxDao.enqueue(
+      messageId: 'group-distribution:$groupId:$transportId',
+      transportId: transportId,
+      transportType: 'group_distribution',
+      deliveryToken: token,
+      recipientRoute: peerName,
+      envelopeBytes: encodedEnvelope,
+      createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    );
+
+    await transportOutbox.flush();
+  }
+
+  Future<void> createGroupChat({
+    required String chatId,
+    required String displayName,
+    required List<String> memberNicknames,
+    int defaultTtlSec = 3600,
+  }) async {
+    final name = displayName.trim();
+    if (name.isEmpty) throw ArgumentError('Group name is required');
+
+    final members = memberNicknames
+        .map((value) => value.trim().replaceFirst(RegExp(r'^@'), ''))
+        .where((value) => value.isNotEmpty)
+        .toSet();
+
+    if (members.isEmpty) {
+      throw ArgumentError('At least one group member is required');
+    }
+
+    final existing = await db.chatDao.byId(chatId);
+    if (existing != null) throw StateError('Chat already exists: $chatId');
+
+    await db.chatDao.insert(
+      chatId: chatId,
+      chatType: 'group',
+      displayName: name,
+      defaultTtlSec: defaultTtlSec,
+    );
+
+    try {
+      await db.chatDao.addGroupMember(chatId, localNickname, role: 'owner');
+      for (final nickname in members) {
+        if (nickname.toLowerCase() != localNickname.toLowerCase()) {
+          await db.chatDao.addGroupMember(chatId, nickname);
+        }
+      }
+    } catch (_) {
+      await db.chatDao.delete(chatId);
+      rethrow;
+    }
+
+    // Create the local Sender Key only after group membership is persisted.
+    final localAddress = SignalProtocolAddress(localNickname, 1);
+    final senderKeyName = SenderKeyName(chatId, localAddress);
+    final distributionBytes =
+        await groupCrypto.createOrRotateSenderKey(senderKeyName);
+
+    // Register metadata in the background. Server/network failures must not
+    // block local group creation or encrypted messaging.
+    unawaited(
+      moderationClient
+          .registerGroup(
+            groupId: chatId,
+            groupName: name,
+            nickname: localNickname,
+          )
+          .catchError((Object _) {}),
+    );
+
+    // Distribute independently to every remote member. Do not send the
+    // distribution to the local account.
+    for (final nickname in members) {
+      if (nickname.toLowerCase() == localNickname.toLowerCase()) {
+        continue;
+      }
+
+      await _sendGroupDistributionToMember(
+        groupId: chatId,
+        groupName: name,
+        peerName: nickname,
+        distributionBytes: distributionBytes,
+      );
+    }
   }
 
   Future<void> createDirectChat({

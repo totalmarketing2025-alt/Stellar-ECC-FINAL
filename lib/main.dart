@@ -159,13 +159,10 @@ Future<void> main() async {
     }
   }
 
-  // NOTE for whoever's testing this build: there is no live relay server
-  // deployed at the placeholder wss://relay.stellarecc.example URL (see
-  // Phase 9 — it's a designed-but-not-deployed reference implementation).
-  // Sending a message will attempt to connect, fail, and the message will
-  // show status "failed" in the chat bubble rather than crashing anything
-  // — that's the RelayClient/ChatRepository error path working as
-  // intended, not a bug. Onboarding, local key generation, navigation,
+  // The live Relay endpoint is configured in
+  // presentation/state/app_providers.dart. Keep this note synchronized
+  // with the active configuration; do not assume Relay is unavailable
+  // based on an outdated placeholder URL. Onboarding, local key generation, navigation,
   // the Security Center, and local encrypted storage all work fully
   // offline right now.
   runApp(
