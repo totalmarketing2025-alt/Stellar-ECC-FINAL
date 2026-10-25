@@ -171,6 +171,22 @@ class StellarDatabase {
 
     _ensureMessageDeliveryTokenColumn(db);
 
+    // Per-recipient delivery/read receipts for outgoing direct and group messages.
+    // Existing message rows are preserved; tracking begins for newly sent messages.
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS message_recipient_status (
+        message_id TEXT NOT NULL REFERENCES message(message_id) ON DELETE CASCADE,
+        recipient_nickname TEXT NOT NULL,
+        delivered_at INTEGER,
+        read_at INTEGER,
+        PRIMARY KEY (message_id, recipient_nickname)
+      );
+    ''');
+    db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_message_recipient_status_message
+      ON message_recipient_status(message_id);
+    ''');
+
     db.execute('''
       CREATE TABLE IF NOT EXISTS processed_envelope (
         delivery_token BLOB PRIMARY KEY,
@@ -681,15 +697,18 @@ class MessageDao {
   Future<void> markSent(String messageId) async {
     _db.execute(
       "UPDATE message SET status = 'sent' "
-      "WHERE message_id = ? AND status != 'delivered'",
+      "WHERE message_id = ? AND status IN ('sending', 'sent')",
       [messageId],
     );
   }
 
   Future<void> markDelivered(String messageId) async {
     _db.execute(
-      'UPDATE message SET status = ?, delivered_at = ? WHERE message_id = ?',
-      ['delivered', DateTime.now().millisecondsSinceEpoch ~/ 1000, messageId],
+      "UPDATE message SET status = 'delivered', "
+      "delivered_at = COALESCE(delivered_at, ?) "
+      "WHERE message_id = ? "
+      "AND status IN ('sending', 'sent', 'delivered')",
+      [DateTime.now().millisecondsSinceEpoch ~/ 1000, messageId],
     );
   }
 
@@ -705,6 +724,116 @@ class MessageDao {
 
     await markDelivered(rows.first['message_id'] as String);
     return true;
+  }
+
+  Future<void> trackRecipients(
+    String messageId,
+    List<String> recipients,
+  ) async {
+    final seen = <String>{};
+    for (final recipient in recipients) {
+      final name = recipient.trim();
+      if (name.isEmpty || !seen.add(name.toLowerCase())) continue;
+      _db.execute(
+        'INSERT OR IGNORE INTO message_recipient_status '
+        '(message_id, recipient_nickname) VALUES (?, ?)',
+        [messageId, name],
+      );
+    }
+  }
+
+  Future<bool> _recordRecipientReceipt(
+    Uint8List deliveryToken,
+    String authenticatedNickname, {
+    required bool isRead,
+  }) async {
+    final nickname = authenticatedNickname.trim();
+    if (nickname.isEmpty) return false;
+
+    final messages = _db.select(
+      'SELECT message_id FROM message WHERE delivery_token = ? LIMIT 1',
+      [deliveryToken],
+    );
+    if (messages.isEmpty) return false;
+
+    final messageId = messages.first['message_id'] as String;
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+    // A receipt is accepted only for a recipient recorded when sending.
+    final recipientRows = _db.select(
+      'SELECT recipient_nickname FROM message_recipient_status '
+      'WHERE message_id = ? AND LOWER(recipient_nickname) = LOWER(?) LIMIT 1',
+      [messageId, nickname],
+    );
+    if (recipientRows.isEmpty) return false;
+
+    if (isRead) {
+      _db.execute(
+        'UPDATE message_recipient_status '
+        'SET delivered_at = COALESCE(delivered_at, ?), '
+        'read_at = COALESCE(read_at, ?) '
+        'WHERE message_id = ? AND LOWER(recipient_nickname) = LOWER(?)',
+        [now, now, messageId, nickname],
+      );
+    } else {
+      _db.execute(
+        'UPDATE message_recipient_status '
+        'SET delivered_at = COALESCE(delivered_at, ?) '
+        'WHERE message_id = ? AND LOWER(recipient_nickname) = LOWER(?)',
+        [now, messageId, nickname],
+      );
+    }
+
+    final counts = _db.select(
+      'SELECT COUNT(*) AS total, '
+      'SUM(CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END) AS delivered, '
+      'SUM(CASE WHEN read_at IS NOT NULL THEN 1 ELSE 0 END) AS unread '
+      'FROM message_recipient_status WHERE message_id = ?',
+      [messageId],
+    ).first;
+
+    final total = counts['total'] as int? ?? 0;
+    final delivered = counts['delivered'] as int? ?? 0;
+    final unread = counts['unread'] as int? ?? 0;
+
+    if (total > 0 && unread == total) {
+      _db.execute(
+        "UPDATE message SET status = 'read', "
+        'delivered_at = COALESCE(delivered_at, ?), '
+        'read_at = COALESCE(read_at, ?) WHERE message_id = ?',
+        [now, now, messageId],
+      );
+    } else if (total > 0 && delivered == total) {
+      _db.execute(
+        "UPDATE message SET status = 'delivered', "
+        'delivered_at = COALESCE(delivered_at, ?) '
+        "WHERE message_id = ? AND status IN ('sending', 'sent', 'delivered')",
+        [now, messageId],
+      );
+    }
+    return true;
+  }
+
+  Future<bool> markRecipientDeliveredByToken(
+    Uint8List deliveryToken,
+    String authenticatedNickname,
+  ) {
+    return _recordRecipientReceipt(
+      deliveryToken,
+      authenticatedNickname,
+      isRead: false,
+    );
+  }
+
+  Future<bool> markRecipientReadByToken(
+    Uint8List deliveryToken,
+    String authenticatedNickname,
+  ) {
+    return _recordRecipientReceipt(
+      deliveryToken,
+      authenticatedNickname,
+      isRead: true,
+    );
   }
 
   Future<bool> isProcessedEnvelope(Uint8List deliveryToken) async {
@@ -747,10 +876,24 @@ class MessageDao {
     );
   }
 
-  Future<void> markChatRead({
+  Future<List<Map<String, Object?>>> markChatRead({
     required String chatId,
     required String localNickname,
   }) async {
+    // Capture unread incoming messages with delivery tokens before updating
+    // local read state. The repository sends encrypted receipts afterwards.
+    final rows = _db.select(
+      '''
+      SELECT message_id, sender_id, delivery_token
+      FROM message
+      WHERE chat_id = ?
+        AND read_at IS NULL
+        AND LOWER(sender_id) != LOWER(?)
+        AND delivery_token IS NOT NULL
+      ''',
+      [chatId, localNickname],
+    );
+
     _db.execute(
       '''
       UPDATE message
@@ -766,6 +909,8 @@ class MessageDao {
         localNickname,
       ],
     );
+
+    return rows;
   }
 
   String _randomGarbage(int length) {

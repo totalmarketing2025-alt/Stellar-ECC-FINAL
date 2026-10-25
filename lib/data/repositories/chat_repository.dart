@@ -192,15 +192,25 @@ class ChatRepository {
   }
 
   Uint8List? _decodeDeliveryAck(Uint8List plaintextBytes) {
-    final text = utf8.decode(plaintextBytes, allowMalformed: false);
+    // Ordinary Signal plaintext may contain arbitrary binary bytes.
+    // A malformed UTF-8 sequence is not an ACK and must not break receive.
+    late final String text;
+    try {
+      text = utf8.decode(plaintextBytes, allowMalformed: false);
+    } on FormatException {
+      return null;
+    }
+
     if (!text.startsWith(_ackPrefix)) {
       return null;
     }
 
-    final encodedToken = text.substring(_ackPrefix.length);
     try {
-      return Uint8List.fromList(base64Decode(encodedToken));
-    } catch (_) {
+      final token = Uint8List.fromList(
+        base64Decode(text.substring(_ackPrefix.length)),
+      );
+      return token.length == 16 ? token : null;
+    } on FormatException {
       return null;
     }
   }
@@ -220,10 +230,34 @@ class ChatRepository {
   }
 
   Future<void> markChatRead(String chatId) async {
-    await db.messageDao.markChatRead(
+    final newlyRead = await db.messageDao.markChatRead(
       chatId: chatId,
       localNickname: localNickname,
     );
+
+    for (final row in newlyRead) {
+      final sender = row['sender_id'];
+      final rawToken = row['delivery_token'];
+
+      if (sender is! String ||
+          sender.trim().isEmpty ||
+          rawToken is! Uint8List ||
+          rawToken.length != 16) {
+        continue;
+      }
+
+      try {
+        await _sendReadReceipt(
+          recipient: SignalProtocolAddress(sender, 1),
+          recipientRoute: sender,
+          deliveryToken: rawToken,
+        );
+      } catch (error) {
+        // The message is already marked read locally. Log failures without
+        // preventing other receipts from being attempted.
+        print('READ_RECEIPT_SEND_ERROR: sender=$sender error=$error');
+      }
+    }
   }
 
   Future<void> deleteMessage(String messageId) async {
@@ -405,6 +439,9 @@ class ChatRepository {
       replyToId: replyToId,
       deliveryToken: deliveryToken,
     );
+
+    // Capture the expected recipient for this direct message.
+    await db.messageDao.trackRecipients(messageId, [peerName]);
 
     try {
       if (attachmentBytes != null &&
@@ -588,6 +625,9 @@ class ChatRepository {
       replyToId: replyToId,
       deliveryToken: deliveryToken,
     );
+
+    // Snapshot all expected group recipients for this message.
+    await db.messageDao.trackRecipients(messageId, remoteMembers);
 
     try {
       if (attachmentBytes != null && attachmentMimeType != null) {
@@ -872,6 +912,46 @@ class ChatRepository {
   /// caller (see presentation/state/relay_listener.dart in the next
   /// module, which demultiplexes incoming envelopes by sender before
   /// calling this).
+  Future<void> _sendReadReceipt({
+    required SignalProtocolAddress recipient,
+    required String recipientRoute,
+    required Uint8List deliveryToken,
+  }) async {
+    final plaintext = Uint8List.fromList(
+      utf8.encode('STELLAR_READ_V1:${base64Encode(deliveryToken)}'),
+    );
+
+    final ciphertextMessage = await sessionManager.encryptForSend(
+      recipient,
+      plaintext,
+    );
+
+    // Store ciphertext, not plaintext, so retries never advance the
+    // Signal ratchet a second time.
+    final receiptId = _uuid.v4();
+    final receiptRelayToken = Uint8List.fromList(
+      utf8.encode(receiptId).take(16).toList(),
+    );
+
+    final envelope = Envelope(
+      deliveryToken: receiptRelayToken,
+      recipientRoute: recipientRoute,
+      ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
+    );
+
+    await db.transportOutboxDao.enqueue(
+      messageId: 'read-receipt:$receiptId',
+      transportId: receiptId,
+      transportType: 'ack',
+      deliveryToken: receiptRelayToken,
+      recipientRoute: recipientRoute,
+      envelopeBytes: envelope.encode(),
+      createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    );
+
+    await transportOutbox.flush();
+  }
+
   Future<void> _sendDeliveryAck({
     required SignalProtocolAddress recipient,
     required String recipientRoute,
@@ -1091,11 +1171,34 @@ class ChatRepository {
       }
     }
 
-    // ACKs are Signal-encrypted control messages. They must be handled
-    // immediately after decryption and must never become chat messages.
+    // Signal-encrypted delivery/read receipts are control messages,
+    // never ordinary chat messages. The sender nickname comes from the
+    // authenticated Signal address, not from the receipt payload.
+    final receiptText = utf8.decode(plaintextBytes, allowMalformed: true);
+
+    const readReceiptPrefix = 'STELLAR_READ_V1:';
+    if (receiptText.startsWith(readReceiptPrefix)) {
+      final tokenText = receiptText.substring(readReceiptPrefix.length);
+      try {
+        final token = Uint8List.fromList(base64Decode(tokenText));
+        if (token.length == 16) {
+          await db.messageDao.markRecipientReadByToken(
+            token,
+            senderNickname,
+          );
+        }
+      } on FormatException {
+        print('READ_RECEIPT_INVALID_FORMAT');
+      }
+      return null;
+    }
+
     final ackToken = _decodeDeliveryAck(plaintextBytes);
     if (ackToken != null) {
-      await db.messageDao.markDeliveredByToken(ackToken);
+      await db.messageDao.markRecipientDeliveredByToken(
+        ackToken,
+        senderNickname,
+      );
       return null;
     }
 
@@ -1141,6 +1244,7 @@ class ChatRepository {
       senderId: senderNickname,
       plaintext: plaintext,
       ttlSeconds: ttl,
+      deliveryToken: envelope.deliveryToken,
     );
 
     if (attachment != null) {
