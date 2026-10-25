@@ -357,7 +357,7 @@ class ChatRepository {
       );
     }
     final peerName = chatRow['peer_name'] as String?;
-    final peerDeviceId = chatRow?['peer_device_id'] as int?;
+    final peerDeviceId = chatRow['peer_device_id'] as int?;
 
     if (peerName == null || peerName.isEmpty || peerDeviceId == null) {
       throw StateError('Direct chat peer mapping is missing for $chatId');

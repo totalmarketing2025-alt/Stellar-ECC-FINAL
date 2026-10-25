@@ -23,7 +23,6 @@ class OutgoingTransportOutboxService {
   final Future<void> Function(String messageId) onRelaySent;
 
   Timer? _timer;
-  bool _running = false;
   bool _flushRequested = false;
   Completer<void>? _activeFlush;
   bool _disposed = false;
@@ -56,7 +55,6 @@ class OutgoingTransportOutboxService {
 
     final completion = Completer<void>();
     _activeFlush = completion;
-    _running = true;
 
     try {
       do {
@@ -76,7 +74,6 @@ class OutgoingTransportOutboxService {
         }
       } while (!_disposed && _flushRequested);
     } finally {
-      _running = false;
       _activeFlush = null;
       completion.complete();
     }
