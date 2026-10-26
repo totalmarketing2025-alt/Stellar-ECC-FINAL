@@ -651,18 +651,61 @@ export class DirectoryStore {
         encodeURIComponent(turnKeyId) +
         "/credentials/generate-ice-servers";
 
-      const turnResponse = await fetch(turnUrl, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${turnKeySecret}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ttl: 3600,
-        }),
-      });
+      let turnResponse;
+
+      try {
+        turnResponse = await fetch(turnUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${turnKeySecret}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ttl: 3600,
+          }),
+        });
+      } catch (error) {
+        console.error("TURN_UPSTREAM_FETCH_FAILED", JSON.stringify({
+          errorName: error instanceof Error ? error.name : "UnknownError",
+          message: String(
+            error instanceof Error ? error.message : error
+          ).slice(0, 240),
+        }));
+
+        return json({
+          error: "TURN credential generation request failed",
+        }, 502);
+      }
 
       if (!turnResponse.ok) {
+        const contentType =
+          turnResponse.headers.get("content-type") || "";
+        let providerError = "";
+
+        try {
+          const responseBody = await turnResponse.text();
+
+          providerError = responseBody
+            .replace(
+              /Bearer\s+[^\s"'\\]}]+/gi,
+              "Bearer [REDACTED]"
+            )
+            .replace(
+              /(authorization|token|secret|api[_-]?key)(\s*["']?\s*[:=]\s*["']?)[^\s"'\\]},]+/gi,
+              "$1$2[REDACTED]"
+            )
+            .slice(0, 400);
+        } catch (error) {
+          providerError =
+            `<body-read-failed:${error instanceof Error ? error.name : "UnknownError"}>`;
+        }
+
+        console.error("TURN_UPSTREAM_HTTP_ERROR", JSON.stringify({
+          status: turnResponse.status,
+          contentType: contentType.slice(0, 100),
+          providerError,
+        }));
+
         return json({
           error: "TURN credential generation failed",
           status: turnResponse.status,
