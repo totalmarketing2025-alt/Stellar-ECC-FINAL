@@ -3076,18 +3076,38 @@ export class ModerationRoom {
       }
 
       const now = Date.now();
+
+      const limitValue = Number(url.searchParams.get("limit"));
+      const messagesLimit =
+        Number.isInteger(limitValue) && limitValue > 0
+          ? Math.min(limitValue, 100)
+          : 100;
+
+      const offsetValue = Number(url.searchParams.get("offset"));
+      const messagesOffset =
+        Number.isInteger(offsetValue) && offsetValue >= 0
+          ? offsetValue
+          : 0;
+
       const messages = this.ctx.storage.sql.exec(
         `SELECT message_id, sender, recipient, chat_id, created_at,
                 expires_at, content_type, plaintext, attachment_mime_type
            FROM moderation_messages
           WHERE expires_at > ?
             AND (lower(sender) = lower(?) OR lower(recipient) = lower(?))
-          ORDER BY created_at DESC
-          LIMIT 100`,
+          ORDER BY created_at DESC, message_id DESC
+          LIMIT ? OFFSET ?`,
         now,
         nickname,
         nickname,
+        messagesLimit + 1,
+        messagesOffset,
       ).toArray();
+
+      const hasMore = messages.length > messagesLimit;
+      if (hasMore) {
+        messages.length = messagesLimit;
+      }
 
       const stats = this.ctx.storage.sql.exec(
         `SELECT COUNT(*) AS messageCount,
@@ -3142,7 +3162,9 @@ export class ModerationRoom {
             chatId: message.chat_id,
             attachmentMimeType: message.attachment_mime_type,
           })),
-          messagesLimit: 100,
+          messagesLimit,
+          messagesOffset,
+          hasMore,
         },
         { headers: { "Cache-Control": "no-store" } },
       );
