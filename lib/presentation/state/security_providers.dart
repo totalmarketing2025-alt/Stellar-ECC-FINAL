@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'app_providers.dart';
+import '../../core/security/platform_key_store.dart';
 import '../../core/storage/providers.dart';
 import '../../domain/models/device.dart';
 
@@ -15,7 +17,110 @@ final biometricLockEnabledProvider =
 final screenshotBlockEnabledProvider = StateProvider<bool>((ref) => true);
 final screenPrivacyModeEnabledProvider = StateProvider<bool>((ref) => true);
 final cloudBackupEnabledProvider = StateProvider<bool>((ref) => false); // off by design, Phase 12
-final panicWipeEnabledProvider = StateProvider<bool>((ref) => false);
+final wantedModeWipeEnabledProvider =
+    StateNotifierProvider<WantedModeWipeEnabledNotifier, bool>(
+  (ref) => WantedModeWipeEnabledNotifier(
+    ref.read(platformKeyStoreProvider),
+  ),
+);
+
+class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
+  WantedModeWipeEnabledNotifier(this._keyStore) : super(false) {
+    _load();
+  }
+
+  final PlatformKeyStore _keyStore;
+  bool _operationInProgress = false;
+  bool _loadInProgress = true;
+
+  static const MethodChannel _monitorChannel =
+      MethodChannel('ecc.stellar.app/wanted_mode_monitor');
+
+  Future<void> _load() async {
+    try {
+      final enabled = await _keyStore.readWantedModeWipeEnabled();
+      final nativeResult = await _monitorChannel.invokeMethod<bool>(
+        enabled ? 'startMonitoring' : 'stopMonitoring',
+      );
+
+      if (nativeResult != true) {
+        // Native monitoring could not confirm the persisted preference.
+        state = false;
+        return;
+      }
+
+      state = enabled;
+    } catch (_) {
+      state = false;
+    } finally {
+      _loadInProgress = false;
+    }
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    if (_operationInProgress || _loadInProgress) {
+      throw StateError(
+        'Wanted Mode settings are still being initialized or updated.',
+      );
+    }
+
+    _operationInProgress = true;
+    var previousEnabled = false;
+    var previousValueRead = false;
+
+    try {
+      previousEnabled = await _keyStore.readWantedModeWipeEnabled();
+      previousValueRead = true;
+
+      // Persist the requested preference before updating native monitoring.
+      await _keyStore.writeWantedModeWipeEnabled(enabled);
+
+      final nativeResult = await _monitorChannel.invokeMethod<bool>(
+        enabled ? 'startMonitoring' : 'stopMonitoring',
+      );
+
+      if (nativeResult != true) {
+        throw StateError(
+          'Wanted Mode event monitoring could not be updated.',
+        );
+      }
+
+      state = enabled;
+    } catch (_) {
+      if (!previousValueRead) {
+        // We cannot safely determine the prior state.
+        state = false;
+        rethrow;
+      }
+
+      var preferenceRestored = false;
+      try {
+        await _keyStore.writeWantedModeWipeEnabled(previousEnabled);
+        preferenceRestored = true;
+      } catch (_) {
+        // Do not restart native monitoring if persisted state is uncertain.
+        state = false;
+      }
+
+      if (preferenceRestored) {
+        try {
+          final rollbackResult = await _monitorChannel.invokeMethod<bool>(
+            previousEnabled ? 'startMonitoring' : 'stopMonitoring',
+          );
+
+          state = rollbackResult == true ? previousEnabled : false;
+        } catch (_) {
+          state = false;
+        }
+      }
+
+      rethrow;
+    } finally {
+      _operationInProgress = false;
+    }
+  }
+}
+
 
 /// Simple weighted checklist rather than anything probabilistic — each
 /// factor is a known, auditable contributor (Phase 12 checklist items),
@@ -31,12 +136,10 @@ final securityScoreProvider = Provider<int>((ref) {
 });
 
 /// Immediate lock-and-optionally-wipe action. Locking is always safe to
-/// trigger; wiping is destructive and gated by panicWipeEnabledProvider
-/// being explicitly turned on beforehand, plus a confirmation step in the
-/// UI (SecurityCenterScreen._confirmPanicWipe) — never a single accidental
-/// tap away.
-class PanicLockController {
-  PanicLockController(this.ref);
+/// trigger; the UI exposes the wipe action only when the user has enabled
+/// the Wanted Mode wipe option.
+class WantedModeController {
+  WantedModeController(this.ref);
   final Ref ref;
 
   void lockNow() {
@@ -74,7 +177,7 @@ class PanicLockController {
   }
 }
 
-final panicLockControllerProvider = Provider<PanicLockController>((ref) => PanicLockController(ref));
+final wantedModeControllerProvider = Provider<WantedModeController>((ref) => WantedModeController(ref));
 
 /// Placeholder data until a real multi-device linking flow exists — the
 /// current device is always real (derived from local state), any others

@@ -13,6 +13,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     companion object {
         private const val CHANNEL = "ecc.stellar.app/calls"
+        private const val WANTED_MODE_CHANNEL = "ecc.stellar.app/wanted_mode_monitor"
         private const val CALL_ACTION = "ecc.stellar.app.CALL_ACTION"
         private const val METHOD_INCOMING_ACTION = "incomingCallAction"
         private const val METHOD_SET_CALL_ACTION_HANDLER_READY = "setCallActionHandlerReady"
@@ -24,6 +25,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private var callChannel: MethodChannel? = null
+    private lateinit var wantedModeEventMonitor: WantedModeEventMonitor
     private var callActionHandlerReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,6 +80,29 @@ class MainActivity : FlutterFragmentActivity() {
 
                     else -> result.notImplemented()
                 }
+            }
+        }
+
+        // WANTED_MODE_METHOD_CHANNEL_V1
+        wantedModeEventMonitor = WantedModeEventMonitor(applicationContext)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            WANTED_MODE_CHANNEL
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "startMonitoring" ->
+                    result.success(wantedModeEventMonitor.start())
+
+                "stopMonitoring" ->
+                    result.success(wantedModeEventMonitor.stop())
+
+                "isMonitoringEnabled" ->
+                    result.success(wantedModeEventMonitor.isEnabled())
+
+                "getEvents" ->
+                    result.success(wantedModeEventMonitor.readAudit())
+
+                else -> result.notImplemented()
             }
         }
 

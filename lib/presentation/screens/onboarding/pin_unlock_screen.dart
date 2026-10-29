@@ -54,7 +54,7 @@ class _PinUnlockScreenState extends ConsumerState<PinUnlockScreen> {
         _pinController.clear();
 
         try {
-          await ref.read(panicLockControllerProvider).wipeAndLock();
+          await ref.read(wantedModeControllerProvider).wipeAndLock();
         } finally {
           if (mounted) {
             context.go('/onboarding/welcome');

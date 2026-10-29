@@ -63,10 +63,10 @@ class SecurityCenterScreen extends ConsumerWidget {
           _SectionHeader('Emergency'),
           ListTile(
             leading: const Icon(Icons.emergency_outlined, color: StellarColors.danger),
-            title: const Text('Panic lock'),
-            subtitle: const Text('Instantly lock the app — optionally wipe local data'),
+            title: const Text('Wanted Mode'),
+            subtitle: const Text('Lock the app or erase its local data'),
             trailing: const Icon(Icons.chevron_right, color: StellarColors.textSecondary),
-            onTap: () => _openPanicLock(context, ref),
+            onTap: () => _openWantedMode(context, ref),
           ),
 
           _SectionHeader('Backup & Privacy'),
@@ -127,12 +127,12 @@ class SecurityCenterScreen extends ConsumerWidget {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => const _FingerprintScreen()));
   }
 
-  void _openPanicLock(BuildContext context, WidgetRef ref) {
+  void _openWantedMode(BuildContext context, WidgetRef ref) {
     showModalBottomSheet(
       context: context,
       backgroundColor: StellarColors.bgElevated,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => const _PanicLockSheet(),
+      builder: (_) => const _WantedModeSheet(),
     );
   }
 }
@@ -430,17 +430,51 @@ class _FingerprintScreen extends ConsumerWidget {
   }
 }
 
-class _PanicLockSheet extends ConsumerStatefulWidget {
-  const _PanicLockSheet();
+class _WantedModeSheet extends ConsumerStatefulWidget {
+  const _WantedModeSheet();
 
   @override
-  ConsumerState<_PanicLockSheet> createState() => _PanicLockSheetState();
+  ConsumerState<_WantedModeSheet> createState() => _WantedModeSheetState();
 }
 
-class _PanicLockSheetState extends ConsumerState<_PanicLockSheet> {
+class _WantedModeSheetState extends ConsumerState<_WantedModeSheet> {
+  bool _updatingMonitor = false;
+
+  Future<void> _setMonitoring(bool enabled) async {
+    if (_updatingMonitor) return;
+
+    setState(() {
+      _updatingMonitor = true;
+    });
+
+    try {
+      await ref
+          .read(wantedModeWipeEnabledProvider.notifier)
+          .setEnabled(enabled);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              enabled
+                  ? 'Could not enable Wanted Mode monitoring.'
+                  : 'Could not stop Wanted Mode monitoring.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _updatingMonitor = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final wipeEnabled = ref.watch(panicWipeEnabledProvider);
+    final wipeEnabled = ref.watch(wantedModeWipeEnabledProvider);
 
     return SafeArea(
       child: Padding(
@@ -449,7 +483,7 @@ class _PanicLockSheetState extends ConsumerState<_PanicLockSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Panic lock', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+            const Text('Wanted Mode', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
             const SizedBox(height: 8),
             const Text(
               'Instantly locks the app, requiring biometric/PIN re-entry to reopen.',
@@ -462,7 +496,7 @@ class _PanicLockSheetState extends ConsumerState<_PanicLockSheet> {
                 icon: const Icon(Icons.lock),
                 label: const Text('Lock now'),
                 onPressed: () {
-                  ref.read(panicLockControllerProvider).lockNow();
+                  ref.read(wantedModeControllerProvider).lockNow();
                   Navigator.pop(context);
                 },
               ),
@@ -471,10 +505,12 @@ class _PanicLockSheetState extends ConsumerState<_PanicLockSheet> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               activeColor: StellarColors.danger,
-              title: const Text('Enable panic wipe'),
-              subtitle: const Text('Adds an option to also erase all local chats when panic-locking'),
+              title: const Text('Enable Wanted Mode wipe'),
+              subtitle: const Text(
+                'Enables local event monitoring and the manual local wipe action.',
+              ),
               value: wipeEnabled,
-              onChanged: (v) => ref.read(panicWipeEnabledProvider.notifier).state = v,
+              onChanged: _updatingMonitor ? null : _setMonitoring,
             ),
             if (wipeEnabled)
               SizedBox(
@@ -482,8 +518,8 @@ class _PanicLockSheetState extends ConsumerState<_PanicLockSheet> {
                 child: OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(foregroundColor: StellarColors.danger, side: const BorderSide(color: StellarColors.danger)),
                   icon: const Icon(Icons.delete_forever),
-                  label: const Text('Lock and wipe now'),
-                  onPressed: () => _confirmPanicWipe(context),
+                  label: const Text('Wipe local data and lock'),
+                  onPressed: () => _wipeNow(context),
                 ),
               ),
           ],
@@ -492,28 +528,11 @@ class _PanicLockSheetState extends ConsumerState<_PanicLockSheet> {
     );
   }
 
-  void _confirmPanicWipe(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: StellarColors.bgElevated,
-        title: const Text('Wipe all local data?'),
-        content: const Text(
-          'This immediately and irreversibly erases every chat, key, and '
-          'session on this device, then locks the app. This cannot be undone.',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(dialogContext); // close confirm dialog
-              await ref.read(panicLockControllerProvider).wipeAndLock();
-              if (context.mounted) Navigator.pop(context); // close the panic-lock sheet
-            },
-            child: const Text('Wipe everything', style: TextStyle(color: StellarColors.danger)),
-          ),
-        ],
-      ),
-    );
+  Future<void> _wipeNow(BuildContext context) async {
+    await ref.read(wantedModeControllerProvider).wipeAndLock();
+    if (context.mounted) {
+      Navigator.pop(context);
+    }
   }
+
 }

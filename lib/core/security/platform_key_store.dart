@@ -31,6 +31,22 @@ class PlatformKeyStore {
   static const _pinSaltAlias = 'stellar_ecc.app_pin_salt';
   static const _pinFailedAttemptsAlias = 'stellar_ecc.pin_failed_attempts';
 
+  // Stores the user's Wanted Mode wipe preference separately from key material.
+  static const wantedModeWipeEnabledKey =
+      'stellar_ecc.wanted_mode_wipe_enabled';
+
+  Future<bool> readWantedModeWipeEnabled() async {
+    return await _storage.read(key: wantedModeWipeEnabledKey) == 'true';
+  }
+
+  Future<void> writeWantedModeWipeEnabled(bool enabled) async {
+    await _storage.write(
+      key: wantedModeWipeEnabledKey,
+      value: enabled ? 'true' : 'false',
+    );
+  }
+
+
   Future<bool> hasPin() async {
     return await _storage.read(key: _pinHashAlias) != null;
   }
