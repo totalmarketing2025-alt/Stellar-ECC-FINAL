@@ -331,6 +331,38 @@ CREATE TABLE IF NOT EXISTS moderation_outbox (
   static String _bytesToHex(Uint8List bytes) =>
       bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
+
+  /// Removes local application records while retaining the open database
+  /// and its SQLCipher master key.
+  Future<void> clearAllLocalData() async {
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+      _db.execute('PRAGMA defer_foreign_keys = ON');
+      for (final table in <String>[
+        'message_recipient_status',
+        'reaction',
+        'media_blob',
+        'message',
+        'group_member',
+        'sender_key',
+        'session',
+        'signed_pre_key',
+        'pre_key',
+        'trusted_identity',
+        'processed_envelope',
+        'moderation_outbox',
+        'transport_outbox',
+        'chat',
+      ]) {
+        _db.execute('DELETE FROM $table');
+      }
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
+  }
+
   void close() => _db.dispose();
 }
 

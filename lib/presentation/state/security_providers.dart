@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'app_providers.dart';
 import '../../core/storage/providers.dart';
@@ -42,20 +44,33 @@ class PanicLockController {
   }
 
   Future<void> wipeAndLock() async {
-    final db = ref.read(databaseProvider);
-    final keyStore = ref.read(platformKeyStoreProvider);
+    try {
+      final db = ref.read(databaseProvider);
+      final keyStore = ref.read(platformKeyStoreProvider);
 
-    // Wipes the ephemeral message store's rows first (secure-erase path,
-    // not a bare DROP TABLE) then the identity/session key material —
-    // ordered so a failure partway through still leaves keys unusable
-    // rather than leaving messages recoverable without keys.
-    final chats = await db.chatDao.all();
-    for (final chat in chats) {
-      await db.chatDao.delete(chat['chat_id'] as String);
+      await ref.read(localNicknameProvider.notifier).clear();
+      await db.clearAllLocalData();
+
+      final support = await getApplicationSupportDirectory();
+      for (final name in <String>['media', 'profile_photos']) {
+        final directory = Directory('${support.path}/$name');
+        if (await directory.exists()) {
+          await directory.delete(recursive: true);
+        }
+      }
+
+      await keyStore.wipeAllExceptDatabaseKey();
+
+      ref.invalidate(chatRepositoryProvider);
+      ref.invalidate(groupCryptoProvider);
+      ref.invalidate(sessionManagerProvider);
+      ref.invalidate(identityKeyStoreProvider);
+      ref.invalidate(profilePhotoSyncServiceProvider);
+      ref.invalidate(profilePhotoServiceProvider);
+      ref.invalidate(mediaAttachmentServiceProvider);
+    } finally {
+      lockNow();
     }
-    await keyStore.wipeAll();
-
-    lockNow();
   }
 }
 

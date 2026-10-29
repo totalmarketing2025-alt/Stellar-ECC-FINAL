@@ -113,6 +113,17 @@ class PlatformKeyStore {
   Future<void> deleteSecret(String key) => _storage.delete(key: key);
 
   /// Full wipe — used by the "Reset Identity" flow and account deletion.
+
+  /// Clears application secrets but preserves the key for the open DB.
+  Future<void> wipeAllExceptDatabaseKey() async {
+    final entries = await _storage.readAll();
+    for (final key in entries.keys) {
+      if (key != _dbKeyAlias) {
+        await _storage.delete(key: key);
+      }
+    }
+  }
+
   Future<void> wipeAll() => _storage.deleteAll();
 
   Uint8List _generateRandomKey(int length) {

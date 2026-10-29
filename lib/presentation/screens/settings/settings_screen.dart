@@ -1,9 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
 import '../../state/app_providers.dart';
+import '../../../core/storage/providers.dart';
 import '../../state/security_providers.dart';
 import '../../state/app_lock_controller.dart';
 import '../../widgets/ttl_picker_sheet.dart';
@@ -220,25 +223,73 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  void _confirmResetIdentity(BuildContext context) {
-    showDialog(
+  Future<void> _confirmResetIdentity(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: StellarColors.bgElevated,
         title: const Text('Reset Identity?'),
         content: const Text(
-          'This generates a new identity key, invalidates every existing session, '
-          'and requires all your contacts to re-verify you. This cannot be undone.',
+          'This removes local messages, sessions, identity data, PIN settings, '
+          'and local media. Your contacts will need to verify your new identity. '
+          'This cannot be undone.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Reset', style: TextStyle(color: StellarColors.danger)),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text(
+              'Reset',
+              style: TextStyle(color: StellarColors.danger),
+            ),
           ),
         ],
       ),
     );
+
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      final db = ref.read(databaseProvider);
+      final keyStore = ref.read(platformKeyStoreProvider);
+
+      await ref.read(localNicknameProvider.notifier).clear();
+      await db.clearAllLocalData();
+
+      final support = await getApplicationSupportDirectory();
+      for (final name in <String>['media', 'profile_photos']) {
+        final directory = Directory('${support.path}/$name');
+        if (await directory.exists()) {
+          await directory.delete(recursive: true);
+        }
+      }
+
+      await keyStore.wipeAllExceptDatabaseKey();
+
+      ref.invalidate(chatRepositoryProvider);
+      ref.invalidate(groupCryptoProvider);
+      ref.invalidate(sessionManagerProvider);
+      ref.invalidate(identityKeyStoreProvider);
+      ref.invalidate(profilePhotoSyncServiceProvider);
+      ref.invalidate(profilePhotoServiceProvider);
+      ref.invalidate(mediaAttachmentServiceProvider);
+      ref.read(isUnlockedProvider.notifier).state = false;
+
+      if (context.mounted) context.go('/onboarding/welcome');
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Reset failed: $error')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        ref.read(isUnlockedProvider.notifier).state = false;
+      }
+    }
   }
 }
 
