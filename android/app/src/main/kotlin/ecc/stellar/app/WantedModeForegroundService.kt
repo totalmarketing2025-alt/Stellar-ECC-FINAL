@@ -65,7 +65,7 @@ class WantedModeForegroundService : Service() {
                         getSystemService(NotificationManager::class.java)
                     manager.notify(
                         NOTIFICATION_ID,
-                        buildNotification(expiredCount)
+                        buildNotification(expiredCount.size)
                     )
                 }
             } catch (_: Exception) {
