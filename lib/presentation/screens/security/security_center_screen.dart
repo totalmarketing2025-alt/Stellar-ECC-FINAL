@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -437,11 +439,273 @@ class _WantedModeSheet extends ConsumerStatefulWidget {
   ConsumerState<_WantedModeSheet> createState() => _WantedModeSheetState();
 }
 
-class _WantedModeSheetState extends ConsumerState<_WantedModeSheet> {
+class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
+    with WidgetsBindingObserver {
   bool _updatingMonitor = false;
+  bool _checkingChallenges = false;
+  bool _challengeDialogOpen = false;
+  bool _challengeStoreCorrupted = false;
+  bool _challengeStoreStatusUnknown = false;
+  Timer? _challengePollTimer;
+  final Set<String> _shownChallengeIds = <String>{};
+  List<Map<String, dynamic>> _pendingChallenges = [];
+  List<Map<String, dynamic>> _expiredChallenges = [];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshChallenges();
+    _challengePollTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _refreshChallenges(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _challengePollTimer?.cancel();
+    _challengePollTimer = null;
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshChallenges();
+    }
+  }
+
+  Future<void> _refreshChallenges() async {
+    if (_checkingChallenges || !mounted) return;
+
+    _checkingChallenges = true;
+    try {
+      final notifier = ref.read(wantedModeWipeEnabledProvider.notifier);
+      final corrupted = await notifier.isChallengeStoreCorrupted();
+
+      final pending = corrupted
+          ? <Map<String, dynamic>>[]
+          : await notifier.getPendingChallenges();
+      final expired = corrupted
+          ? <Map<String, dynamic>>[]
+          : await notifier.getExpiredChallenges();
+
+      if (!mounted) return;
+
+      setState(() {
+        _challengeStoreCorrupted = corrupted;
+        _challengeStoreStatusUnknown = false;
+        _pendingChallenges = pending;
+        _expiredChallenges = expired;
+      });
+
+      if (!corrupted && !_challengeDialogOpen && !_resolvingChallenge) {
+        Map<String, dynamic>? nextChallenge;
+
+        for (final challenge in pending) {
+          final id = challenge['id']?.toString();
+          if (id != null &&
+              id.isNotEmpty &&
+              !_shownChallengeIds.contains(id)) {
+            nextChallenge = challenge;
+            break;
+          }
+        }
+
+        if (nextChallenge != null) {
+          final challengeToShow = nextChallenge;
+          final id = challengeToShow['id']?.toString();
+          if (id != null) _shownChallengeIds.add(id);
+
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _showChallengePinDialog(challengeToShow);
+            }
+          });
+        }
+      }
+    } catch (_) {
+      // Preserve the last known challenge data and explicitly show unknown status.
+      if (mounted) {
+        setState(() => _challengeStoreStatusUnknown = true);
+      }
+    } finally {
+      _checkingChallenges = false;
+    }
+  }
+
+  bool _resolvingChallenge = false;
+
+  Future<void> _showChallengePinDialog(
+    Map<String, dynamic> challenge,
+  ) async {
+    if (_resolvingChallenge || _challengeDialogOpen || !mounted) {
+      return;
+    }
+
+    final id = challenge['id']?.toString();
+    if (id == null || id.isEmpty) return;
+
+    _shownChallengeIds.add(id);
+    _challengeDialogOpen = true;
+    final controller = TextEditingController();
+
+    try {
+      final enteredPin = await showDialog<String>(
+        context: context,
+        barrierDismissible: true,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Verify Wanted Mode event'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            obscureText: true,
+            keyboardType: TextInputType.number,
+            enableSuggestions: false,
+            autocorrect: false,
+            decoration: InputDecoration(
+              labelText: 'Existing app PIN',
+              helperText:
+                  '${challenge['category']} — ${challenge['action']}',
+            ),
+            onSubmitted: (value) =>
+                Navigator.of(dialogContext).pop(value),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(controller.text),
+              child: const Text('Verify'),
+            ),
+          ],
+        ),
+      );
+
+      if (!mounted || enteredPin == null) return;
+
+      setState(() => _resolvingChallenge = true);
+
+      final resolved = await ref
+          .read(wantedModeWipeEnabledProvider.notifier)
+          .resolveChallengeAfterPin(id: id, pin: enteredPin);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            resolved
+                ? 'Event verified. Wanted Mode remains active.'
+                : 'PIN incorrect or the 10-second deadline has expired.',
+          ),
+        ),
+      );
+
+      await _refreshChallenges();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not verify this event.'),
+          ),
+        );
+      }
+    } finally {
+      controller.dispose();
+      _challengeDialogOpen = false;
+      if (mounted) {
+        setState(() => _resolvingChallenge = false);
+        _refreshChallenges();
+      }
+    }
+  }
 
   Future<void> _setMonitoring(bool enabled) async {
     if (_updatingMonitor) return;
+
+    // Enabling Wanted Mode requires the existing app PIN.
+    // Disabling it does not ask for a PIN.
+    if (enabled) {
+      final keyStore = ref.read(platformKeyStoreProvider);
+
+      if (!await keyStore.hasPin()) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Set an app PIN before enabling Wanted Mode.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      final controller = TextEditingController();
+
+      final enteredPin = await showDialog<String>(
+        context: context,
+        barrierDismissible: true,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Confirm app PIN'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              obscureText: true,
+              keyboardType: TextInputType.number,
+              enableSuggestions: false,
+              autocorrect: false,
+              decoration: const InputDecoration(
+                labelText: 'Existing app PIN',
+              ),
+              onSubmitted: (value) {
+                Navigator.of(dialogContext).pop(value);
+              },
+            ),
+            actions: [
+              TextButton(
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext)
+                    .pop(controller.text),
+                child: const Text('Confirm'),
+              ),
+            ],
+          );
+        },
+      );
+
+      controller.dispose();
+
+      if (!mounted || enteredPin == null) return;
+
+      final validPin = await keyStore.verifyPin(enteredPin);
+
+      if (!validPin) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Incorrect PIN. Wanted Mode was not enabled.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    if (!mounted) return;
 
     setState(() {
       _updatingMonitor = true;
@@ -502,6 +766,83 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet> {
               ),
             ),
             const Divider(height: 32, color: StellarColors.bgElevated),
+            if (_challengeStoreCorrupted)
+              Card(
+                child: ListTile(
+                  leading: const Icon(
+                    Icons.error,
+                    color: StellarColors.danger,
+                  ),
+                  title: const Text('PIN challenge storage is corrupted'),
+                  subtitle: const Text(
+                    'Wanted Mode event verification is blocked. '
+                    'Do not rely on monitoring until this issue is safely recovered.',
+                  ),
+                ),
+              ),
+            if (_challengeStoreStatusUnknown)
+              Card(
+                child: ListTile(
+                  leading: const Icon(
+                    Icons.warning_amber_rounded,
+                    color: StellarColors.danger,
+                  ),
+                  title: const Text('Could not verify PIN storage status'),
+                  subtitle: const Text(
+                    'The native status check failed. The storage must not be '
+                    'assumed healthy.',
+                  ),
+                ),
+              ),
+            if (_pendingChallenges.isNotEmpty) ...[
+              const Text(
+                'Pending event PIN checks',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              for (final challenge in _pendingChallenges)
+                Card(
+                  child: ListTile(
+                    leading: const Icon(
+                      Icons.warning_amber_rounded,
+                      color: StellarColors.danger,
+                    ),
+                    title: Text(
+                      '${challenge['category']} ${challenge['action']}',
+                    ),
+                    subtitle: const Text('Enter your app PIN within 10 seconds'),
+                    trailing: const Icon(Icons.lock_outline),
+                    onTap: _resolvingChallenge
+                        ? null
+                        : () => _showChallengePinDialog(challenge),
+                  ),
+                ),
+            ],
+            if (_expiredChallenges.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Card(
+                child: ListTile(
+                  leading: const Icon(
+                    Icons.error_outline,
+                    color: StellarColors.danger,
+                  ),
+                  title: Text(
+                    '${_expiredChallenges.length} expired event PIN check(s)',
+                  ),
+                  subtitle: const Text(
+                    'These events were not verified. Do not dismiss this warning.',
+                  ),
+                ),
+              ),
+            ],
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _checkingChallenges ? null : _refreshChallenges,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh event checks'),
+              ),
+            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               activeColor: StellarColors.danger,

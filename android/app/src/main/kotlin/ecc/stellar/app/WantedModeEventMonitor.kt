@@ -24,6 +24,17 @@ import org.json.JSONObject
 class WantedModeEventMonitor(context: Context) {
 
     companion object {
+        @Volatile
+        private var sharedInstance: WantedModeEventMonitor? = null
+
+        fun getInstance(context: Context): WantedModeEventMonitor {
+            return sharedInstance ?: synchronized(this) {
+                sharedInstance ?: WantedModeEventMonitor(
+                    context.applicationContext
+                ).also { sharedInstance = it }
+            }
+        }
+
         private const val PREFS = "wanted_mode_event_audit"
         private const val KEY_ENABLED = "monitor_enabled"
         private const val KEY_EVENTS = "events"
@@ -37,6 +48,9 @@ class WantedModeEventMonitor(context: Context) {
         PREFS,
         Context.MODE_PRIVATE
     )
+
+    // Each accepted hardware/network event receives its own durable challenge.
+    private val challengeStore = WantedModeChallengeStore(appContext)
 
     private val connectivityManager =
         appContext.getSystemService(Context.CONNECTIVITY_SERVICE)
@@ -84,15 +98,13 @@ class WantedModeEventMonitor(context: Context) {
             }
         }
 
-    init {
-        // Restore monitoring after activity/process recreation if it was enabled.
-        if (isEnabled()) {
-            registerListeners()
-        }
-    }
-
     @Synchronized
     fun start(): Boolean {
+        if (challengeStore.isCorrupted()) {
+            stop()
+            return false
+        }
+
         if (!prefs.edit().putBoolean(KEY_ENABLED, true).commit()) {
             return false
         }
@@ -108,6 +120,15 @@ class WantedModeEventMonitor(context: Context) {
             .commit()
 
         return stopped && saved
+    }
+
+    /**
+     * Releases runtime listeners without changing the saved preference.
+     * Used when Android destroys the foreground service.
+     */
+    @Synchronized
+    fun releaseListeners(): Boolean {
+        return unregisterListeners()
     }
 
     fun isEnabled(): Boolean =
@@ -213,6 +234,26 @@ class WantedModeEventMonitor(context: Context) {
                 last.optString("action") == action &&
                 now - last.optLong("time") < DEDUPE_WINDOW_MS
             ) {
+                return false
+            }
+        }
+
+        val challengeCategory = when (category) {
+            "usb" -> "USB"
+            "bluetooth" -> "BLUETOOTH"
+            "network" -> "NETWORK"
+            else -> null
+        }
+
+        if (challengeCategory != null && action != "unknown") {
+            val challenge = challengeStore.create(
+                challengeCategory,
+                action
+            )
+
+            if (challenge == null) {
+                // Fail closed: never keep monitoring without a saved challenge.
+                stop()
                 return false
             }
         }

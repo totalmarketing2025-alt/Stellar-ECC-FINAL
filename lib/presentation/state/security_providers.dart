@@ -36,6 +36,59 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
   static const MethodChannel _monitorChannel =
       MethodChannel('ecc.stellar.app/wanted_mode_monitor');
 
+  Future<bool> isChallengeStoreCorrupted() async {
+    final result = await _monitorChannel.invokeMethod<bool>(
+      'isChallengeStoreCorrupted',
+    );
+
+    if (result == null) {
+      throw StateError('Native challenge-store status is unavailable.');
+    }
+
+    return result;
+  }
+
+  Future<List<Map<String, dynamic>>> getPendingChallenges() async {
+    final result = await _monitorChannel.invokeListMethod<dynamic>(
+      'getPendingChallenges',
+    );
+
+    return (result ?? const <dynamic>[])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+  }
+
+  Future<List<Map<String, dynamic>>> getExpiredChallenges() async {
+    final result = await _monitorChannel.invokeListMethod<dynamic>(
+      'getExpiredChallenges',
+    );
+
+    return (result ?? const <dynamic>[])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+  }
+
+  /// Verifies the existing app PIN before resolving exactly one challenge.
+  /// Returns false for an invalid PIN, expired challenge, or native rejection.
+  Future<bool> resolveChallengeAfterPin({
+    required String id,
+    required String pin,
+  }) async {
+    if (id.trim().isEmpty || pin.isEmpty) return false;
+
+    final validPin = await _keyStore.verifyPin(pin);
+    if (!validPin) return false;
+
+    final resolved = await _monitorChannel.invokeMethod<bool>(
+      'resolveChallenge',
+      <String, dynamic>{'id': id},
+    );
+
+    return resolved == true;
+  }
+
   Future<void> _load() async {
     try {
       final enabled = await _keyStore.readWantedModeWipeEnabled();
@@ -44,17 +97,29 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
       );
 
       if (nativeResult != true) {
-        // Native monitoring could not confirm the persisted preference.
-        state = false;
+        await _disableAfterLoadFailure();
         return;
       }
 
       state = enabled;
     } catch (_) {
-      state = false;
+      await _disableAfterLoadFailure();
     } finally {
       _loadInProgress = false;
     }
+  }
+
+  Future<void> _disableAfterLoadFailure() async {
+    state = false;
+
+    // Do not leave a stale enabled preference after native startup failure.
+    try {
+      await _keyStore.writeWantedModeWipeEnabled(false);
+    } catch (_) {}
+
+    try {
+      await _monitorChannel.invokeMethod<bool>('stopMonitoring');
+    } catch (_) {}
   }
 
   Future<void> setEnabled(bool enabled) async {
