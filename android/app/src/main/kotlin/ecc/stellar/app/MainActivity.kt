@@ -53,53 +53,53 @@ class MainActivity : FlutterFragmentActivity() {
     private val wantedWipePollHandler = Handler(Looper.getMainLooper())
     private var wantedWipeSignalSent = false
 
-    private val wantedWipePoll: Runnable = object : Runnable {
-        override fun run() {
-            if (!WantedModeWipeState.hasPending(applicationContext)) {
-                wantedWipeSignalSent = false
-                wantedWipePollHandler.postDelayed(this, 500L)
-                return
-            }
-
-            if (!::wantedModeChannel.isInitialized || wantedWipeSignalSent) {
-                wantedWipePollHandler.postDelayed(this, 500L)
-                return
-            }
-
-            wantedWipeSignalSent = true
-            wantedModeChannel.invokeMethod(
-                "wantedModeWipeRequested",
-                null,
-                object : MethodChannel.Result {
-                    override fun success(result: Any?) {
-                        // Flutter го извршува бришењето и потоа ја рестартира Activity.
-                    }
-
-                    override fun error(
-                        errorCode: String,
-                        errorMessage: String?,
-                        errorDetails: Any?
-                    ) {
-                        wantedWipeSignalSent = false
-                        wantedWipePollHandler.postDelayed(
-                            wantedWipePoll,
-                            500L
-                        )
-                    }
-
-                    override fun notImplemented() {
-                        wantedWipeSignalSent = false
-                        wantedWipePollHandler.postDelayed(
-                            wantedWipePoll,
-                            500L
-                        )
-                    }
+    private val wantedWipePoll: Runnable by lazy {
+        object : Runnable {
+            override fun run() {
+                if (!WantedModeWipeState.hasPending(applicationContext)) {
+                    wantedWipeSignalSent = false
+                    wantedWipePollHandler.postDelayed(this, 500L)
+                    return
                 }
-            )
+
+                if (!::wantedModeChannel.isInitialized || wantedWipeSignalSent) {
+                    wantedWipePollHandler.postDelayed(this, 500L)
+                    return
+                }
+
+                wantedWipeSignalSent = true
+                wantedModeChannel.invokeMethod(
+                    "wantedModeWipeRequested",
+                    null,
+                    object : MethodChannel.Result {
+                        override fun success(result: Any?) {
+                            // Flutter го извршува бришењето и потоа ја рестартира Activity.
+                        }
+
+                        override fun error(
+                            errorCode: String,
+                            errorMessage: String?,
+                            errorDetails: Any?
+                        ) {
+                            wantedWipeSignalSent = false
+                            wantedWipePollHandler.postDelayed(
+                                wantedWipePoll,
+                                500L
+                            )
+                        }
+
+                        override fun notImplemented() {
+                            wantedWipeSignalSent = false
+                            wantedWipePollHandler.postDelayed(
+                                wantedWipePoll,
+                                500L
+                            )
+                        }
+                    }
+                )
+            }
         }
     }
-
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
