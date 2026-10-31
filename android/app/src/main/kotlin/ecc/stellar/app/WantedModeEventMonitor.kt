@@ -71,6 +71,8 @@ class WantedModeEventMonitor(context: Context) {
             when (intent?.action) {
                 UsbManager.ACTION_USB_DEVICE_ATTACHED ->
                     record("usb", "connected")
+                Intent.ACTION_POWER_CONNECTED ->
+                    record("power", "connected")
 
                 UsbManager.ACTION_USB_DEVICE_DETACHED ->
                     record("usb", "disconnected")
@@ -152,6 +154,7 @@ class WantedModeEventMonitor(context: Context) {
 
         val filter = IntentFilter().apply {
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+            addAction(Intent.ACTION_POWER_CONNECTED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
@@ -235,7 +238,7 @@ class WantedModeEventMonitor(context: Context) {
     fun record(category: String, action: String): Boolean {
         if (!isEnabled()) return false
 
-        if (category !in setOf("usb", "bluetooth", "network")) {
+        if (category !in setOf("usb", "bluetooth", "network", "power")) {
             return false
         }
 
@@ -267,6 +270,7 @@ class WantedModeEventMonitor(context: Context) {
             "usb" -> "USB"
             "bluetooth" -> "BLUETOOTH"
             "network" -> "NETWORK"
+            "power" -> "POWER"
             else -> null
         }
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/stellar_theme.dart';
@@ -22,9 +23,27 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
   CallPlatformAction? _pendingNativeCallAction;
   bool _pendingNativeActionScheduled = false;
 
+  static const MethodChannel _wantedModeNavigationChannel =
+      MethodChannel('ecc.stellar.app/wanted_mode_navigation');
+  static const MethodChannel _wantedModeMonitorChannel =
+      MethodChannel('ecc.stellar.app/wanted_mode_monitor');
+
   @override
   void initState() {
     super.initState();
+
+    _wantedModeNavigationChannel.setMethodCallHandler((call) async {
+      if (call.method == 'openSecurity') {
+        await _consumePendingWantedSecurityNavigation();
+      }
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_consumePendingWantedSecurityNavigation());
+      }
+    });
+
     _callActionSubscription =
         ref.read(callPlatformBridgeProvider).actions.listen((action) {
       final nickname = ref.read(localNicknameProvider);
@@ -34,6 +53,20 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
       }
       _dispatchNativeCallAction(action);
     });
+  }
+
+  Future<void> _consumePendingWantedSecurityNavigation() async {
+    try {
+      final pending = await _wantedModeMonitorChannel
+              .invokeMethod<bool>('takePendingWantedSecurityNavigation') ??
+          false;
+
+      if (!mounted || !pending) return;
+
+      ref.read(appRouterProvider).go('/security');
+    } catch (_) {
+      // The pending native navigation can be retried on the next launch.
+    }
   }
 
   void _dispatchNativeCallAction(CallPlatformAction action) {

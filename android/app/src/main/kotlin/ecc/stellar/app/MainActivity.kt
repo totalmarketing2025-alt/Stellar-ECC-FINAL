@@ -23,6 +23,10 @@ class MainActivity : FlutterFragmentActivity() {
     companion object {
         private const val CHANNEL = "ecc.stellar.app/calls"
         private const val WANTED_MODE_CHANNEL = "ecc.stellar.app/wanted_mode_monitor"
+        private const val WANTED_NAVIGATION_CHANNEL = "ecc.stellar.app/wanted_mode_navigation"
+        private const val OPEN_WANTED_SECURITY_ACTION = "ecc.stellar.app.OPEN_WANTED_SECURITY"
+        private const val WANTED_NAV_PREFS = "stellar_wanted_navigation"
+        private const val PREF_PENDING_SECURITY_NAVIGATION = "pending_security_navigation"
         private const val CALL_ACTION = "ecc.stellar.app.CALL_ACTION"
         private const val METHOD_INCOMING_ACTION = "incomingCallAction"
         private const val METHOD_SET_CALL_ACTION_HANDLER_READY = "setCallActionHandlerReady"
@@ -50,6 +54,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var wantedModeStartupTimeout: Runnable? = null
 
     private lateinit var wantedModeChannel: MethodChannel
+    private lateinit var wantedModeNavigationChannel: MethodChannel
     private val wantedWipePollHandler = Handler(Looper.getMainLooper())
     private var wantedWipeSignalSent = false
 
@@ -163,6 +168,11 @@ class MainActivity : FlutterFragmentActivity() {
         wantedModeChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             WANTED_MODE_CHANNEL
+        )
+
+        wantedModeNavigationChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            WANTED_NAVIGATION_CHANNEL
         )
 
         wantedModeChannel.setMethodCallHandler { call, result ->
@@ -304,6 +314,21 @@ class MainActivity : FlutterFragmentActivity() {
                     result.success(
                         id != null && wantedModeChallengeStore.resolve(id)
                     )
+                }
+
+                "takePendingWantedSecurityNavigation" -> {
+                    val prefs = getSharedPreferences(
+                        WANTED_NAV_PREFS,
+                        Context.MODE_PRIVATE
+                    )
+                    val pending = prefs.getBoolean(
+                        PREF_PENDING_SECURITY_NAVIGATION,
+                        false
+                    )
+                    prefs.edit()
+                        .remove(PREF_PENDING_SECURITY_NAVIGATION)
+                        .apply()
+                    result.success(pending)
                 }
 
                 else -> result.notImplemented()
@@ -590,6 +615,20 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun deliverIntent(intent: Intent?) {
+        if (intent?.action == OPEN_WANTED_SECURITY_ACTION) {
+            getSharedPreferences(
+                WANTED_NAV_PREFS,
+                Context.MODE_PRIVATE
+            ).edit()
+                .putBoolean(PREF_PENDING_SECURITY_NAVIGATION, true)
+                .apply()
+
+            if (::wantedModeNavigationChannel.isInitialized) {
+                wantedModeNavigationChannel.invokeMethod("openSecurity", null)
+            }
+            return
+        }
+
         if (intent?.action != CALL_ACTION) {
             return
         }

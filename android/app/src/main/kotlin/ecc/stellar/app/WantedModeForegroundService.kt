@@ -18,6 +18,8 @@ class WantedModeForegroundService : Service() {
     companion object {
         private const val CHANNEL_ID = "stellar_wanted_mode"
         private const val NOTIFICATION_ID = 7301
+        private const val POWER_ALERT_CHANNEL_ID = "stellar_wanted_power_alert"
+        private const val POWER_ALERT_NOTIFICATION_ID = 7305
         const val EXTRA_RESULT_RECEIVER =
             "ecc.stellar.app.WANTED_MODE_RESULT_RECEIVER"
     }
@@ -69,6 +71,26 @@ class WantedModeForegroundService : Service() {
                             buildNotification(corrupted = true)
                         )
                     return
+                }
+
+                val powerChallenge = store.getPending()
+                    .firstOrNull { it.category == "POWER" }
+
+                val notificationManager =
+                    getSystemService(NotificationManager::class.java)
+
+                if (powerChallenge != null) {
+                    val remainingSeconds = (
+                        (powerChallenge.deadlineMillis -
+                            System.currentTimeMillis() + 999L) / 1000L
+                    ).coerceAtLeast(0L)
+
+                    notificationManager.notify(
+                        POWER_ALERT_NOTIFICATION_ID,
+                        buildPowerAlertNotification(remainingSeconds)
+                    )
+                } else {
+                    notificationManager.cancel(POWER_ALERT_NOTIFICATION_ID)
                 }
 
                 if (expiredCount.isNotEmpty()) {
@@ -249,7 +271,57 @@ class WantedModeForegroundService : Service() {
             val manager =
                 getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
+
+            val powerAlertChannel = NotificationChannel(
+                POWER_ALERT_CHANNEL_ID,
+                "Wanted Mode – проверка на полнач",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Итна PIN-проверка при приклучување полнач"
+                setShowBadge(true)
+            }
+            manager.createNotificationChannel(powerAlertChannel)
         }
+    }
+
+    private fun buildPowerAlertNotification(
+        remainingSeconds: Long
+    ): Notification {
+        val launchIntent = Intent(this, MainActivity::class.java).apply {
+            action = "ecc.stellar.app.OPEN_WANTED_SECURITY"
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            7305,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or
+                PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, POWER_ALERT_CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+                .setPriority(Notification.PRIORITY_HIGH)
+        }
+
+        return builder
+            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setContentTitle("Stellar ECC – Wanted Mode")
+            .setContentText(
+                "Полначот е приклучен. Внеси PIN – преостануваат " +
+                    "$remainingSeconds секунди."
+            )
+            .setCategory(Notification.CATEGORY_EVENT)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setAutoCancel(false)
+            .setOngoing(true)
+            .setContentIntent(pendingIntent)
+            .build()
     }
 
     private fun buildNotification(

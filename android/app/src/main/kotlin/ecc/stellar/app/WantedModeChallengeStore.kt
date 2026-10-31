@@ -30,7 +30,7 @@ class WantedModeChallengeStore(context: Context) {
         private const val MAX_CHALLENGES = 50
 
         private val ALLOWED_CATEGORIES =
-            setOf("USB", "BLUETOOTH", "NETWORK")
+            setOf("USB", "BLUETOOTH", "NETWORK", "POWER")
 
         private val ALLOWED_ACTIONS =
             setOf("connected", "disconnected", "changed")
