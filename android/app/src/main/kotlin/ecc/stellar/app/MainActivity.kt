@@ -45,7 +45,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val wantedWipePollHandler = Handler(Looper.getMainLooper())
     private var wantedWipeSignalSent = false
 
-    private val wantedWipePoll = object : Runnable {
+    private val wantedWipePoll: Runnable = object : Runnable {
         override fun run() {
             if (!WantedModeWipeState.hasPending(applicationContext)) {
                 wantedWipeSignalSent = false
