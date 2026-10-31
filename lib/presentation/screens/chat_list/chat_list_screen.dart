@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/stellar_theme.dart';
 import '../../../domain/models/chat.dart';
 import '../../state/app_providers.dart';
+import '../../state/security_providers.dart';
 import '../../widgets/stellar_avatar.dart';
 import '../../widgets/expiry_ring.dart';
 
@@ -41,10 +42,13 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   @override
   Widget build(BuildContext context) {
     final chatsAsync = ref.watch(chatListProvider);
+    final wantedModeEnabled = ref.watch(wantedModeWipeEnabledProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Stellar ECC'),
+        title: wantedModeEnabled
+            ? const _WantedHeaderTitle()
+            : const Text('Stellar ECC'),
         actions: [
           IconButton(
             tooltip: 'My Profile',
@@ -283,6 +287,51 @@ class _EmptyState extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+
+class _WantedHeaderTitle extends StatefulWidget {
+  const _WantedHeaderTitle();
+
+  @override
+  State<_WantedHeaderTitle> createState() => _WantedHeaderTitleState();
+}
+
+class _WantedHeaderTitleState extends State<_WantedHeaderTitle>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+    lowerBound: 0.35,
+    upperBound: 1.0,
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('Stellar '),
+        FadeTransition(
+          opacity: _pulse,
+          child: const Text(
+            'WANTED',
+            style: TextStyle(
+              color: Color(0xFFFF3030),
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
