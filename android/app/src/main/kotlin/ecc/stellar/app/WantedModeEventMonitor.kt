@@ -10,6 +10,7 @@ import android.hardware.usb.UsbManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import org.json.JSONArray
 import org.json.JSONObject
@@ -56,6 +57,12 @@ class WantedModeEventMonitor(context: Context) {
         appContext.getSystemService(Context.CONNECTIVITY_SERVICE)
             as ConnectivityManager
 
+    private val wifiNetworkRequest = NetworkRequest.Builder()
+        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+        .build()
+
+    private val knownWifiNetworks = mutableSetOf<Network>()
+
     @Volatile
     private var listenersRegistered = false
 
@@ -83,18 +90,22 @@ class WantedModeEventMonitor(context: Context) {
     private val networkCallback =
         object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                record("network", "connected")
+                synchronized(this@WantedModeEventMonitor) {
+                    val wasDisconnected = knownWifiNetworks.isEmpty()
+                    if (knownWifiNetworks.add(network) && wasDisconnected) {
+                        record("network", "connected")
+                    }
+                }
             }
 
             override fun onLost(network: Network) {
-                record("network", "disconnected")
-            }
-
-            override fun onCapabilitiesChanged(
-                network: Network,
-                capabilities: NetworkCapabilities
-            ) {
-                record("network", "changed")
+                synchronized(this@WantedModeEventMonitor) {
+                    if (knownWifiNetworks.remove(network) &&
+                        knownWifiNetworks.isEmpty()
+                    ) {
+                        record("network", "disconnected")
+                    }
+                }
             }
         }
 
@@ -164,10 +175,23 @@ class WantedModeEventMonitor(context: Context) {
         }
 
         try {
-            connectivityManager.registerDefaultNetworkCallback(
+            // Seed the current Wi-Fi state before registering. Android may
+            // immediately report existing Wi-Fi networks to the callback;
+            // those initial reports must not create false challenges.
+            knownWifiNetworks.clear()
+            knownWifiNetworks.addAll(
+                connectivityManager.allNetworks.filter { network ->
+                    connectivityManager.getNetworkCapabilities(network)
+                        ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+                }
+            )
+
+            connectivityManager.registerNetworkCallback(
+                wifiNetworkRequest,
                 networkCallback
             )
         } catch (_: Exception) {
+            knownWifiNetworks.clear()
             try {
                 appContext.unregisterReceiver(receiver)
             } catch (_: Exception) {
@@ -199,6 +223,7 @@ class WantedModeEventMonitor(context: Context) {
             success = false
         }
 
+        knownWifiNetworks.clear()
         listenersRegistered = false
         return success
     }
