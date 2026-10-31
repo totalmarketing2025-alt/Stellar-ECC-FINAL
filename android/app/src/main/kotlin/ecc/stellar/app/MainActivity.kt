@@ -8,6 +8,9 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ResultReceiver
 import android.os.Bundle
+import android.app.NotificationManager
+import android.net.Uri
+import android.provider.Settings
 import android.content.Context
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity
@@ -28,12 +31,17 @@ class MainActivity : FlutterFragmentActivity() {
 
         private const val PREFS_NAME = "stellar_call_state"
         private const val PREF_PENDING_ACTION = "pending_call_action"
+        private const val STARTUP_PERMISSION_REQUEST_CODE = 7304
+        private const val STARTUP_PERMISSION_PREFS = "stellar_startup_permissions"
+        private const val PREF_STARTUP_PERMISSIONS_REQUESTED = "requested_v1"
+        private const val PREF_FULL_SCREEN_SETTINGS_OPENED = "full_screen_settings_opened_v1"
     }
 
     private var callChannel: MethodChannel? = null
     private lateinit var wantedModeEventMonitor: WantedModeEventMonitor
     private lateinit var wantedModeChallengeStore: WantedModeChallengeStore
     private var callActionHandlerReady = false
+    private var pendingStartupPermissionResult: MethodChannel.Result? = null
 
     // WANTED_PERMISSION_REQUEST
     private val wantedPermissionRequestCode = 7303
@@ -159,6 +167,14 @@ class MainActivity : FlutterFragmentActivity() {
 
         wantedModeChannel.setMethodCallHandler { call, result ->
             when (call.method) {
+                "requestStartupPermissions" -> {
+                    requestStartupPermissions(result)
+                }
+
+                "requestFullScreenCallAccess" -> {
+                    requestFullScreenCallAccess(result)
+                }
+
                 "hasPendingLocalWipe" -> {
                     result.success(
                         WantedModeWipeState.hasPending(applicationContext)
@@ -309,6 +325,112 @@ class MainActivity : FlutterFragmentActivity() {
         super.onPause()
     }
 
+    private fun requestStartupPermissions(result: MethodChannel.Result) {
+        val prefs = getSharedPreferences(
+            STARTUP_PERMISSION_PREFS,
+            Context.MODE_PRIVATE
+        )
+
+        if (prefs.getBoolean(PREF_STARTUP_PERMISSIONS_REQUESTED, false)) {
+            result.success(mapOf("alreadyRequested" to true))
+            return
+        }
+
+        if (pendingStartupPermissionResult != null) {
+            result.error(
+                "STARTUP_PERMISSION_REQUEST_IN_PROGRESS",
+                "Startup permission request is already running.",
+                null
+            )
+            return
+        }
+
+        val required = mutableListOf(
+            Manifest.permission.CAMERA,
+            Manifest.permission.RECORD_AUDIO
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            required.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+
+        if (Build.VERSION.SDK_INT >= 33) {
+            required.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        val missing = required.filter {
+            checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missing.isEmpty()) {
+            prefs.edit()
+                .putBoolean(PREF_STARTUP_PERMISSIONS_REQUESTED, true)
+                .apply()
+            result.success(mapOf("allAlreadyGranted" to true))
+            return
+        }
+
+        pendingStartupPermissionResult = result
+
+        try {
+            requestPermissions(
+                missing.toTypedArray(),
+                STARTUP_PERMISSION_REQUEST_CODE
+            )
+        } catch (error: Exception) {
+            pendingStartupPermissionResult = null
+            result.error(
+                "STARTUP_PERMISSION_REQUEST_FAILED",
+                error.message,
+                null
+            )
+        }
+    }
+
+    private fun requestFullScreenCallAccess(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < 34) {
+            result.success(true)
+            return
+        }
+
+        val manager = getSystemService(
+            NotificationManager::class.java
+        )
+
+        if (manager.canUseFullScreenIntent()) {
+            result.success(true)
+            return
+        }
+
+        val prefs = getSharedPreferences(
+            STARTUP_PERMISSION_PREFS,
+            Context.MODE_PRIVATE
+        )
+
+        if (!prefs.getBoolean(PREF_FULL_SCREEN_SETTINGS_OPENED, false)) {
+            prefs.edit()
+                .putBoolean(PREF_FULL_SCREEN_SETTINGS_OPENED, true)
+                .apply()
+
+            try {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT
+                    ).setData(Uri.parse("package:$packageName"))
+                )
+            } catch (error: Exception) {
+                result.error(
+                    "FULL_SCREEN_SETTINGS_FAILED",
+                    error.message,
+                    null
+                )
+                return
+            }
+        }
+
+        result.success(manager.canUseFullScreenIntent())
+    }
+
     private fun startWantedModeService() {
         val methodResult = pendingWantedModeResult ?: return
 
@@ -402,6 +524,26 @@ class MainActivity : FlutterFragmentActivity() {
             permissions,
             grantResults
         )
+
+        if (requestCode == STARTUP_PERMISSION_REQUEST_CODE) {
+            getSharedPreferences(
+                STARTUP_PERMISSION_PREFS,
+                Context.MODE_PRIVATE
+            ).edit()
+                .putBoolean(PREF_STARTUP_PERMISSIONS_REQUESTED, true)
+                .apply()
+
+            val permissionResults = permissions.mapIndexed { index, permission ->
+                permission to (
+                    grantResults.getOrNull(index) ==
+                        PackageManager.PERMISSION_GRANTED
+                )
+            }.toMap()
+
+            pendingStartupPermissionResult?.success(permissionResults)
+            pendingStartupPermissionResult = null
+            return
+        }
 
         if (requestCode != wantedPermissionRequestCode) return
 

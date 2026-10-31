@@ -261,6 +261,18 @@ Future<void> main() async {
     return;
   }
 
+  // Request Android runtime permissions once, after all wipe guards.
+  try {
+    await _wantedWipeChannel.invokeMethod('requestStartupPermissions');
+  } catch (e, st) {
+    developer.log(
+      'Startup permission request failed; continuing without blocking app.',
+      name: 'stellar_ecc.startup',
+      error: e,
+      stackTrace: st,
+    );
+  }
+
   if (firebaseAvailable) {
     FirebaseMessaging.onBackgroundMessage(
       firebaseMessagingBackgroundHandler,
@@ -303,6 +315,18 @@ Future<void> main() async {
         stackTrace: st,
       );
     }
+  }
+
+  // Android 14+ requires separate special access for full-screen call UI.
+  try {
+    await _wantedWipeChannel.invokeMethod('requestFullScreenCallAccess');
+  } catch (e, st) {
+    developer.log(
+      'Full-screen call access request failed; continuing.',
+      name: 'stellar_ecc.startup',
+      error: e,
+      stackTrace: st,
+    );
   }
 
   // The live Relay endpoint is configured in

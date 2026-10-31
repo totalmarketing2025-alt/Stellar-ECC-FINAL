@@ -45,11 +45,15 @@ class PushHandler {
   }
 
   Future<void> initialize() async {
-    await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: false,
-    );
+    // Android notification permission is requested together with the
+    // other startup permissions by MainActivity. Keep this request for iOS.
+    if (!Platform.isAndroid) {
+      await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: false,
+      );
+    }
 
     unawaited(_registerCurrentTokenWithRetry());
 
