@@ -32,6 +32,17 @@ class WantedModeForegroundService : Service() {
     private val deadlineChecker = object : Runnable {
         override fun run() {
             try {
+                if (WantedModeWipeState.hasPending(applicationContext)) {
+                    eventMonitor.stop()
+                    getSystemService(NotificationManager::class.java)
+                        .notify(
+                            NOTIFICATION_ID,
+                            buildNotification(wipePending = true)
+                        )
+                    stopSelf()
+                    return
+                }
+
                 val store = eventMonitorChallengeStore()
 
                 if (store.isCorrupted()) {
@@ -61,6 +72,22 @@ class WantedModeForegroundService : Service() {
                 }
 
                 if (expiredCount.isNotEmpty()) {
+                    if (
+                        WantedModeWipeState.isEnabled(applicationContext) &&
+                        WantedModeWipeState.request(applicationContext)
+                    ) {
+                        eventMonitor.stop()
+
+                        getSystemService(NotificationManager::class.java)
+                            .notify(
+                                NOTIFICATION_ID,
+                                buildNotification(wipePending = true)
+                            )
+
+                        stopSelf()
+                        return
+                    }
+
                     val manager =
                         getSystemService(NotificationManager::class.java)
                     manager.notify(
@@ -125,6 +152,24 @@ class WantedModeForegroundService : Service() {
             val expiredAtStartup = eventMonitorChallengeStore()
                 .getExpired()
                 .size
+
+            if (
+                expiredAtStartup > 0 &&
+                WantedModeWipeState.isEnabled(applicationContext) &&
+                WantedModeWipeState.request(applicationContext)
+            ) {
+                eventMonitor.stop()
+
+                getSystemService(NotificationManager::class.java)
+                    .notify(
+                        NOTIFICATION_ID,
+                        buildNotification(wipePending = true)
+                    )
+
+                receiver?.send(android.app.Activity.RESULT_OK, Bundle())
+                stopSelf(startId)
+                return START_NOT_STICKY
+            }
 
             if (expiredAtStartup > 0) {
                 val manager =
@@ -209,7 +254,8 @@ class WantedModeForegroundService : Service() {
 
     private fun buildNotification(
         expiredCount: Int = 0,
-        corrupted: Boolean = false
+        corrupted: Boolean = false,
+        wipePending: Boolean = false
     ): Notification {
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
 
@@ -235,6 +281,9 @@ class WantedModeForegroundService : Service() {
             .setContentTitle("Stellar ECC")
             .setContentText(
                 when {
+                    wipePending ->
+                        "Истечен е рокот. Отвори ја апликацијата за локално безбедносно бришење."
+
                     corrupted ->
                         "ГРЕШКА: складиштето за PIN-проверки е оштетено. Мониторингот е запрен."
 

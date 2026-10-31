@@ -97,6 +97,13 @@ object StellarPushBackgroundRunner {
     }
 
     fun run(context: Context): Boolean {
+        // WorkManager треба да заврши успешно без да отвора база/Flutter
+        // кога е побарано локално бришење.
+        if (WantedModeWipeState.hasPending(context)) {
+            Log.i("StellarFCM", "Skipping background engine: local wipe pending")
+            return true
+        }
+
         val latch = CountDownLatch(1)
         val completed = AtomicBoolean(false)
         val success = AtomicBoolean(false)
@@ -130,6 +137,10 @@ object StellarPushBackgroundRunner {
                         if (call.method == "showMessageNotification") {
                             showMessageNotification(context)
                             result.success(true)
+                        } else if (call.method == "hasPendingLocalWipe") {
+                            result.success(
+                                WantedModeWipeState.hasPending(context)
+                            )
                         } else if (call.method == "backgroundComplete") {
                             val backgroundSuccess =
                                 call.arguments as? Boolean ?: true

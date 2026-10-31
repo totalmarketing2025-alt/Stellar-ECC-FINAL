@@ -92,6 +92,15 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
   Future<void> _load() async {
     try {
       final enabled = await _keyStore.readWantedModeWipeEnabled();
+
+      final mirrorResult = await _monitorChannel.invokeMethod<bool>(
+        'setWipeEnabled',
+        <String, dynamic>{'enabled': enabled},
+      );
+      if (mirrorResult != true) {
+        throw StateError('Native Wanted Mode preference mirror failed.');
+      }
+
       final nativeResult = await _monitorChannel.invokeMethod<bool>(
         enabled ? 'startMonitoring' : 'stopMonitoring',
       );
@@ -118,6 +127,13 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
     } catch (_) {}
 
     try {
+      await _monitorChannel.invokeMethod<bool>(
+        'setWipeEnabled',
+        <String, dynamic>{'enabled': false},
+      );
+    } catch (_) {}
+
+    try {
       await _monitorChannel.invokeMethod<bool>('stopMonitoring');
     } catch (_) {}
   }
@@ -140,6 +156,14 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
       // Persist the requested preference before updating native monitoring.
       await _keyStore.writeWantedModeWipeEnabled(enabled);
 
+      final mirrorResult = await _monitorChannel.invokeMethod<bool>(
+        'setWipeEnabled',
+        <String, dynamic>{'enabled': enabled},
+      );
+      if (mirrorResult != true) {
+        throw StateError('Native Wanted Mode preference mirror failed.');
+      }
+
       final nativeResult = await _monitorChannel.invokeMethod<bool>(
         enabled ? 'startMonitoring' : 'stopMonitoring',
       );
@@ -161,6 +185,13 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
       var preferenceRestored = false;
       try {
         await _keyStore.writeWantedModeWipeEnabled(previousEnabled);
+        final mirrorRestored = await _monitorChannel.invokeMethod<bool>(
+          'setWipeEnabled',
+          <String, dynamic>{'enabled': previousEnabled},
+        );
+        if (mirrorRestored != true) {
+          throw StateError('Native Wanted Mode rollback mirror failed.');
+        }
         preferenceRestored = true;
       } catch (_) {
         // Do not restart native monitoring if persisted state is uncertain.

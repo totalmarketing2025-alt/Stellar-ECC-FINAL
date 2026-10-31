@@ -6,7 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
+import 'core/security/platform_key_store.dart';
 import 'app/app.dart';
 import 'app/firebase_options.dart';
 import 'core/storage/database.dart';
@@ -18,8 +21,40 @@ import 'presentation/state/app_providers.dart';
 
 
 
+const MethodChannel _wantedWipeChannel =
+    MethodChannel('ecc.stellar.app/wanted_mode_monitor');
+
+Future<void> _wipeLocalFilesAndKeys() async {
+  // Поддршка-директориумот ја содржи SQLCipher базата и локалните медиуми.
+  final support = await getApplicationSupportDirectory();
+  if (await support.exists()) {
+    await support.delete(recursive: true);
+  }
+
+  // Ги отстрануваме и привремените локални прилози/cache.
+  final temporary = await getTemporaryDirectory();
+  if (await temporary.exists()) {
+    await temporary.delete(recursive: true);
+  }
+
+  // Ги брише PIN, identity, DB master key и сите други app Secure Storage записи.
+  // Не го брише FCM token-от, кој го чува Firebase SDK.
+  await PlatformKeyStore().wipeAll();
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Ова мора да се провери пред Firebase.initializeApp() и пред отворање DB.
+  final wipePendingAtStartup =
+      await _wantedWipeChannel.invokeMethod<bool>('hasPendingLocalWipe') ??
+          false;
+
+  if (wipePendingAtStartup) {
+    await _wipeLocalFilesAndKeys();
+    await _wantedWipeChannel.invokeMethod<bool>('completeLocalWipe');
+    return;
+  }
 
   // Push notifications: FCM (Android) / APNs bridge (iOS). Payloads are
   // opaque wake pings only — see core/network/push_handler.dart.
@@ -65,6 +100,77 @@ Future<void> main() async {
     overrides: [databaseProvider.overrideWithValue(database)],
   );
 
+  var localWipeInProgress = false;
+  var relayDisconnected = false;
+  var containerDisposed = false;
+  var databaseClosed = false;
+
+  Future<void> performWantedModeLocalWipe() async {
+    if (localWipeInProgress) return;
+    localWipeInProgress = true;
+
+    try {
+      // Прво запираме локални задачи и Relay socket.
+      sweeper.stop();
+
+      if (!relayDisconnected) {
+        await container.read(relayClientProvider).disconnect();
+        relayDisconnected = true;
+      }
+
+      // Состојбата се памети за повторен обид ако подоцна нешто не успее.
+      if (!containerDisposed) {
+        container.dispose();
+        containerDisposed = true;
+      }
+
+      if (!databaseClosed) {
+        database.close();
+        databaseClosed = true;
+      }
+
+      await _wipeLocalFilesAndKeys();
+
+      final completed =
+          await _wantedWipeChannel.invokeMethod<bool>('completeLocalWipe');
+
+      if (completed != true) {
+        throw StateError('Native local wipe completion was not confirmed.');
+      }
+    } catch (error, stack) {
+      // Дозволуваме следниот native сигнал повторно да го продолжи wipe-от.
+      localWipeInProgress = false;
+
+      developer.log(
+        'Wanted Mode local wipe failed; retry remains possible.',
+        name: 'stellar_ecc.wipe',
+        error: error,
+        stackTrace: stack,
+      );
+
+      rethrow;
+    }
+  }
+
+  _wantedWipeChannel.setMethodCallHandler((call) async {
+    if (call.method == 'wantedModeWipeRequested') {
+      await performWantedModeLocalWipe();
+      return true;
+    }
+    throw MissingPluginException(
+      'Unknown Wanted Mode method: ${call.method}',
+    );
+  });
+
+  // Покрива истекување што се случило додека Flutter ги отворал ресурсите.
+  final wipePendingAfterOpen =
+      await _wantedWipeChannel.invokeMethod<bool>('hasPendingLocalWipe') ??
+          false;
+  if (wipePendingAfterOpen) {
+    await performWantedModeLocalWipe();
+    return;
+  }
+
   // Startup Signal bundle synchronization.
   // Keeps Directory current after prekey consumption/restart.
   try {
@@ -77,34 +183,66 @@ Future<void> main() async {
         : String.fromCharCodes(nicknameBytes).trim();
 
     if (nickname != null && nickname.isNotEmpty) {
-      final sessionManager = container.read(sessionManagerProvider);
-      final directoryClient = container.read(directoryClientProvider);
+      final wipePendingBeforeDirectorySync =
+          await _wantedWipeChannel.invokeMethod<bool>(
+                'hasPendingLocalWipe',
+              ) ??
+              false;
 
-      await sessionManager.ensureMinimumPreKeys();
+      if (!wipePendingBeforeDirectorySync) {
+        final sessionManager = container.read(sessionManagerProvider);
+        final directoryClient = container.read(directoryClientProvider);
 
-      final bundle = await sessionManager.buildLocalDirectoryBundle();
+        await sessionManager.ensureMinimumPreKeys();
 
-      try {
-        await directoryClient.updateBundle(
-          nickname: nickname,
-          preKeyBundle: bundle,
-        );
-      } catch (e) {
-        final text = e.toString();
-        if (text.contains('404') || text.contains('User not found')) {
-          await directoryClient.register(
-            nickname: nickname,
-            preKeyBundle: bundle,
-          );
-        } else {
-          rethrow;
+        final wipePendingAfterPreKeys =
+            await _wantedWipeChannel.invokeMethod<bool>(
+                  'hasPendingLocalWipe',
+                ) ??
+                false;
+
+        if (!wipePendingAfterPreKeys) {
+          final bundle = await sessionManager.buildLocalDirectoryBundle();
+
+          final wipePendingBeforeUpdate =
+              await _wantedWipeChannel.invokeMethod<bool>(
+                    'hasPendingLocalWipe',
+                  ) ??
+                  false;
+
+          if (!wipePendingBeforeUpdate) {
+            try {
+              await directoryClient.updateBundle(
+                nickname: nickname,
+                preKeyBundle: bundle,
+              );
+            } catch (e) {
+              final text = e.toString();
+              if (text.contains('404') || text.contains('User not found')) {
+                final wipePendingBeforeRegister =
+                    await _wantedWipeChannel.invokeMethod<bool>(
+                          'hasPendingLocalWipe',
+                        ) ??
+                        false;
+
+                if (!wipePendingBeforeRegister) {
+                  await directoryClient.register(
+                    nickname: nickname,
+                    preKeyBundle: bundle,
+                  );
+                }
+              } else {
+                rethrow;
+              }
+            }
+
+            developer.log(
+              'Startup Signal bundle synchronization completed.',
+              name: 'stellar_ecc.directory',
+            );
+          }
         }
       }
-
-      developer.log(
-        'Startup Signal bundle synchronized.',
-        name: 'stellar_ecc.directory',
-      );
     }
   } catch (e, st) {
     developer.log(
@@ -113,6 +251,14 @@ Future<void> main() async {
       error: e,
       stackTrace: st,
     );
+  }
+
+  final wipePendingBeforePush =
+      await _wantedWipeChannel.invokeMethod<bool>('hasPendingLocalWipe') ??
+          false;
+  if (wipePendingBeforePush) {
+    await performWantedModeLocalWipe();
+    return;
   }
 
   if (firebaseAvailable) {

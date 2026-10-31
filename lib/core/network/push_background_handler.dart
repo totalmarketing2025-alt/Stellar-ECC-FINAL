@@ -29,6 +29,14 @@ Future<void> stellarPushBackgroundMain() async {
   const backgroundChannel =
       MethodChannel('ecc.stellar.app/push_background');
 
+  final wipePending =
+      await backgroundChannel.invokeMethod<bool>('hasPendingLocalWipe') ??
+          false;
+  if (wipePending) {
+    await backgroundChannel.invokeMethod<bool>('backgroundComplete', true);
+    return;
+  }
+
   StellarDatabase? database;
   ProviderContainer? container;
   RelayClient? relayClient;

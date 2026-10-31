@@ -41,6 +41,56 @@ class MainActivity : FlutterFragmentActivity() {
     private val wantedModeStartupHandler = Handler(Looper.getMainLooper())
     private var wantedModeStartupTimeout: Runnable? = null
 
+    private lateinit var wantedModeChannel: MethodChannel
+    private val wantedWipePollHandler = Handler(Looper.getMainLooper())
+    private var wantedWipeSignalSent = false
+
+    private val wantedWipePoll = object : Runnable {
+        override fun run() {
+            if (!WantedModeWipeState.hasPending(applicationContext)) {
+                wantedWipeSignalSent = false
+                wantedWipePollHandler.postDelayed(this, 500L)
+                return
+            }
+
+            if (!::wantedModeChannel.isInitialized || wantedWipeSignalSent) {
+                wantedWipePollHandler.postDelayed(this, 500L)
+                return
+            }
+
+            wantedWipeSignalSent = true
+            wantedModeChannel.invokeMethod(
+                "wantedModeWipeRequested",
+                null,
+                object : MethodChannel.Result {
+                    override fun success(result: Any?) {
+                        // Flutter го извршува бришењето и потоа ја рестартира Activity.
+                    }
+
+                    override fun error(
+                        errorCode: String,
+                        errorMessage: String?,
+                        errorDetails: Any?
+                    ) {
+                        wantedWipeSignalSent = false
+                        wantedWipePollHandler.postDelayed(
+                            wantedWipePoll,
+                            500L
+                        )
+                    }
+
+                    override fun notImplemented() {
+                        wantedWipeSignalSent = false
+                        wantedWipePollHandler.postDelayed(
+                            wantedWipePoll,
+                            500L
+                        )
+                    }
+                }
+            )
+        }
+    }
+
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -102,11 +152,64 @@ class MainActivity : FlutterFragmentActivity() {
         wantedModeEventMonitor = WantedModeEventMonitor.getInstance(applicationContext)
         wantedModeChallengeStore = WantedModeChallengeStore(applicationContext)
 
-        MethodChannel(
+        wantedModeChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             WANTED_MODE_CHANNEL
-        ).setMethodCallHandler { call, result ->
+        )
+
+        wantedModeChannel.setMethodCallHandler { call, result ->
             when (call.method) {
+                "hasPendingLocalWipe" -> {
+                    result.success(
+                        WantedModeWipeState.hasPending(applicationContext)
+                    )
+                }
+
+                "setWipeEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled") == true
+                    result.success(
+                        WantedModeWipeState.setEnabled(
+                            applicationContext,
+                            enabled
+                        )
+                    )
+                }
+
+                "completeLocalWipe" -> {
+                    val completed =
+                        WantedModeWipeState.complete(applicationContext)
+
+                    if (!completed) {
+                        result.error(
+                            "WIPE_PREFS_CLEAR_FAILED",
+                            "Local preference cleanup did not complete.",
+                            null
+                        )
+                    } else {
+                        stopService(
+                            Intent(
+                                this@MainActivity,
+                                WantedModeForegroundService::class.java
+                            )
+                        )
+
+                        result.success(true)
+
+                        wantedModeStartupHandler.postDelayed({
+                            val launch = packageManager
+                                .getLaunchIntentForPackage(packageName)
+
+                            if (launch != null) {
+                                launch.addFlags(
+                                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                                        Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                )
+                                startActivity(launch)
+                            }
+                        }, 150L)
+                    }
+                }
+
                 "startMonitoring" -> {
                     if (pendingWantedModeResult != null) {
                         result.error(
@@ -192,6 +295,18 @@ class MainActivity : FlutterFragmentActivity() {
         }
 
         deliverIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        wantedWipePollHandler.removeCallbacks(wantedWipePoll)
+        wantedWipePollHandler.post(wantedWipePoll)
+    }
+
+    override fun onPause() {
+        wantedWipePollHandler.removeCallbacks(wantedWipePoll)
+        wantedWipeSignalSent = false
+        super.onPause()
     }
 
     private fun startWantedModeService() {
