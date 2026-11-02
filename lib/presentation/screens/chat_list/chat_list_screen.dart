@@ -325,7 +325,7 @@ class _WantedHeaderTitleState extends State<_WantedHeaderTitle>
           child: const Text(
             'WANTED',
             style: TextStyle(
-              color: Color(0xFFFF3030),
+              color: Color(0xFFB66DFF),
               fontWeight: FontWeight.w900,
               letterSpacing: 1.2,
             ),

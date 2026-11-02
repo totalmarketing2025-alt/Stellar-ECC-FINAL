@@ -155,7 +155,7 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
           children: [
             child ?? const SizedBox.shrink(),
             if (wantedModeEnabled)
-              const _WantedModeRedEdgeGlow(),
+              const _WantedModePurpleBottomGlow(),
           ],
         );
       },
@@ -164,21 +164,22 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
 }
 
 
-// WANTED_MODE_RED_EDGE_GLOW_V1
-class _WantedModeRedEdgeGlow extends StatefulWidget {
-  const _WantedModeRedEdgeGlow();
+
+// WANTED_MODE_PURPLE_BOTTOM_GLOW_V1
+class _WantedModePurpleBottomGlow extends StatefulWidget {
+  const _WantedModePurpleBottomGlow();
 
   @override
-  State<_WantedModeRedEdgeGlow> createState() =>
-      _WantedModeRedEdgeGlowState();
+  State<_WantedModePurpleBottomGlow> createState() =>
+      _WantedModePurpleBottomGlowState();
 }
 
-class _WantedModeRedEdgeGlowState
-    extends State<_WantedModeRedEdgeGlow>
+class _WantedModePurpleBottomGlowState
+    extends State<_WantedModePurpleBottomGlow>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 1400),
+    duration: const Duration(milliseconds: 1800),
   )..repeat(reverse: true);
 
   @override
@@ -189,67 +190,38 @@ class _WantedModeRedEdgeGlowState
 
   @override
   Widget build(BuildContext context) {
-    return Positioned.fill(
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: 22,
       child: IgnorePointer(
         child: AnimatedBuilder(
           animation: _controller,
           builder: (context, _) {
-            final intensity = 0.35 + (_controller.value * 0.45);
+            final intensity = 0.25 + (_controller.value * 0.15);
+            const purple = Color(0xFF9B4DFF);
 
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Container(
-                    width: 13,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
-                        colors: [
-                          Colors.red.withOpacity(intensity),
-                          Colors.red.withOpacity(intensity * 0.35),
-                          Colors.transparent,
-                        ],
-                        stops: const [0.0, 0.28, 1.0],
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.red.withOpacity(intensity * 0.55),
-                          blurRadius: 18,
-                          spreadRadius: 1,
-                        ),
-                      ],
-                    ),
-                  ),
+            return Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    purple.withOpacity(intensity * 0.35),
+                    purple.withOpacity(intensity),
+                  ],
+                  stops: const [0.0, 0.55, 1.0],
                 ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Container(
-                    width: 13,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.centerRight,
-                        end: Alignment.centerLeft,
-                        colors: [
-                          Colors.red.withOpacity(intensity),
-                          Colors.red.withOpacity(intensity * 0.35),
-                          Colors.transparent,
-                        ],
-                        stops: const [0.0, 0.28, 1.0],
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.red.withOpacity(intensity * 0.55),
-                          blurRadius: 18,
-                          spreadRadius: 1,
-                        ),
-                      ],
-                    ),
+                boxShadow: [
+                  BoxShadow(
+                    color: purple.withOpacity(intensity * 0.25),
+                    blurRadius: 12,
+                    spreadRadius: 1,
                   ),
-                ),
-              ],
+                ],
+              ),
             );
           },
         ),
