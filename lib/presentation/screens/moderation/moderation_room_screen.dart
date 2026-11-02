@@ -2,6 +2,7 @@ import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 
 import "../../../core/moderation/moderation_admin_message.dart";
+import "../../../core/moderation/moderation_admin_client.dart";
 import "../../state/app_providers.dart";
 import "moderation_broadcast_admin_tab.dart";
 
@@ -18,6 +19,8 @@ class _ModerationRoomScreenState
   final _secretController = TextEditingController();
 
   List<ModerationAdminMessage> _messages = [];
+  List<ModerationAdminUser> _users = [];
+  String? _usersError;
   bool _loading = false;
   bool _authenticated = false;
   String? _error;
@@ -44,11 +47,11 @@ class _ModerationRoomScreenState
     setState(() {
       _loading = true;
       _error = null;
+      _usersError = null;
     });
 
     try {
       final client = ref.read(moderationAdminClientProvider);
-
       await client.authenticate(secret);
 
       _secretController.clear();
@@ -61,11 +64,26 @@ class _ModerationRoomScreenState
 
       if (!mounted) return;
 
+      // Admin access and Messages do not depend on the Users endpoint.
       setState(() {
         _authenticated = true;
         _messages = messages;
         _loading = false;
       });
+
+      try {
+        final users = await client.fetchUsers();
+        if (!mounted) return;
+        setState(() {
+          _users = users;
+          _usersError = null;
+        });
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _usersError = e.toString();
+        });
+      }
     } catch (e) {
       if (!mounted) return;
 
@@ -86,12 +104,11 @@ class _ModerationRoomScreenState
     });
 
     try {
-      final messages = await ref
-          .read(moderationAdminClientProvider)
-          .fetchMessages(
-            limit: _pageSize,
-            offset: 0,
-          );
+      final client = ref.read(moderationAdminClientProvider);
+      final messages = await client.fetchMessages(
+        limit: _pageSize,
+        offset: 0,
+      );
 
       if (!mounted) return;
 
@@ -100,6 +117,21 @@ class _ModerationRoomScreenState
         _messages = messages;
         _loading = false;
       });
+
+      // A Users API failure must not fail the Messages refresh.
+      try {
+        final users = await client.fetchUsers();
+        if (!mounted) return;
+        setState(() {
+          _users = users;
+          _usersError = null;
+        });
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _usersError = e.toString();
+        });
+      }
     } catch (e) {
       if (!mounted) return;
 
@@ -153,6 +185,8 @@ class _ModerationRoomScreenState
     setState(() {
       _authenticated = false;
       _messages = [];
+      _users = [];
+      _usersError = null;
       _offset = 0;
       _error = null;
     });
@@ -172,7 +206,7 @@ class _ModerationRoomScreenState
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: const Text("Moderation Room"),
@@ -181,6 +215,7 @@ class _ModerationRoomScreenState
                   tabs: [
                     Tab(text: "Messages"),
                     Tab(text: "Broadcasts"),
+                    Tab(text: "Users"),
                   ],
                 )
               : null,
@@ -205,6 +240,7 @@ class _ModerationRoomScreenState
                 children: [
                   _buildMessages(context),
                   const ModerationBroadcastAdminTab(),
+                  _buildUsers(context),
                 ],
               ),
       ),
@@ -287,6 +323,71 @@ class _ModerationRoomScreenState
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildUsers(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: _users.isEmpty
+          ? ListView(
+              children: [
+                const SizedBox(height: 180),
+                Center(
+                  child: Text(
+                    _usersError == null
+                        ? "No registered users"
+                        : "Could not load users: $_usersError",
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            )
+          : ListView.separated(
+              padding: const EdgeInsets.all(12),
+              itemCount: _users.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 6),
+              itemBuilder: (context, index) {
+                final user = _users[index];
+
+                return Card(
+                  child: ListTile(
+                    leading: Icon(
+                      user.wantedModeEnabled
+                          ? Icons.warning_rounded
+                          : Icons.person_outline,
+                      color: user.wantedModeEnabled
+                          ? Colors.red
+                          : null,
+                    ),
+                    title: Text(
+                      user.nickname,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    subtitle: user.wantedModeEnabled
+                        ? Text(
+                            user.wantedModeUpdatedAt == null
+                                ? "WANTED MODE ACTIVE"
+                                : "WANTED MODE ACTIVE • ${_formatDate(user.wantedModeUpdatedAt!.millisecondsSinceEpoch)}",
+                            style: const TextStyle(
+                              color: Colors.red,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          )
+                        : const Text("Normal status"),
+                    trailing: user.wantedModeEnabled
+                        ? const Icon(
+                            Icons.circle,
+                            color: Colors.red,
+                            size: 12,
+                          )
+                        : null,
+                  ),
+                );
+              },
+            ),
     );
   }
 

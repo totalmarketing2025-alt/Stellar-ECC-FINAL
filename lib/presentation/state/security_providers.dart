@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -21,15 +22,32 @@ final wantedModeWipeEnabledProvider =
     StateNotifierProvider<WantedModeWipeEnabledNotifier, bool>(
   (ref) => WantedModeWipeEnabledNotifier(
     ref.read(platformKeyStoreProvider),
+    ref,
   ),
 );
 
 class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
-  WantedModeWipeEnabledNotifier(this._keyStore) : super(false) {
+  WantedModeWipeEnabledNotifier(this._keyStore, this._ref)
+      : super(false) {
     _load();
   }
 
   final PlatformKeyStore _keyStore;
+  final Ref _ref;
+
+  Future<void> _syncWantedMode(bool enabled) async {
+    try {
+      final nickname = _ref.read(localNicknameProvider);
+      if (nickname == null || nickname.trim().isEmpty) return;
+
+      await _ref.read(moderationClientProvider).setWantedMode(
+            enabled: enabled,
+            nickname: nickname,
+          ).timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Server sync is best-effort. Never roll back local Wanted Mode.
+    }
+  }
   bool _operationInProgress = false;
   bool _loadInProgress = true;
 
@@ -111,6 +129,7 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
       }
 
       state = enabled;
+      unawaited(_syncWantedMode(enabled));
     } catch (_) {
       await _disableAfterLoadFailure();
     } finally {
@@ -175,6 +194,7 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
       }
 
       state = enabled;
+      unawaited(_syncWantedMode(enabled));
     } catch (_) {
       if (!previousValueRead) {
         // We cannot safely determine the prior state.
@@ -246,6 +266,19 @@ class WantedModeController {
     try {
       final db = ref.read(databaseProvider);
       final keyStore = ref.read(platformKeyStoreProvider);
+
+      // Best-effort server cleanup before local identity is deleted.
+      final nickname = ref.read(localNicknameProvider);
+      if (nickname != null && nickname.trim().isNotEmpty) {
+        try {
+          await ref.read(moderationClientProvider).setWantedMode(
+                enabled: false,
+                nickname: nickname,
+              ).timeout(const Duration(seconds: 3));
+        } catch (_) {
+          // Local wipe must continue even when the server is unavailable.
+        }
+      }
 
       await ref.read(localNicknameProvider.notifier).clear();
       await db.clearAllLocalData();

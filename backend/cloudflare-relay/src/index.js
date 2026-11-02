@@ -2281,6 +2281,13 @@ export class ModerationRoom {
       )
     `);
 
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS moderation_wanted_users (
+        nickname TEXT PRIMARY KEY,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
     try {
       this.ctx.storage.sql.exec(
         `ALTER TABLE moderation_messages
@@ -2953,6 +2960,56 @@ export class ModerationRoom {
   async fetch(request) {
     const url = new URL(request.url);
 
+    if (url.pathname === "/v1/moderation/wanted-mode") {
+      if (request.method !== "POST") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "POST" },
+        });
+      }
+
+      const session = await this.authenticateModerationSession(request);
+      if (!session) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+
+      if (!body || typeof body.enabled !== "boolean") {
+        return Response.json({ error: "enabled must be boolean" }, { status: 400 });
+      }
+
+      const nickname = session.nickname.trim().toLowerCase();
+      if (!/^[a-z0-9_.-]{1,64}$/.test(nickname)) {
+        return Response.json({ error: "Invalid session nickname" }, { status: 400 });
+      }
+
+      if (body.enabled) {
+        this.ctx.storage.sql.exec(
+          `INSERT INTO moderation_wanted_users (nickname, updated_at)
+           VALUES (?, ?)
+           ON CONFLICT(nickname) DO UPDATE SET updated_at = excluded.updated_at`,
+          nickname,
+          Date.now(),
+        );
+      } else {
+        this.ctx.storage.sql.exec(
+          `DELETE FROM moderation_wanted_users WHERE nickname = ?`,
+          nickname,
+        );
+      }
+
+      return Response.json(
+        { ok: true, enabled: body.enabled },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     if (url.pathname === "/v1/moderation/groups/register") {
       if (request.method !== "POST") {
         return new Response("Method Not Allowed", {
@@ -3246,7 +3303,19 @@ export class ModerationRoom {
           nickname.length <= 128,
       );
 
-      return Response.json({ users });
+      const wantedModeUsers = this.ctx.storage.sql.exec(
+        `SELECT nickname, updated_at
+           FROM moderation_wanted_users
+          ORDER BY updated_at DESC`,
+      ).toArray().map((row) => ({
+        nickname: row.nickname,
+        updatedAt: row.updated_at,
+      }));
+
+      return Response.json(
+        { users, wantedModeUsers },
+        { headers: { "Cache-Control": "no-store" } },
+      );
     }
 
     if (
@@ -4809,6 +4878,9 @@ export default {
     const isModerationAdminDashboard =
       url.pathname === "/v1/moderation/admin/dashboard";
 
+    const isModerationWantedMode =
+      url.pathname === "/v1/moderation/wanted-mode";
+
     const isModerationAdminUsers =
       url.pathname === "/v1/moderation/admin/users";
 
@@ -4862,6 +4934,7 @@ export default {
       isModerationAdminReports ||
       isModerationAdminReportStatus ||
       isModerationAdminUsers ||
+      isModerationWantedMode ||
       isModerationAdminUserDossier ||
       isModerationAdminMessages ||
       isModerationGroupRegistration ||

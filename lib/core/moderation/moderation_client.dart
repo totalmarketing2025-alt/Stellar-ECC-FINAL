@@ -501,6 +501,40 @@ class ModerationClient {
     return Uint8List.fromList(bytes);
   }
 
+  Future<void> setWantedMode({
+    required bool enabled,
+    required String nickname,
+  }) async {
+    final normalizedNickname = nickname.trim().toLowerCase();
+    if (!RegExp(r'^[a-z0-9_.-]{1,64}$').hasMatch(normalizedNickname)) {
+      throw ArgumentError('Invalid nickname');
+    }
+
+    await _ensureAuthenticated(normalizedNickname);
+
+    final request = await _client.postUrl(
+      Uri.parse('$baseUrl/v1/moderation/wanted-mode'),
+    );
+    request.headers.contentType = ContentType.json;
+    request.headers.set(
+      HttpHeaders.authorizationHeader,
+      'Bearer $_sessionToken',
+    );
+    request.write(jsonEncode({'enabled': enabled}));
+
+    final response = await request.close().timeout(
+      const Duration(seconds: 5),
+    );
+    final body = await utf8.decoder.bind(response).join();
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ModerationException(
+        body.isEmpty ? 'Wanted Mode sync failed' : body,
+        response.statusCode,
+      );
+    }
+  }
+
   Future<void> submitReport({
     required String target,
     required String reason,

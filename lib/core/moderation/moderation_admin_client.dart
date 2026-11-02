@@ -7,6 +7,18 @@ import "package:http/http.dart" as http;
 import "moderation_admin_message.dart";
 import "stellar_broadcast.dart";
 
+class ModerationAdminUser {
+  const ModerationAdminUser({
+    required this.nickname,
+    required this.wantedModeEnabled,
+    this.wantedModeUpdatedAt,
+  });
+
+  final String nickname;
+  final bool wantedModeEnabled;
+  final DateTime? wantedModeUpdatedAt;
+}
+
 class ModerationAdminClient {
   ModerationAdminClient({
     required this.baseUrl,
@@ -104,6 +116,68 @@ class ModerationAdminClient {
 
     _token = token;
     _expiresAt = DateTime.fromMillisecondsSinceEpoch(expiresAtMs);
+  }
+
+  Future<List<ModerationAdminUser>> fetchUsers() async {
+    if (!isAuthenticated) {
+      throw StateError("Moderation admin session is not authenticated");
+    }
+
+    final response = await http.get(
+      Uri.parse("$baseUrl/v1/moderation/admin/users"),
+      headers: {
+        "Authorization": "Bearer $_token",
+      },
+    );
+
+    if (response.statusCode == 401) {
+      _token = null;
+      _expiresAt = null;
+      throw StateError("Moderation admin session expired");
+    }
+
+    if (response.statusCode != 200) {
+      throw StateError(
+        "Moderation users request failed (${response.statusCode})",
+      );
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final rawUsers = body["users"];
+    final rawWantedUsers = body["wantedModeUsers"];
+
+    if (rawUsers is! List || rawWantedUsers is! List) {
+      throw StateError("Invalid moderation users response");
+    }
+
+    final wantedByNickname = <String, DateTime>{};
+
+    for (final item in rawWantedUsers) {
+      if (item is! Map) continue;
+
+      final nickname = item["nickname"];
+      final updatedAt = item["updatedAt"];
+
+      if (nickname is String && updatedAt is num) {
+        wantedByNickname[nickname.trim().toLowerCase()] =
+            DateTime.fromMillisecondsSinceEpoch(updatedAt.toInt());
+      }
+    }
+
+    return rawUsers.whereType<String>().where((nickname) {
+      final value = nickname.trim();
+      return value.isNotEmpty && value.length <= 128;
+    }).map((nickname) {
+      final cleanNickname = nickname.trim();
+      final updatedAt =
+          wantedByNickname[cleanNickname.toLowerCase()];
+
+      return ModerationAdminUser(
+        nickname: cleanNickname,
+        wantedModeEnabled: updatedAt != null,
+        wantedModeUpdatedAt: updatedAt,
+      );
+    }).toList();
   }
 
   Future<List<ModerationAdminMessage>> fetchMessages({
