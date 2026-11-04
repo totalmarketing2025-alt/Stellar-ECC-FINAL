@@ -275,6 +275,58 @@ class CallCoordinator {
     _sessionController.add(null);
   }
 
+  Future<void> answerIncomingCall() async {
+    final session = _activeSession;
+    final signal = _lastSignal;
+    if (session == null ||
+        session.state != CallState.ringing ||
+        signal == null ||
+        signal.type != 'offer') {
+      return;
+    }
+
+    final remoteNickname = session.remoteNickname;
+    if (remoteNickname == null || remoteNickname.isEmpty) {
+      return;
+    }
+
+    await handlePlatformAction(
+      CallPlatformAction(
+        action: 'answer',
+        callId: session.callId,
+        remoteNickname: remoteNickname,
+        kind: session.kind == CallKind.video ? 'video' : 'voice',
+        chatId: session.chatId,
+      ),
+    );
+  }
+
+  Future<void> rejectIncomingCall() async {
+    final session = _activeSession;
+    final signal = _lastSignal;
+    if (session == null ||
+        session.state != CallState.ringing ||
+        signal == null ||
+        signal.type != 'offer') {
+      return;
+    }
+
+    final remoteNickname = session.remoteNickname;
+    if (remoteNickname == null || remoteNickname.isEmpty) {
+      return;
+    }
+
+    await handlePlatformAction(
+      CallPlatformAction(
+        action: 'reject',
+        callId: session.callId,
+        remoteNickname: remoteNickname,
+        kind: session.kind == CallKind.video ? 'video' : 'voice',
+        chatId: session.chatId,
+      ),
+    );
+  }
+
   Future<void> toggleMute(bool muted) {
     return _callService.toggleMute(muted);
   }

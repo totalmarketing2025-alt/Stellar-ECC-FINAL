@@ -194,7 +194,11 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
               label: const Text('Verify safety number', style: TextStyle(color: StellarColors.accentBlue)),
             ),
             const SizedBox(height: 24),
-            CallControlDock(
+            if (widget.incoming &&
+                (_session == null || _session?.state == CallState.ringing))
+              _buildIncomingControls()
+            else
+              CallControlDock(
               muted: _muted,
               speakerOn: _speakerOn,
               onToggleMute: () {
@@ -214,6 +218,48 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
             const SizedBox(height: 32),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildIncomingControls() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: StellarColors.success,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 16,
+              ),
+            ),
+            onPressed: () async {
+              await _callCoordinator?.answerIncomingCall();
+            },
+            icon: const Icon(Icons.call),
+            label: const Text('Answer'),
+          ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: StellarColors.danger,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 16,
+              ),
+            ),
+            onPressed: () async {
+              await _callCoordinator?.rejectIncomingCall();
+              if (mounted) context.pop();
+            },
+            icon: const Icon(Icons.call_end),
+            label: const Text('Decline'),
+          ),
+        ],
       ),
     );
   }

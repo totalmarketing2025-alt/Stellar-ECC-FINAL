@@ -196,6 +196,48 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
         '${seconds.toString().padLeft(2, '0')}';
   }
 
+  Widget _buildIncomingControls() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: StellarColors.success,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 16,
+              ),
+            ),
+            onPressed: () async {
+              await _callCoordinator?.answerIncomingCall();
+            },
+            icon: const Icon(Icons.call),
+            label: const Text('Answer'),
+          ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: StellarColors.danger,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 16,
+              ),
+            ),
+            onPressed: () async {
+              await _callCoordinator?.rejectIncomingCall();
+              if (mounted) context.pop();
+            },
+            icon: const Icon(Icons.call_end),
+            label: const Text('Decline'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -273,7 +315,12 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
             child: SafeArea(
               child: Column(
                 children: [
-                  CallControlDock(
+                  if (widget.incoming &&
+                      (_session == null ||
+                          _session?.state == CallState.ringing))
+                    _buildIncomingControls()
+                  else
+                    CallControlDock(
                     muted: _muted,
                     speakerOn: _speakerOn,
                     cameraOff: _cameraOff,

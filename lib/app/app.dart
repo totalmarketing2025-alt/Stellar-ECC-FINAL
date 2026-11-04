@@ -9,7 +9,9 @@ import 'router.dart';
 import '../presentation/state/relay_listener.dart';
 import '../presentation/state/app_providers.dart';
 import '../presentation/state/security_providers.dart';
+import '../core/calls/call_coordinator.dart';
 import '../core/calls/call_platform_bridge.dart';
+import '../domain/models/call_session.dart';
 
 class StellarEccApp extends ConsumerStatefulWidget {
   const StellarEccApp({super.key});
@@ -22,6 +24,8 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
   StreamSubscription<CallPlatformAction>? _callActionSubscription;
   CallPlatformAction? _pendingNativeCallAction;
   bool _pendingNativeActionScheduled = false;
+  StreamSubscription<CallSession?>? _callSessionSubscription;
+  final Set<String> _incomingNavigationPendingCallIds = <String>{};
 
   static const MethodChannel _wantedModeNavigationChannel =
       MethodChannel('ecc.stellar.app/wanted_mode_navigation');
@@ -119,9 +123,63 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
     });
   }
 
+  void _ensureIncomingCallListener(CallCoordinator coordinator) {
+    if (_callSessionSubscription != null) return;
+
+    _callSessionSubscription = coordinator.sessionStream.listen((session) {
+      _scheduleIncomingCallNavigation(coordinator, session);
+    });
+
+    // Do not miss an offer that arrived before this listener was attached.
+    _scheduleIncomingCallNavigation(coordinator, coordinator.activeSession);
+  }
+
+  void _scheduleIncomingCallNavigation(
+    CallCoordinator coordinator,
+    CallSession? session,
+  ) {
+    if (session == null ||
+        session.state != CallState.ringing ||
+        coordinator.lastSignal?.type != 'offer' ||
+        _incomingNavigationPendingCallIds.contains(session.callId)) {
+      return;
+    }
+
+    _incomingNavigationPendingCallIds.add(session.callId);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        _incomingNavigationPendingCallIds.remove(session.callId);
+        return;
+      }
+
+      final active = coordinator.activeSession;
+      if (active == null ||
+          active.callId != session.callId ||
+          active.state != CallState.ringing ||
+          coordinator.lastSignal?.type != 'offer') {
+        _incomingNavigationPendingCallIds.remove(session.callId);
+        return;
+      }
+
+      final encodedChatId = Uri.encodeComponent(session.chatId);
+      final route = session.kind == CallKind.video
+          ? '/call/video/$encodedChatId?incoming=1'
+          : '/call/voice/$encodedChatId?incoming=1';
+
+      final router = ref.read(appRouterProvider);
+      final currentPath = router.routeInformationProvider.value.uri.path;
+
+      if (currentPath != route.split('?').first) {
+        router.go(route);
+      }
+    });
+  }
+
   @override
   void dispose() {
     _callActionSubscription?.cancel();
+    _callSessionSubscription?.cancel();
     super.dispose();
   }
 
@@ -135,7 +193,8 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
     // coordinator during the initial build while the splash is loading it.
     final nickname = ref.watch(localNicknameProvider);
     if (nickname != null && nickname.isNotEmpty) {
-      ref.watch(callCoordinatorProvider);
+      final coordinator = ref.watch(callCoordinatorProvider);
+      _ensureIncomingCallListener(coordinator);
       _schedulePendingNativeAction();
     }
 
