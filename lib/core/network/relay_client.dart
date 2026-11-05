@@ -138,6 +138,11 @@ class RelayClient {
   static const _uploadMaxBytes = 9 * 1024 * 1024;
   static const _directEnvelopeMaxBytes = 512 * 1024;
 
+  /// Receipt-based sends use the direct protocol only.
+  /// Larger envelopes continue through the existing upload protocol.
+  bool supportsSendReceipt(Uint8List envelopeBytes) =>
+      envelopeBytes.length <= _directEnvelopeMaxBytes;
+
   String? _lastPeer;
 
   Stream<Uint8List> get incoming =>

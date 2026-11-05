@@ -1144,6 +1144,7 @@ class TransportOutboxDao {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, NULL)
       ON CONFLICT(transport_id) DO UPDATE SET
         message_id = excluded.message_id,
+        transport_type = excluded.transport_type,
         delivery_token = excluded.delivery_token,
         recipient_route = excluded.recipient_route,
         envelope_bytes = excluded.envelope_bytes,

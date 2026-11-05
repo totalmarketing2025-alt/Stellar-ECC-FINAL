@@ -89,20 +89,43 @@ class OutgoingTransportOutboxService {
           row['transport_type'] as String? ?? 'message';
 
       if (transportType == 'ack') {
-        // Retry the exact same persisted encrypted envelope and receipt ID.
-        // The relay's durable idempotency ledger prevents duplicate queue rows.
         await relayClient.sendWithReceipt(
           receiptId: transportId,
           envelopeBytes: envelopeBytes,
         );
 
         await db.transportOutboxDao.markRelaySent(transportId);
-
         print(
           'TRANSPORT_OUTBOX_ACK_RECEIPT_CONFIRMED: '
           'transportId=$transportId',
         );
+        await onRelaySent(transportId);
+        return;
+      }
 
+      if (transportType == 'message_receipt') {
+        if (state == 'pending') {
+          // Small envelopes use durable receipt acceptance.
+          // Large attachments retain the existing upload protocol.
+          if (relayClient.supportsSendReceipt(envelopeBytes)) {
+            await relayClient.sendWithReceipt(
+              receiptId: transportId,
+              envelopeBytes: envelopeBytes,
+            );
+          } else {
+            await relayClient.send(envelopeBytes);
+          }
+
+          await db.transportOutboxDao.markRelaySent(transportId);
+          print(
+            'TRANSPORT_OUTBOX_MESSAGE_ACCEPTED: '
+            'transportId=$transportId',
+          );
+        } else if (state != 'relay_sent') {
+          throw StateError('Unknown transport outbox state: $state');
+        }
+
+        // For relay_sent rows, recover only the post-send lifecycle.
         await onRelaySent(transportId);
         return;
       }

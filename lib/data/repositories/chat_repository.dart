@@ -100,7 +100,8 @@ class ChatRepository {
       return;
     }
 
-    if (transportType != 'message') {
+    if (transportType != 'message' &&
+        transportType != 'message_receipt') {
       throw StateError(
         'Unknown transport type: $transportType',
       );
@@ -518,6 +519,7 @@ class ChatRepository {
 
       await db.transportOutboxDao.enqueue(
         messageId: messageId,
+        transportType: 'message_receipt',
         deliveryToken: deliveryToken,
         recipientRoute: peerName,
         envelopeBytes: encodedEnvelope,
@@ -689,6 +691,7 @@ class ChatRepository {
         await db.transportOutboxDao.enqueue(
           messageId: messageId,
           transportId: transportId,
+          transportType: 'message_receipt',
           deliveryToken: deliveryToken,
           recipientRoute: recipient,
           envelopeBytes: encoded,

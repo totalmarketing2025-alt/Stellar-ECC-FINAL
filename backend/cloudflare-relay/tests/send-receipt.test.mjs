@@ -89,6 +89,23 @@ function createHarness({ failReceiptInsert = false } = {}) {
         return row ? [ { ...row } ] : [];
       }
 
+      if (
+        query.includes("FROM relay_queue") &&
+        query.startsWith("SELECT")
+      ) {
+        const recipient = params[0];
+        return queue
+          .filter((row) => row.recipient === recipient)
+          .map((row) => ({
+            id: row.id,
+            sender: row.sender,
+            envelope: new Uint8Array(row.envelope),
+            expires_at: row.expires_at,
+            chunked: row.chunked,
+            chunk_count: row.chunk_count,
+          }));
+      }
+
       if (query.startsWith("INSERT INTO relay_queue")) {
         const [
           recipient, sender, envelope, createdAt,
@@ -142,6 +159,38 @@ function createHarness({ failReceiptInsert = false } = {}) {
           delivery_id: deliveryId,
           created_at: createdAt,
         });
+
+        return [];
+      }
+
+      if (query.startsWith("DELETE FROM relay_queue_chunks")) {
+        const [deliveryId, recipient] = params;
+        const owned = queue.some(
+          (row) => row.id === deliveryId && row.recipient === recipient
+        );
+
+        if (owned) {
+          for (let i = chunks.length - 1; i >= 0; i--) {
+            if (chunks[i].delivery_id === deliveryId) {
+              chunks.splice(i, 1);
+            }
+          }
+        }
+
+        return [];
+      }
+
+      if (query.startsWith("DELETE FROM relay_queue")) {
+        const [deliveryId, recipient] = params;
+
+        for (let i = queue.length - 1; i >= 0; i--) {
+          if (
+            queue[i].id === deliveryId &&
+            queue[i].recipient === recipient
+          ) {
+            queue.splice(i, 1);
+          }
+        }
 
         return [];
       }
@@ -262,4 +311,320 @@ test("receipt insert failure rolls back queue insert", async () => {
   assert.equal(h.queue.length, 0);
   assert.equal(h.receipts.size, 0);
   assert.equal(h.chunks.length, 0);
+});
+
+
+function createDirectDeliveryHarness({ failOnSendCall }) {
+  const h = createHarness();
+  const senderAttachment = {
+    peer: "sender-a",
+    authenticated: true,
+    authState: "authenticated",
+  };
+  const recipientAttachment = {
+    peer: "recipient-a",
+    authenticated: true,
+    authState: "authenticated",
+  };
+
+  let sendCalls = 0;
+
+  const senderSocket = {
+    deserializeAttachment() {
+      return senderAttachment;
+    },
+  };
+
+  const recipientSocket = {
+    deserializeAttachment() {
+      return recipientAttachment;
+    },
+    send(_data) {
+      sendCalls += 1;
+      if (sendCalls === failOnSendCall) {
+        throw new Error("SIMULATED_WEBSOCKET_DISCONNECT");
+      }
+    },
+  };
+
+  h.room.ctx.getWebSockets = () => [
+    senderSocket,
+    recipientSocket,
+  ];
+  h.room.ctx.waitUntil = () => {};
+
+  return { ...h, senderSocket, sendCalls: () => sendCalls };
+}
+
+test("legacy direct delivery queues when recipient socket drops sender marker", async () => {
+  const h = createDirectDeliveryHarness({ failOnSendCall: 1 });
+  const envelope = makeEnvelope("recipient-a");
+
+  await h.room.webSocketMessage(
+    h.senderSocket,
+    envelope,
+  );
+
+  assert.equal(
+    h.queue.length,
+    1,
+    "Envelope must remain durably queued when the recipient disconnects",
+  );
+  assert.equal(h.queue[0].recipient, "recipient-a");
+  assert.equal(h.queue[0].sender, "sender-a");
+});
+
+test("legacy direct delivery queues when recipient socket drops envelope", async () => {
+  const h = createDirectDeliveryHarness({ failOnSendCall: 2 });
+  const envelope = makeEnvelope("recipient-a");
+
+  await h.room.webSocketMessage(
+    h.senderSocket,
+    envelope,
+  );
+
+  assert.equal(
+    h.queue.length,
+    1,
+    "Envelope must remain durably queued when binary delivery fails",
+  );
+  assert.equal(h.queue[0].recipient, "recipient-a");
+  assert.equal(h.queue[0].sender, "sender-a");
+});
+
+test("legacy direct delivery remains queued until recipient ACK", async () => {
+  const h = createDirectDeliveryHarness({ failOnSendCall: 0 });
+  const envelope = makeEnvelope("recipient-a");
+
+  await h.room.webSocketMessage(
+    h.senderSocket,
+    envelope,
+  );
+
+  assert.equal(
+    h.queue.length,
+    1,
+    "Online delivery must remain durable until recipient ACK",
+  );
+  assert.equal(h.queue[0].recipient, "recipient-a");
+  assert.equal(h.queue[0].sender, "sender-a");
+});
+
+
+function createAckSocket(peer, authenticated = true) {
+  const sent = [];
+
+  return {
+    sent,
+    deserializeAttachment() {
+      return {
+        peer,
+        authenticated,
+        authState: authenticated ? "authenticated" : "pending",
+      };
+    },
+    send(data) {
+      sent.push(data);
+    },
+  };
+}
+
+test("valid recipient ACK deletes its queue row and chunks", async () => {
+  const h = createHarness();
+
+  const queued = await h.room.queueEnvelopeWithReceipt(
+    "recipient-a",
+    "sender-a",
+    makeEnvelope("recipient-a"),
+    "ack-test-001",
+  );
+
+  h.chunks.push(
+    { delivery_id: queued.deliveryId, chunk_index: 0, chunk: new Uint8Array([1, 2]) },
+    { delivery_id: queued.deliveryId, chunk_index: 1, chunk: new Uint8Array([3, 4]) },
+  );
+
+  const socket = createAckSocket("recipient-a");
+
+  await h.room.webSocketMessage(
+    socket,
+    `STELLAR_RELAY_ACK_V1:${queued.deliveryId}`,
+  );
+
+  assert.equal(h.queue.length, 0);
+  assert.equal(h.chunks.length, 0);
+  assert.deepEqual(
+    socket.sent,
+    [`STELLAR_RELAY_ACK_OK_V1:${queued.deliveryId}`],
+  );
+});
+
+test("wrong recipient ACK cannot delete another recipient queue row or chunks", async () => {
+  const h = createHarness();
+
+  const queued = await h.room.queueEnvelopeWithReceipt(
+    "recipient-a",
+    "sender-a",
+    makeEnvelope("recipient-a"),
+    "ack-test-002",
+  );
+
+  h.chunks.push({
+    delivery_id: queued.deliveryId,
+    chunk_index: 0,
+    chunk: new Uint8Array([5, 6]),
+  });
+
+  const socket = createAckSocket("recipient-b");
+
+  await h.room.webSocketMessage(
+    socket,
+    `STELLAR_RELAY_ACK_V1:${queued.deliveryId}`,
+  );
+
+  assert.equal(h.queue.length, 1);
+  assert.equal(h.queue[0].recipient, "recipient-a");
+  assert.equal(h.chunks.length, 1);
+  assert.equal(h.chunks[0].delivery_id, queued.deliveryId);
+});
+
+test("repeated recipient ACK does not affect other queued deliveries", async () => {
+  const h = createHarness();
+
+  const first = await h.room.queueEnvelopeWithReceipt(
+    "recipient-a",
+    "sender-a",
+    makeEnvelope("recipient-a"),
+    "ack-test-003",
+  );
+
+  const second = await h.room.queueEnvelopeWithReceipt(
+    "recipient-a",
+    "sender-b",
+    makeEnvelope("recipient-a", "second"),
+    "ack-test-004",
+  );
+
+  const socket = createAckSocket("recipient-a");
+
+  await h.room.webSocketMessage(
+    socket,
+    `STELLAR_RELAY_ACK_V1:${first.deliveryId}`,
+  );
+
+  await h.room.webSocketMessage(
+    socket,
+    `STELLAR_RELAY_ACK_V1:${first.deliveryId}`,
+  );
+
+  assert.equal(h.queue.length, 1);
+  assert.equal(h.queue[0].id, second.deliveryId);
+  assert.equal(socket.sent.length, 2);
+});
+
+
+function createReceiptWakeHarness({ online = false, failOnSendCall = 0 } = {}) {
+  const h = createHarness();
+  const pending = [];
+  const wakes = [];
+  let recipientSendCalls = 0;
+
+  const senderSocket = {
+    sent: [],
+    deserializeAttachment() {
+      return {
+        peer: "sender-a",
+        authenticated: true,
+        authState: "authenticated",
+      };
+    },
+    send(data) {
+      this.sent.push(data);
+    },
+  };
+
+  const recipientSocket = {
+    sent: [],
+    deserializeAttachment() {
+      return {
+        peer: "recipient-a",
+        authenticated: true,
+        authState: "authenticated",
+      };
+    },
+    send(data) {
+      recipientSendCalls++;
+      if (recipientSendCalls === failOnSendCall) {
+        throw new Error("SIMULATED_WEBSOCKET_DISCONNECT");
+      }
+      this.sent.push(data);
+    },
+  };
+
+  h.room.ctx.getWebSockets = () =>
+    online ? [senderSocket, recipientSocket] : [senderSocket];
+
+  h.room.ctx.waitUntil = (promise) => pending.push(promise);
+
+  h.room.sendPushWake = async (recipient) => {
+    wakes.push(recipient);
+  };
+
+  return {
+    ...h,
+    senderSocket,
+    recipientSocket,
+    pending,
+    wakes,
+  };
+}
+
+test("offline receipt recipient receives an FCM wake-up", async () => {
+  const h = createReceiptWakeHarness({ online: false });
+
+  await h.room.handleSendWithReceipt(
+    h.senderSocket,
+    "wake-offline-001",
+    makeEnvelope("recipient-a"),
+  );
+
+  await Promise.all(h.pending);
+
+  assert.equal(h.queue.length, 1);
+  assert.deepEqual(h.wakes, ["recipient-a"]);
+  assert.equal(h.senderSocket.sent.length, 1);
+});
+
+test("online receipt delivery does not send an unnecessary FCM wake-up", async () => {
+  const h = createReceiptWakeHarness({ online: true });
+
+  await h.room.handleSendWithReceipt(
+    h.senderSocket,
+    "wake-online-001",
+    makeEnvelope("recipient-a"),
+  );
+
+  await Promise.all(h.pending);
+
+  assert.equal(h.queue.length, 1);
+  assert.equal(h.wakes.length, 0);
+  assert.equal(h.recipientSocket.sent.length, 3);
+});
+
+test("receipt delivery failure keeps the queue and sends an FCM wake-up", async () => {
+  const h = createReceiptWakeHarness({
+    online: true,
+    failOnSendCall: 3,
+  });
+
+  await h.room.handleSendWithReceipt(
+    h.senderSocket,
+    "wake-failure-001",
+    makeEnvelope("recipient-a"),
+  );
+
+  await Promise.all(h.pending);
+
+  assert.equal(h.queue.length, 1);
+  assert.deepEqual(h.wakes, ["recipient-a"]);
 });

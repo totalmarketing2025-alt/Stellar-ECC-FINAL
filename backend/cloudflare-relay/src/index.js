@@ -924,6 +924,8 @@ export class RelayRoom {
 
     // Online delivery still uses the existing queue/chunk/recipient-ACK
     // protocol. The queued row is NOT deleted by this sender receipt.
+    let deliveredOnline = false;
+
     for (const peer of this.ctx.getWebSockets()) {
       if (peer === ws) continue;
 
@@ -935,12 +937,22 @@ export class RelayRoom {
           peerAttachment?.authState === "authenticated" &&
           String(peerAttachment.peer || "").trim().toLowerCase() === recipient
         ) {
-          await this.flushQueue(peer, recipient);
+          deliveredOnline = await this.flushQueue(peer, recipient);
           break;
         }
       } catch (_) {
         // Ignore a disconnected peer; the durable queue remains.
       }
+    }
+
+    // Wake offline recipients and recipients whose online socket failed.
+    // The durable queue remains authoritative; FCM is only a wake-up hint.
+    if (!deliveredOnline) {
+      this.ctx.waitUntil(
+        this.sendPushWake(recipient).catch(() => {
+          console.error("FCM_RECEIPT_WAKE_FAILED");
+        }),
+      );
     }
 
     console.log(
@@ -1471,9 +1483,11 @@ export class RelayRoom {
           );
         }
       } catch (_) {
-        break;
+        return false;
       }
     }
+
+    return true;
   }
 
   async sendPushWake(recipient, callMeta = null) {
@@ -2011,10 +2025,17 @@ export class RelayRoom {
        * ACK is scoped to the authenticated recipient.
        * A peer cannot delete another peer's queued envelope.
        */
+      // Delete chunks only when the delivery belongs to this
+      // authenticated recipient. A guessed deliveryId must not
+      // allow another peer to destroy queued attachment data.
       this.ctx.storage.sql.exec(
         `DELETE FROM relay_queue_chunks
-         WHERE delivery_id = ?`,
+         WHERE delivery_id IN (
+           SELECT id FROM relay_queue
+           WHERE id = ? AND recipient = ?
+         )`,
         deliveryId,
+        recipient,
       );
 
       this.ctx.storage.sql.exec(
@@ -2172,6 +2193,16 @@ export class RelayRoom {
       return;
     }
 
+    // Persist every legacy envelope before attempting online delivery.
+    // The queue row remains until the authenticated recipient ACKs it.
+    await this.queueEnvelope(
+      recipient,
+      sender,
+      message,
+    );
+
+    let recipientOnline = false;
+
     for (const peer of this.ctx.getWebSockets()) {
       if (peer === ws) {
         continue;
@@ -2184,33 +2215,24 @@ export class RelayRoom {
           attachment &&
           attachment.authenticated === true &&
           attachment.authState === "authenticated" &&
-          attachment.peer === recipient
+          String(attachment.peer || "").trim().toLowerCase() === recipient
         ) {
-          peer.send(
-            `${RELAY_SENDER_PREFIX}${sender}`,
-          );
-
-          peer.send(message);
-          return;
+          recipientOnline = await this.flushQueue(peer, recipient);
+          break;
         }
       } catch (_) {
-        // Ignore disconnected peers.
+        // Keep the durable queue row if the peer disconnects.
       }
     }
 
-    await this.queueEnvelope(
-      recipient,
-      sender,
-      message,
-    );
-
-    // Push notification must never block or break relay delivery.
-    // The envelope is already safely queued before FCM is attempted.
-    this.ctx.waitUntil(
-      this.sendPushWake(recipient).catch(() => {
-        console.error("FCM_PUSH_WAKE_FAILED");
-      }),
-    );
+    // Wake only offline recipients. Push failure cannot affect the queue.
+    if (!recipientOnline) {
+      this.ctx.waitUntil(
+        this.sendPushWake(recipient).catch(() => {
+          console.error("FCM_PUSH_WAKE_FAILED");
+        }),
+      );
+    }
   }
 
   async webSocketClose(ws) {
