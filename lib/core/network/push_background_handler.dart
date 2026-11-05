@@ -282,7 +282,8 @@ Future<void> stellarPushBackgroundMain() async {
               // native FirebaseMessagingService / Telecom path.
               // A Signal-decrypted envelope is always a normal chat
               // message and must never be interpreted as a call signal.
-              await showLocalMessageNotification();
+              // The native FCM service already displays the
+              // generic notification. Do not display it again here.
 
               developer.log(
                 'Background envelope application processing completed.',
