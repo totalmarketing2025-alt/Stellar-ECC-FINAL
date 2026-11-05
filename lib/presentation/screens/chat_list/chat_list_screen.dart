@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../core/moderation/stellar_broadcast.dart';
 import '../../../domain/models/chat.dart';
 import '../../state/app_providers.dart';
 import '../../state/security_providers.dart';
@@ -21,20 +26,28 @@ class ChatListScreen extends ConsumerStatefulWidget {
 class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   final _searchController = TextEditingController();
   Timer? _refreshTimer;
+  Timer? _broadcastRefreshTimer;
+  List<StellarBroadcast> _broadcasts = [];
 
   @override
   void initState() {
     super.initState();
-    // Live-refresh so expiry countdowns and previews stay current without
-    // requiring a manual pull-to-refresh.
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       ref.invalidate(chatListProvider);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _refreshBroadcasts();
+    });
+    _broadcastRefreshTimer =
+        Timer.periodic(const Duration(seconds: 30), (_) {
+      _refreshBroadcasts();
     });
   }
 
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _broadcastRefreshTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -92,14 +105,24 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
               ),
               data: (chats) {
                 final filtered = _filterChats(chats, _searchController.text);
-                if (filtered.isEmpty) {
+                if (filtered.isEmpty && _broadcasts.isEmpty) {
                   return const _EmptyState();
                 }
                 return ListView.separated(
-                  itemCount: filtered.length,
+                  itemCount: _broadcasts.length + filtered.length,
                   separatorBuilder: (_, __) =>
                       const Divider(height: 1, color: StellarColors.bgElevated),
-                  itemBuilder: (context, index) => _ChatListTile(chat: filtered[index]),
+                  itemBuilder: (context, index) {
+                    if (index < _broadcasts.length) {
+                      return _BroadcastAnnouncementCard(
+                        key: ValueKey(_broadcasts[index].broadcastId),
+                        broadcast: _broadcasts[index],
+                      );
+                    }
+                    return _ChatListTile(
+                      chat: filtered[index - _broadcasts.length],
+                    );
+                  },
                 );
               },
             ),
@@ -119,6 +142,22 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _refreshBroadcasts() async {
+    final nickname = ref.read(localNicknameProvider)?.trim();
+    if (nickname == null || nickname.isEmpty) return;
+    try {
+      final items = await ref.read(moderationClientProvider).fetchBroadcasts(
+            nickname: nickname,
+            limit: 20,
+            offset: 0,
+          );
+      if (!mounted) return;
+      setState(() => _broadcasts = items);
+    } catch (_) {
+      // Keep the last successfully loaded broadcasts.
+    }
   }
 
   List<Chat> _filterChats(List<Chat> chats, String query) {
@@ -291,6 +330,242 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
+
+
+class _BroadcastAnnouncementCard extends ConsumerStatefulWidget {
+  const _BroadcastAnnouncementCard({
+    super.key,
+    required this.broadcast,
+  });
+
+  final StellarBroadcast broadcast;
+
+  @override
+  ConsumerState<_BroadcastAnnouncementCard> createState() =>
+      _BroadcastAnnouncementCardState();
+}
+
+class _BroadcastAnnouncementCardState
+    extends ConsumerState<_BroadcastAnnouncementCard> {
+  late final Future<Uint8List?>? _imageFuture;
+
+  bool get _isImage =>
+      widget.broadcast.attachmentMimeType?.toLowerCase().startsWith('image/') ??
+      false;
+
+  @override
+  void initState() {
+    super.initState();
+    _imageFuture = _isImage ? _fetchAttachment() : null;
+  }
+
+  Future<Uint8List?> _fetchAttachment() async {
+    final nickname = ref.read(localNicknameProvider)?.trim();
+    if (nickname == null || nickname.isEmpty) return null;
+    return ref.read(moderationClientProvider).fetchBroadcastAttachment(
+          broadcastId: widget.broadcast.broadcastId,
+          nickname: nickname,
+        );
+  }
+
+  Future<void> _openAttachment() async {
+    try {
+      final bytes = await (_imageFuture ?? _fetchAttachment());
+      if (!mounted || bytes == null) return;
+
+      if (_isImage) {
+        await showDialog<void>(
+          context: context,
+          barrierColor: Colors.black87,
+          builder: (_) => Dialog(
+            backgroundColor: Colors.black,
+            insetPadding: const EdgeInsets.all(12),
+            child: InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 5,
+              child: Image.memory(bytes, fit: BoxFit.contain),
+            ),
+          ),
+        );
+        return;
+      }
+
+      final mime = widget.broadcast.attachmentMimeType ?? 'Unknown file';
+      final content = mime.toLowerCase().startsWith('text/plain')
+          ? utf8.decode(bytes, allowMalformed: true)
+          : '$mime\n${bytes.length} bytes';
+
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: StellarColors.bgSurface,
+          title: const Text('Broadcast attachment'),
+          content: SingleChildScrollView(
+            child: SelectableText(content),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('CLOSE'),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open attachment: $error')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final broadcast = widget.broadcast;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF142D46), Color(0xFF101D32)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: StellarColors.accentBlue.withValues(alpha: 0.55),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: StellarColors.accentBlue.withValues(alpha: 0.10),
+            blurRadius: 14,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.campaign_rounded,
+                  color: StellarColors.accentBlue, size: 22),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'STELLAR BROADCAST',
+                  style: TextStyle(
+                    color: StellarColors.textPrimary,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+              ),
+              _broadcastBadge('BROADCAST', StellarColors.accentBlue),
+              const SizedBox(width: 6),
+              _broadcastBadge('NO REPLY', StellarColors.danger),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            broadcast.title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 7),
+          Linkify(
+            text: broadcast.message,
+            style: const TextStyle(
+              color: StellarColors.textPrimary,
+              height: 1.45,
+            ),
+            linkStyle: const TextStyle(
+              color: StellarColors.accentBlue,
+              decoration: TextDecoration.underline,
+            ),
+            onOpen: (link) async {
+              final uri = Uri.tryParse(link.url);
+              if (uri != null &&
+                  (uri.scheme == 'https' || uri.scheme == 'http')) {
+                await launchUrl(uri,
+                    mode: LaunchMode.externalApplication);
+              }
+            },
+          ),
+          if (_isImage) ...[
+            const SizedBox(height: 12),
+            FutureBuilder<Uint8List?>(
+              future: _imageFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(12),
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
+                }
+                if (!snapshot.hasData || snapshot.data == null) {
+                  return const Text(
+                    'Image preview unavailable',
+                    style: TextStyle(color: StellarColors.textSecondary),
+                  );
+                }
+                return GestureDetector(
+                  onTap: _openAttachment,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.memory(
+                      snapshot.data!,
+                      height: 190,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 5),
+            const Text('Tap image to zoom',
+                style: TextStyle(
+                    color: StellarColors.textSecondary, fontSize: 11)),
+          ] else if (broadcast.hasAttachment) ...[
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _openAttachment,
+              icon: const Icon(Icons.attach_file),
+              label: const Text('OPEN ATTACHMENT'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _broadcastBadge(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.65)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
 
 class _WantedHeaderTitle extends StatefulWidget {
   const _WantedHeaderTitle();
