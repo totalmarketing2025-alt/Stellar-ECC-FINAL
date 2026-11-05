@@ -34,6 +34,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
   bool _frontCamera = true;
   Offset _pipOffset = const Offset(16, 60);
   CallSession? _session;
+  bool _closingCallScreen = false;
   Timer? _elapsedTimer;
   StreamSubscription<CallSession?>? _sessionSubscription;
 
@@ -66,13 +67,9 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     _sessionSubscription = coordinator.sessionStream.listen((session) {
       if (!mounted) return;
       if (session == null) {
-        if (_session?.state == CallState.ended ||
-            _session?.state == CallState.failed) {
-          return;
+        if (_session != null) {
+          _closeCallScreen();
         }
-        setState(() {
-          _session = null;
-        });
         return;
       }
       if (session.chatId != widget.chatId ||
@@ -82,6 +79,11 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
       setState(() {
         _session = session;
       });
+
+      if (session.state == CallState.ended ||
+          session.state == CallState.failed) {
+        _closeCallScreen();
+      }
     });
 
     _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -129,6 +131,22 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
       }
       print('VIDEO_CALL_START_FAILED: $error');
     }
+  }
+
+  void _closeCallScreen() {
+    if (_closingCallScreen || !mounted) return;
+
+    _closingCallScreen = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/chat/${Uri.encodeComponent(widget.chatId)}');
+      }
+    });
   }
 
   @override
@@ -228,7 +246,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
             ),
             onPressed: () async {
               await _callCoordinator?.rejectIncomingCall();
-              if (mounted) context.pop();
+              if (mounted) _closeCallScreen();
             },
             icon: const Icon(Icons.call_end),
             label: const Text('Decline'),
@@ -342,9 +360,9 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                       setState(() => _frontCamera = !_frontCamera);
                       _callCoordinator?.switchCamera();
                     },
-                    onEndCall: () {
-                      _callCoordinator?.endActiveCall();
-                      context.pop();
+                    onEndCall: () async {
+                      await _callCoordinator?.endActiveCall();
+                      if (mounted) _closeCallScreen();
                     },
                   ),
                 ],

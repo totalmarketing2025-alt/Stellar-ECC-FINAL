@@ -669,32 +669,26 @@ class CallCoordinator {
         break;
 
       case 'reject':
-        try {
-          await _callService.reject(
+        // Close the local call UI immediately. Relay signaling continues
+        // independently and cannot block navigation back to the chat.
+        unawaited(
+          _callService.reject(
             remoteNickname,
             callId: action.callId,
             chatId: session.chatId,
             kind: action.kind == 'video'
                 ? CallKind.video
                 : CallKind.voice,
-          );
-          _publishHistory(
-            session,
-            phase: 'ended',
-            outcome: 'declined',
-          );
-        } catch (error) {
-          print('CALL_REJECT_FAILED: $error');
+          ).catchError((Object error) {
+            print('CALL_REJECT_FAILED: $error');
+          }),
+        );
 
-          // Only clean up if the rejected call is still the active call.
-          if (_activeSession?.callId == session.callId) {
-            try {
-              await _callService.end();
-            } catch (cleanupError) {
-              print('CALL_REJECT_CLEANUP_FAILED: $cleanupError');
-            }
-          }
-        }
+        _publishHistory(
+          session,
+          phase: 'ended',
+          outcome: 'declined',
+        );
 
         if (_activeSession?.callId != session.callId) {
           break;

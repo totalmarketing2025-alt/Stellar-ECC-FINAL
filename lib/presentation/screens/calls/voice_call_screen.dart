@@ -32,6 +32,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
   bool _muted = false;
   bool _speakerOn = false;
   CallSession? _session;
+  bool _closingCallScreen = false;
   StreamSubscription<CallSession?>? _sessionSubscription;
   Timer? _elapsedTicker;
 
@@ -64,13 +65,9 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
         return;
       }
       if (session == null) {
-        if (_session?.state == CallState.ended ||
-            _session?.state == CallState.failed) {
-          return;
+        if (_session != null) {
+          _closeCallScreen();
         }
-        setState(() {
-          _session = null;
-        });
         return;
       }
 
@@ -82,6 +79,11 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
       setState(() {
         _session = session;
       });
+
+      if (session.state == CallState.ended ||
+          session.state == CallState.failed) {
+        _closeCallScreen();
+      }
     }
 
     _sessionSubscription = coordinator.sessionStream.listen(handleSession);
@@ -130,6 +132,22 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
       }
       print('VOICE_CALL_START_FAILED: $error');
     }
+  }
+
+  void _closeCallScreen() {
+    if (_closingCallScreen || !mounted) return;
+
+    _closingCallScreen = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/chat/${Uri.encodeComponent(widget.chatId)}');
+      }
+    });
   }
 
   @override
@@ -210,9 +228,9 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
                 setState(() => _speakerOn = next);
                 _callCoordinator?.setSpeakerphone(next);
               },
-              onEndCall: () {
-                _callCoordinator?.endActiveCall();
-                context.pop();
+              onEndCall: () async {
+                await _callCoordinator?.endActiveCall();
+                if (mounted) _closeCallScreen();
               },
             ),
             const SizedBox(height: 32),
@@ -254,7 +272,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
             ),
             onPressed: () async {
               await _callCoordinator?.rejectIncomingCall();
-              if (mounted) context.pop();
+              if (mounted) _closeCallScreen();
             },
             icon: const Icon(Icons.call_end),
             label: const Text('Decline'),

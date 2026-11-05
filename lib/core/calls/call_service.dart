@@ -623,9 +623,17 @@ class CallService {
     final generation = _callGeneration;
     final rejectedCallId = _callId;
 
-    await _sendSignal(remoteNickname, {'type': 'reject'});
+    try {
+      await _sendSignal(
+        remoteNickname,
+        {'type': 'reject'},
+      ).timeout(const Duration(seconds: 3));
+    } catch (error) {
+      print('CALL_REJECT_SIGNAL_FAILED: $error');
+    }
 
-    // Relay work may finish after this call has already been replaced.
+    // Always release local call resources, even if the relay is unavailable.
+    // Do not let delayed cleanup terminate a replacement call.
     if (!_isCurrentGeneration(generation) ||
         _callId != rejectedCallId) {
       return;
