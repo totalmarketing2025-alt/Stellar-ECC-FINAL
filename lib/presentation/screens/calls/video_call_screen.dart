@@ -263,8 +263,23 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
       body: Stack(
         children: [
           Positioned.fill(
-            child: RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+            child: Image.asset(
+              'assets/images/chat_background.png',
+              fit: BoxFit.cover,
+            ),
           ),
+          Positioned.fill(
+            child: ColoredBox(
+              color: Colors.black.withOpacity(0.42),
+            ),
+          ),
+          if (_session?.state == CallState.connected)
+            Positioned.fill(
+              child: RTCVideoView(
+                _remoteRenderer,
+                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+              ),
+            ),
           Positioned(
             top: 12,
             left: 12,

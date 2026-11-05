@@ -180,8 +180,21 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
 
     return Scaffold(
       backgroundColor: StellarColors.bgPrimary,
-      body: SafeArea(
-        child: Column(
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: Image.asset(
+              'assets/images/chat_background.png',
+              fit: BoxFit.cover,
+            ),
+          ),
+          Positioned.fill(
+            child: ColoredBox(
+              color: Colors.black.withOpacity(0.42),
+            ),
+          ),
+          SafeArea(
+            child: Column(
           children: [
             const SizedBox(height: 48),
             StellarAvatar(seed: identity, label: identity, size: 120),
@@ -234,8 +247,9 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
               },
             ),
             const SizedBox(height: 32),
-          ],
-        ),
+            ],
+          ),
+        ],
       ),
     );
   }
