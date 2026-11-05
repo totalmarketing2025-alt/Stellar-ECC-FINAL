@@ -24,6 +24,12 @@ const relayAuthResponsePrefix =
 const relayAuthOk =
     'STELLAR_RELAY_AUTH_OK_V1';
 
+const relayDeliveryPrefix =
+    'STELLAR_RELAY_DELIVERY_V1:';
+
+const relayAckPrefix =
+    'STELLAR_RELAY_ACK_V1:';
+
 class TestIdentity {
   TestIdentity({
     required this.nickname,
@@ -280,15 +286,31 @@ StreamController<Uint8List> _controllerFor(
         );
       }
 
+      String? pendingDeliveryId;
+
       stream.listen(
         (data) {
-          if (data is List<int>) {
-            controller.add(Uint8List.fromList(data));
+          if (data is String) {
+            if (data.startsWith(relayDeliveryPrefix)) {
+              pendingDeliveryId =
+                  data.substring(relayDeliveryPrefix.length).trim();
+            }
+
+            // Ignore other Relay control frames.
             return;
           }
 
-          // Relay control frames are intentionally ignored here.
-          // They must never enter Envelope.decode().
+          if (data is List<int>) {
+            controller.add(Uint8List.fromList(data));
+
+            final deliveryId = pendingDeliveryId;
+            pendingDeliveryId = null;
+
+            if (deliveryId != null &&
+                RegExp(r'^[0-9]+$').hasMatch(deliveryId)) {
+              channel.sink.add('$relayAckPrefix$deliveryId');
+            }
+          }
         },
         onError: controller.addError,
         onDone: controller.close,
