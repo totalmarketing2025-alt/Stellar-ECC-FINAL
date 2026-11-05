@@ -2700,6 +2700,10 @@ export class ModerationRoom {
         ? session.username
         : "admin";
 
+    const previousBroadcasts = this.ctx.storage.sql.exec(
+      `SELECT broadcast_id FROM moderation_broadcasts`,
+    ).toArray();
+
     this.ctx.storage.sql.exec(
       `INSERT INTO moderation_broadcasts
        (broadcast_id, title, message, created_at, created_by,
@@ -2711,6 +2715,25 @@ export class ModerationRoom {
       createdAt,
       createdBy,
       mime,
+    );
+
+    // Keep only the newest broadcast.
+    this.ctx.storage.sql.exec(
+      `DELETE FROM moderation_broadcasts WHERE broadcast_id != ?`,
+      id,
+    );
+
+    // Remove attachments belonging to replaced broadcasts.
+    this.ctx.waitUntil(
+      Promise.all(
+        previousBroadcasts
+          .filter((item) => item.broadcast_id !== id)
+          .map((item) =>
+            this.env.MODERATION_ATTACHMENTS.delete(
+              `broadcasts/${item.broadcast_id}/attachment`,
+            ).catch(() => {}),
+          ),
+      ),
     );
 
     return Response.json(
@@ -2758,12 +2781,38 @@ export class ModerationRoom {
       );
     }
 
+    const expirationTime = Date.now() - 24 * 60 * 60 * 1000;
+
+    const expiredBroadcasts = this.ctx.storage.sql.exec(
+      `SELECT broadcast_id FROM moderation_broadcasts
+        WHERE created_at <= ?`,
+      expirationTime,
+    ).toArray();
+
+    this.ctx.storage.sql.exec(
+      `DELETE FROM moderation_broadcasts WHERE created_at <= ?`,
+      expirationTime,
+    );
+
+    // Remove expired broadcast attachments from R2.
+    this.ctx.waitUntil(
+      Promise.all(
+        expiredBroadcasts.map((item) =>
+          this.env.MODERATION_ATTACHMENTS.delete(
+            `broadcasts/${item.broadcast_id}/attachment`,
+          ).catch(() => {}),
+        ),
+      ),
+    );
+
     const broadcasts = this.ctx.storage.sql.exec(
       `SELECT broadcast_id, title, message, created_at, created_by,
               attachment_mime_type, attachment_size
          FROM moderation_broadcasts
+        WHERE created_at > ?
         ORDER BY created_at DESC
         LIMIT ? OFFSET ?`,
+      expirationTime,
       limit,
       offset,
     ).toArray();
@@ -2788,8 +2837,10 @@ export class ModerationRoom {
 
     const row = this.ctx.storage.sql.exec(
       `SELECT broadcast_id, attachment_mime_type
-         FROM moderation_broadcasts WHERE broadcast_id = ?`,
+         FROM moderation_broadcasts
+        WHERE broadcast_id = ? AND created_at > ?`,
       broadcastId,
+      Date.now() - 24 * 60 * 60 * 1000,
     ).one();
 
     if (!row) {
@@ -2924,8 +2975,10 @@ export class ModerationRoom {
 
     const row = this.ctx.storage.sql.exec(
       `SELECT broadcast_id, attachment_mime_type, attachment_size
-         FROM moderation_broadcasts WHERE broadcast_id = ?`,
+         FROM moderation_broadcasts
+        WHERE broadcast_id = ? AND created_at > ?`,
       broadcastId,
+      Date.now() - 24 * 60 * 60 * 1000,
     ).one();
 
     if (!row) {

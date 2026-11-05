@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -20,16 +21,30 @@ class _BroadcastInboxScreenState
   List<StellarBroadcast> _broadcasts = [];
   bool _loading = false;
   String? _error;
+  Timer? _broadcastRefreshTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _refresh();
+      if (!mounted) return;
+      _refresh();
+      _broadcastRefreshTimer =
+          Timer.periodic(const Duration(seconds: 30), (_) {
+        _expireBroadcastsLocally();
+        _refresh();
+      });
     });
   }
 
+  @override
+  void dispose() {
+    _broadcastRefreshTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _refresh() async {
+    if (_loading) return;
     final nickname = ref.read(localNicknameProvider)?.trim();
 
     if (nickname == null || nickname.isEmpty) {
@@ -52,17 +67,39 @@ class _BroadcastInboxScreenState
 
       if (!mounted) return;
 
+      final cutoff =
+          DateTime.now().millisecondsSinceEpoch - 24 * 60 * 60 * 1000;
+      final active = items
+          .where((item) => item.createdAt > cutoff)
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
       setState(() {
-        _broadcasts = items;
+        _broadcasts = active.isEmpty ? [] : [active.first];
         _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
 
+      _expireBroadcastsLocally();
       setState(() {
         _loading = false;
         _error = 'Could not load broadcasts: $e';
       });
+    }
+  }
+
+  void _expireBroadcastsLocally() {
+    if (!mounted || _broadcasts.isEmpty) return;
+
+    final cutoff =
+        DateTime.now().millisecondsSinceEpoch - 24 * 60 * 60 * 1000;
+    final active = _broadcasts
+        .where((item) => item.createdAt > cutoff)
+        .toList();
+
+    if (active.length != _broadcasts.length) {
+      setState(() => _broadcasts = active);
     }
   }
 

@@ -60,6 +60,8 @@ function createHarness() {
 
   const attachments = new Map();
 
+  const pendingTasks = [];
+
   const sql = {
     exec(statement, ...params) {
       const normalized = statement.replace(/\s+/g, " ").trim();
@@ -72,71 +74,82 @@ function createHarness() {
         throw new Error("duplicate column name: attachment_mime_type");
       }
 
+      if (/^SELECT broadcast_id FROM moderation_broadcasts$/i.test(normalized)) {
+        const rows = [...broadcasts.values()].map((row) => ({
+          broadcast_id: row.broadcast_id,
+        }));
+        return { toArray: () => rows, one: () => rows[0] ?? null };
+      }
+
+      if (/^SELECT broadcast_id FROM moderation_broadcasts WHERE created_at <= \?$/i.test(normalized)) {
+        const rows = [...broadcasts.values()]
+          .filter((row) => row.created_at <= params[0])
+          .map((row) => ({ broadcast_id: row.broadcast_id }));
+        return { toArray: () => rows, one: () => rows[0] ?? null };
+      }
+
       if (/^INSERT INTO moderation_broadcasts /.test(normalized)) {
         const [
-          broadcast_id,
-          title,
-          message,
-          created_at,
-          created_by,
-          attachment_mime_type,
+          broadcast_id, title, message, created_at,
+          created_by, attachment_mime_type,
         ] = params;
 
         broadcasts.set(broadcast_id, {
-          broadcast_id,
-          title,
-          message,
-          created_at,
-          created_by,
-          attachment_mime_type,
-          attachment_size: null,
+          broadcast_id, title, message, created_at, created_by,
+          attachment_mime_type, attachment_size: null,
         });
-
         return { toArray: () => [], one: () => null };
       }
 
-      if (
-        /^SELECT broadcast_id, attachment_mime_type, attachment_size FROM moderation_broadcasts WHERE broadcast_id = \?$/i
-          .test(normalized)
-      ) {
+      if (/^DELETE FROM moderation_broadcasts WHERE broadcast_id != \?$/i.test(normalized)) {
+        for (const id of broadcasts.keys()) {
+          if (id !== params[0]) broadcasts.delete(id);
+        }
+        return { toArray: () => [], one: () => null };
+      }
+
+      if (/^DELETE FROM moderation_broadcasts WHERE created_at <= \?$/i.test(normalized)) {
+        for (const [id, row] of broadcasts) {
+          if (row.created_at <= params[0]) broadcasts.delete(id);
+        }
+        return { toArray: () => [], one: () => null };
+      }
+
+      if (/^SELECT broadcast_id, attachment_mime_type, attachment_size FROM moderation_broadcasts WHERE broadcast_id = \? AND created_at > \?$/i.test(normalized)) {
         const row = broadcasts.get(params[0]);
+        const valid = row && row.created_at > params[1] ? row : null;
         return {
-          one: () => row ?? null,
-          toArray: () => (row ? [row] : []),
+          one: () => valid ?? null,
+          toArray: () => (valid ? [valid] : []),
         };
       }
 
-      if (
-        /^SELECT broadcast_id, attachment_mime_type FROM moderation_broadcasts WHERE broadcast_id = \?$/i
-          .test(normalized)
-      ) {
+      if (/^SELECT broadcast_id, attachment_mime_type FROM moderation_broadcasts WHERE broadcast_id = \? AND created_at > \?$/i.test(normalized)) {
         const row = broadcasts.get(params[0]);
+        const valid = row && row.created_at > params[1] ? row : null;
+        const result = valid ? {
+          broadcast_id: valid.broadcast_id,
+          attachment_mime_type: valid.attachment_mime_type,
+        } : null;
         return {
-          one: () => row
-            ? {
-                broadcast_id: row.broadcast_id,
-                attachment_mime_type: row.attachment_mime_type,
-              }
-            : null,
-          toArray: () => (row ? [row] : []),
+          one: () => result,
+          toArray: () => (result ? [result] : []),
         };
       }
 
-      if (/^SELECT broadcast_id, title, message, created_at, created_by, attachment_mime_type, attachment_size FROM moderation_broadcasts ORDER BY created_at DESC LIMIT \? OFFSET \?$/i.test(normalized)) {
-        const [limit, offset] = params;
+      if (/^SELECT broadcast_id, title, message, created_at, created_by, attachment_mime_type, attachment_size FROM moderation_broadcasts WHERE created_at > \? ORDER BY created_at DESC LIMIT \? OFFSET \?$/i.test(normalized)) {
+        const [expirationTime, limit, offset] = params;
         const rows = [...broadcasts.values()]
+          .filter((row) => row.created_at > expirationTime)
           .sort((a, b) => b.created_at - a.created_at)
           .slice(offset, offset + limit);
-
         return { toArray: () => rows, one: () => rows[0] ?? null };
       }
 
       if (/^UPDATE moderation_broadcasts SET attachment_size = \? WHERE broadcast_id = \?$/i.test(normalized)) {
         const [size, id] = params;
         const row = broadcasts.get(id);
-
         if (row) row.attachment_size = size;
-
         return { toArray: () => [], one: () => null };
       }
 
@@ -154,7 +167,12 @@ function createHarness() {
     },
   };
 
-  const ctx = { storage };
+  const ctx = {
+    storage,
+    waitUntil(promise) {
+      pendingTasks.push(Promise.resolve(promise));
+    },
+  };
 
   const env = {
     MODERATION_ATTACHMENTS: {
@@ -173,13 +191,23 @@ function createHarness() {
           httpMetadata: { contentType: item.contentType },
         };
       },
+      async delete(key) {
+        attachments.delete(key);
+      },
     },
   };
 
   const ModerationRoom = loadModerationRoom();
   const room = new ModerationRoom(ctx, env);
 
-  return { room, broadcasts, attachments };
+  return {
+    room,
+    broadcasts,
+    attachments,
+    async flush() {
+      await Promise.all(pendingTasks.splice(0));
+    },
+  };
 }
 
 function request(path, {
@@ -544,40 +572,119 @@ test("broadcast listing rejects invalid pagination", async () => {
   }
 });
 
-test("broadcast listing returns newest broadcasts first", async () => {
-  const { room } = createHarness();
+test("new broadcast replaces the previous broadcast and its attachment", async () => {
+  const { room, broadcasts, attachments, flush } = createHarness();
 
-  async function createBroadcast(title) {
-    const response = await room.fetch(
-      request("/v1/moderation/admin/broadcasts", {
+  async function create(title) {
+    const response = await room.fetch(request(
+      "/v1/moderation/admin/broadcasts",
+      {
         method: "POST",
         token: "admin-token",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title,
           message: `Message for ${title}`,
+          attachmentMimeType: "text/plain",
         }),
-      }),
-    );
-
+      },
+    ));
     assert.equal(response.status, 201);
     return (await response.json()).broadcast;
   }
 
-  const older = await createBroadcast("Older broadcast");
-  await new Promise((resolve) => setTimeout(resolve, 5));
-  const newer = await createBroadcast("Newer broadcast");
+  const oldBroadcast = await create("Old broadcast");
 
-  const response = await room.fetch(
-    request("/v1/moderation/broadcasts", {
-      token: "user-token",
-    }),
-  );
+  const upload = await room.fetch(request(
+    `/v1/moderation/admin/broadcasts/${oldBroadcast.broadcast_id}/attachment`,
+    {
+      method: "POST",
+      token: "admin-token",
+      headers: { "Content-Type": "text/plain" },
+      body: "old attachment",
+    },
+  ));
+  assert.equal(upload.status, 201);
+  assert.equal(attachments.size, 1);
 
-  assert.equal(response.status, 200);
-  const { broadcasts } = await response.json();
+  const newBroadcast = await create("New broadcast");
+  await flush();
 
-  assert.ok(broadcasts.length >= 2);
-  assert.equal(broadcasts[0].broadcast_id, newer.broadcast_id);
-  assert.equal(broadcasts[1].broadcast_id, older.broadcast_id);
+  assert.equal(broadcasts.size, 1);
+  assert.equal(broadcasts.has(oldBroadcast.broadcast_id), false);
+  assert.equal(broadcasts.has(newBroadcast.broadcast_id), true);
+  assert.equal(attachments.size, 0);
+
+  const list = await room.fetch(request(
+    "/v1/moderation/broadcasts",
+    { token: "user-token" },
+  ));
+  assert.equal(list.status, 200);
+  const result = await list.json();
+  assert.equal(result.broadcasts.length, 1);
+  assert.equal(result.broadcasts[0].broadcast_id, newBroadcast.broadcast_id);
+});
+
+test("expired broadcasts and their attachments are deleted and inaccessible", async () => {
+  const { room, broadcasts, attachments, flush } = createHarness();
+
+  const created = await room.fetch(request(
+    "/v1/moderation/admin/broadcasts",
+    {
+      method: "POST",
+      token: "admin-token",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Expiring broadcast",
+        message: "This broadcast will expire.",
+        attachmentMimeType: "text/plain",
+      }),
+    },
+  ));
+
+  assert.equal(created.status, 201);
+  const { broadcast } = await created.json();
+
+  const upload = await room.fetch(request(
+    `/v1/moderation/admin/broadcasts/${broadcast.broadcast_id}/attachment`,
+    {
+      method: "POST",
+      token: "admin-token",
+      headers: { "Content-Type": "text/plain" },
+      body: "expiring attachment",
+    },
+  ));
+  assert.equal(upload.status, 201);
+  assert.equal(attachments.size, 1);
+
+  broadcasts.get(broadcast.broadcast_id).created_at =
+    Date.now() - 24 * 60 * 60 * 1000 - 1000;
+
+  const list = await room.fetch(request(
+    "/v1/moderation/broadcasts",
+    { token: "user-token" },
+  ));
+  assert.equal(list.status, 200);
+  assert.deepEqual((await list.json()).broadcasts, []);
+
+  await flush();
+  assert.equal(broadcasts.has(broadcast.broadcast_id), false);
+  assert.equal(attachments.size, 0);
+
+  const download = await room.fetch(request(
+    `/v1/moderation/broadcasts/${broadcast.broadcast_id}/attachment`,
+    { token: "user-token" },
+  ));
+  assert.equal(download.status, 404);
+
+  const expiredUpload = await room.fetch(request(
+    `/v1/moderation/admin/broadcasts/${broadcast.broadcast_id}/attachment`,
+    {
+      method: "POST",
+      token: "admin-token",
+      headers: { "Content-Type": "text/plain" },
+      body: "too late",
+    },
+  ));
+  assert.equal(expiredUpload.status, 404);
 });

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,15 +26,24 @@ class _ModerationBroadcastAdminTabState
   bool _loading = false;
   String? _error;
   String? _notice;
+  Timer? _broadcastRefreshTimer;
+  bool _refreshing = false;
+  bool _publishing = false;
 
   @override
   void initState() {
     super.initState();
     _refresh();
+    _broadcastRefreshTimer =
+        Timer.periodic(const Duration(seconds: 30), (_) {
+      _expireBroadcastsLocally();
+      _refresh();
+    });
   }
 
   @override
   void dispose() {
+    _broadcastRefreshTimer?.cancel();
     _titleController.dispose();
     _messageController.dispose();
     super.dispose();
@@ -98,7 +109,13 @@ class _ModerationBroadcastAdminTabState
   }
 
   Future<void> _refresh() async {
-    if (!ref.read(moderationAdminClientProvider).isAuthenticated) return;
+    if (_refreshing ||
+        _publishing ||
+        !ref.read(moderationAdminClientProvider).isAuthenticated) {
+      return;
+    }
+
+    _refreshing = true;
 
     setState(() {
       _loading = true;
@@ -112,17 +129,41 @@ class _ModerationBroadcastAdminTabState
 
       if (!mounted) return;
 
+      final cutoff =
+          DateTime.now().millisecondsSinceEpoch - 24 * 60 * 60 * 1000;
+      final active = items
+          .where((item) => item.createdAt > cutoff)
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      _refreshing = false;
       setState(() {
-        _broadcasts = items;
+        _broadcasts = active.isEmpty ? [] : [active.first];
         _loading = false;
       });
     } catch (e) {
+      _refreshing = false;
       if (!mounted) return;
 
+      _expireBroadcastsLocally();
       setState(() {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  void _expireBroadcastsLocally() {
+    if (!mounted || _broadcasts.isEmpty) return;
+
+    final cutoff =
+        DateTime.now().millisecondsSinceEpoch - 24 * 60 * 60 * 1000;
+    final active = _broadcasts
+        .where((item) => item.createdAt > cutoff)
+        .toList();
+
+    if (active.length != _broadcasts.length) {
+      setState(() => _broadcasts = active);
     }
   }
 
@@ -141,6 +182,7 @@ class _ModerationBroadcastAdminTabState
 
     setState(() {
       _loading = true;
+      _publishing = true;
       _error = null;
       _notice = null;
     });
@@ -174,6 +216,8 @@ class _ModerationBroadcastAdminTabState
       setState(() {
         _attachment = null;
         _notice = 'Broadcast published successfully.';
+        _publishing = false;
+        _loading = false;
       });
 
       await _refresh();
@@ -186,6 +230,7 @@ class _ModerationBroadcastAdminTabState
 
       setState(() {
         _loading = false;
+        _publishing = false;
         _error = failureMessage;
       });
 

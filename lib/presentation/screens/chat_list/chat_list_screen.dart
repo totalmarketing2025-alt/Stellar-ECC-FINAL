@@ -40,6 +40,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     });
     _broadcastRefreshTimer =
         Timer.periodic(const Duration(seconds: 30), (_) {
+      _expireBroadcastsLocally();
       _refreshBroadcasts();
     });
   }
@@ -154,9 +155,30 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             offset: 0,
           );
       if (!mounted) return;
-      setState(() => _broadcasts = items);
+      final cutoff =
+          DateTime.now().millisecondsSinceEpoch - 24 * 60 * 60 * 1000;
+      final active = items
+          .where((item) => item.createdAt > cutoff)
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      setState(() => _broadcasts = active.isEmpty ? [] : [active.first]);
     } catch (_) {
-      // Keep the last successfully loaded broadcasts.
+      _expireBroadcastsLocally();
+    }
+  }
+
+  void _expireBroadcastsLocally() {
+    if (!mounted || _broadcasts.isEmpty) return;
+
+    final cutoff =
+        DateTime.now().millisecondsSinceEpoch - 24 * 60 * 60 * 1000;
+    final active = _broadcasts
+        .where((item) => item.createdAt > cutoff)
+        .toList();
+
+    if (active.length != _broadcasts.length) {
+      setState(() => _broadcasts = active);
     }
   }
 
