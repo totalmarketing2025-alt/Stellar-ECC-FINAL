@@ -249,6 +249,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
             const SizedBox(height: 32),
             ],
           ),
+        ),
         ],
       ),
     );
