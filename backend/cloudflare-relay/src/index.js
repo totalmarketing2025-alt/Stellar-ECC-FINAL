@@ -1415,74 +1415,74 @@ export class RelayRoom {
           continue;
         }
 
-        /*
-         * IMPORTANT:
-         * Queue rows are NOT deleted here.
-         * The client ACKs only after the complete logical
-         * envelope has been reconstructed, decrypted and
-         * processed locally.
-         */
-        ws.send(
-          `${RELAY_DELIVERY_PREFIX}${row.id}`,
-        );
+        let chunks = null;
 
-        if (
-          typeof row.sender === "string" &&
-          row.sender
-        ) {
-          ws.send(
-            `${RELAY_SENDER_PREFIX}${row.sender}`,
-          );
-        }
-
+        // Validate the complete chunk set BEFORE sending any
+        // delivery metadata, so a damaged old row cannot block
+        // or misroute subsequent deliveries.
         if (Number(row.chunked) === 1) {
-          const chunks = this.ctx.storage.sql.exec(
-            `SELECT chunk_index, chunk
-             FROM relay_queue_chunks
-             WHERE delivery_id = ?
-             ORDER BY chunk_index ASC`,
-            row.id,
+          chunks = Array.from(
+            this.ctx.storage.sql.exec(
+              `SELECT chunk_index, chunk
+               FROM relay_queue_chunks
+               WHERE delivery_id = ?
+               ORDER BY chunk_index ASC`,
+              row.id,
+            ),
           );
 
           const expectedCount = Number(row.chunk_count);
+          const valid =
+            Number.isInteger(expectedCount) &&
+            expectedCount > 0 &&
+            chunks.length === expectedCount &&
+            chunks.every(
+              (chunk, index) =>
+                Number(chunk.chunk_index) === index &&
+                chunk.chunk != null,
+            );
 
-          let index = 0;
+          if (!valid) {
+            console.error(
+              "RELAY_QUEUE_CHUNK_INCOMPLETE",
+              JSON.stringify({
+                deliveryId: row.id,
+                expectedCount,
+                actualCount: chunks.length,
+              }),
+            );
+            continue;
+          }
+        }
 
-          for (const chunkRow of chunks) {
-            if (index >= expectedCount) {
-              throw new Error(
-                `Too many chunks for delivery ${row.id}`,
-              );
-            }
+        // Send metadata only after the delivery is fully validated.
+        ws.send(`${RELAY_DELIVERY_PREFIX}${row.id}`);
 
-            if (Number(chunkRow.chunk_index) !== index) {
-              throw new Error(
-                `Missing chunk ${index} for delivery ${row.id}`,
-              );
-            }
+        if (typeof row.sender === "string" && row.sender) {
+          ws.send(`${RELAY_SENDER_PREFIX}${row.sender}`);
+        }
 
+        if (chunks !== null) {
+          const expectedCount = Number(row.chunk_count);
+
+          for (let index = 0; index < chunks.length; index++) {
             ws.send(
               `${RELAY_CHUNK_PREFIX}${row.id}:${index}:${expectedCount}`,
             );
 
-            ws.send(
-              new Uint8Array(chunkRow.chunk),
-            );
-
-            index++;
-          }
-
-          if (index !== expectedCount) {
-            throw new Error(
-              `Incomplete chunk set for delivery ${row.id}`,
-            );
+            ws.send(new Uint8Array(chunks[index].chunk));
           }
         } else {
-          ws.send(
-            new Uint8Array(row.envelope),
-          );
+          ws.send(new Uint8Array(row.envelope));
         }
-      } catch (_) {
+      } catch (error) {
+        console.error(
+          "RELAY_QUEUE_FLUSH_FAILED",
+          JSON.stringify({
+            deliveryId: row.id,
+            error: String(error?.message || error),
+          }),
+        );
         return false;
       }
     }
