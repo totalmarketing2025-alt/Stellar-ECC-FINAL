@@ -118,7 +118,7 @@ class CallEventCard extends StatelessWidget {
             : StellarColors.accentBlue;
 
     return Align(
-      alignment: outgoing ? Alignment.centerLeft : Alignment.centerRight,
+      alignment: outgoing ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.82,
