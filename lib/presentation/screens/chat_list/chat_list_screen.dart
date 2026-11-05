@@ -434,11 +434,11 @@ class _BroadcastAnnouncementCardState
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: StellarColors.accentBlue.withValues(alpha: 0.55),
+          color: StellarColors.accentBlue.withOpacity(0.55),
         ),
         boxShadow: [
           BoxShadow(
-            color: StellarColors.accentBlue.withValues(alpha: 0.10),
+            color: StellarColors.accentBlue.withOpacity(0.10),
             blurRadius: 14,
             spreadRadius: 1,
           ),
@@ -550,9 +550,9 @@ class _BroadcastAnnouncementCardState
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.13),
+        color: color.withOpacity(0.13),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withValues(alpha: 0.65)),
+        border: Border.all(color: color.withOpacity(0.65)),
       ),
       child: Text(
         label,
