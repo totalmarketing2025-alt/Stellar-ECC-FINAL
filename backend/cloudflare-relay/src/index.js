@@ -1598,7 +1598,7 @@ export class RelayRoom {
             ? {
                 type: "call",
                 callId: callMeta.callId,
-                from: callMeta.from,
+                remoteNickname: callMeta.from,
                 kind: callMeta.kind,
                 ...(callMeta.chatId
                   ? { chatId: callMeta.chatId }

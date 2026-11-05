@@ -178,7 +178,8 @@ test("incoming call sends the expected high-priority FCM payload", async () => {
     assert.equal(message.data.wake, "1");
     assert.equal(message.data.type, "call");
     assert.equal(message.data.callId, "call-123");
-    assert.equal(message.data.from, "bob");
+    assert.equal(message.data.remoteNickname, "bob");
+    assert.equal("from" in message.data, false);
     assert.equal(message.data.kind, "video");
     assert.equal(message.data.chatId, "direct_bob");
     assert.equal(message.android.priority, "high");
