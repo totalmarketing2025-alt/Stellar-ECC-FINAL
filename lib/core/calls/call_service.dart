@@ -255,6 +255,7 @@ class CallService {
             unawaited(
               platformBridge.setCallActive(callId).catchError((Object error) {
                 print('CALL_NATIVE_ACTIVE_FAILED: $error');
+                return false;
               }),
             );
             break;
@@ -264,6 +265,7 @@ class CallService {
             unawaited(
               platformBridge.setCallEnded(callId).catchError((Object error) {
                 print('CALL_NATIVE_ENDED_FAILED: $error');
+                return false;
               }),
             );
             break;
