@@ -23,6 +23,10 @@ class CallCoordinator {
   final Future<void> Function(CallEventPayload event)? onCallHistoryEvent;
   final Set<String> _historyStartedCallIds = <String>{};
   final Set<String> _historyTerminalCallIds = <String>{};
+  final Set<String> _historyInFlightKeys = <String>{};
+  final Map<String, Timer> _historyRetryTimers = <String, Timer>{};
+  final Map<String, int> _historyRetryAttempts = <String, int>{};
+  bool _disposed = false;
 
   StreamSubscription<CallSignal>? _subscription;
   Timer? _ringTimeout;
@@ -199,15 +203,18 @@ class CallCoordinator {
     String? outcome,
   }) {
     final callback = onCallHistoryEvent;
-    if (callback == null) return;
+    if (callback == null || _disposed) return;
 
     final terminal = phase == 'ended';
     final seen = terminal
         ? _historyTerminalCallIds
         : _historyStartedCallIds;
-    if (!seen.add(session.callId)) return;
-    while (seen.length > 256) {
-      seen.remove(seen.first);
+
+    final eventKey = '$phase:${session.callId}';
+
+    if (seen.contains(session.callId) ||
+        !_historyInFlightKeys.add(eventKey)) {
+      return;
     }
 
     int? durationSeconds;
@@ -228,9 +235,80 @@ class CallCoordinator {
       durationSeconds: durationSeconds,
     );
 
-    unawaited(callback(event).catchError((Object error) {
-      print('CALL_HISTORY_EVENT_FAILED: $error');
-    }));
+    unawaited(
+      _attemptHistoryDelivery(
+        event: event,
+        eventKey: eventKey,
+        callId: session.callId,
+        seen: seen,
+        callback: callback,
+      ),
+    );
+  }
+
+  Future<void> _attemptHistoryDelivery({
+    required CallEventPayload event,
+    required String eventKey,
+    required String callId,
+    required Set<String> seen,
+    required Future<void> Function(CallEventPayload event) callback,
+  }) async {
+    if (_disposed) {
+      _historyInFlightKeys.remove(eventKey);
+      return;
+    }
+
+    try {
+      await callback(event);
+
+      // Mark the event as handled only after local persistence succeeds.
+      seen.add(callId);
+      while (seen.length > 256) {
+        seen.remove(seen.first);
+      }
+
+      _historyRetryTimers.remove(eventKey)?.cancel();
+      _historyRetryAttempts.remove(eventKey);
+      _historyInFlightKeys.remove(eventKey);
+
+      print('CALL_HISTORY_EVENT_PERSISTED: $eventKey');
+    } catch (error, stackTrace) {
+      if (_disposed) {
+        _historyInFlightKeys.remove(eventKey);
+        return;
+      }
+
+      final attempt =
+          (_historyRetryAttempts[eventKey] ?? 0) + 1;
+      _historyRetryAttempts[eventKey] = attempt;
+
+      final exponent = (attempt - 1).clamp(0, 6).toInt();
+      final delaySeconds = min(300, 5 * (1 << exponent));
+
+      print(
+        'CALL_HISTORY_EVENT_RETRY: '
+        'event=$eventKey attempt=$attempt '
+        'retryIn=${delaySeconds}s error=$error',
+      );
+      print('CALL_HISTORY_EVENT_RETRY_STACK: $stackTrace');
+
+      _historyRetryTimers[eventKey]?.cancel();
+      _historyRetryTimers[eventKey] = Timer(
+        Duration(seconds: delaySeconds),
+        () {
+          _historyRetryTimers.remove(eventKey);
+          unawaited(
+            _attemptHistoryDelivery(
+              event: event,
+              eventKey: eventKey,
+              callId: callId,
+              seen: seen,
+              callback: callback,
+            ),
+          );
+        },
+      );
+    }
   }
 
   Future<void> endActiveCall() async {
@@ -750,7 +828,16 @@ class CallCoordinator {
   }
 
   Future<void> dispose() async {
+    _disposed = true;
     _ringTimeout?.cancel();
+
+    for (final timer in _historyRetryTimers.values) {
+      timer.cancel();
+    }
+    _historyRetryTimers.clear();
+    _historyRetryAttempts.clear();
+    _historyInFlightKeys.clear();
+
     _callService.onConnectionStateChanged = null;
 
     await _subscription?.cancel();

@@ -126,13 +126,54 @@ final callCoordinatorProvider = Provider<CallCoordinator>((ref) {
       final chatRow = await repo.db.chatDao.byId(event.chatId);
       if (chatRow == null || chatRow['chat_type'] != 'direct') return;
 
+      final encodedEvent = event.encode();
+
+      // A previous attempt may have persisted the message and outbox
+      // before a relay flush error. Reuse that durable record instead
+      // of creating a duplicate Call History message.
+      final existingRows =
+          await repo.db.messageDao.forChat(event.chatId);
+
+      for (final row in existingRows) {
+        if (row['sender_id'] != repo.localNickname ||
+            row['body_plaintext'] != encodedEvent) {
+          continue;
+        }
+
+        final messageId = row['message_id'] as String?;
+        if (messageId == null) continue;
+
+        final status = row['status'] as String?;
+        final transports =
+            await repo.db.transportOutboxDao.forMessageId(messageId);
+
+        final alreadyPersisted =
+            transports.isNotEmpty ||
+            status == 'sent' ||
+            status == 'delivered' ||
+            status == 'read';
+
+        if (alreadyPersisted) {
+          ref.invalidate(chatMessagesProvider(event.chatId));
+          ref.invalidate(chatListProvider);
+          print(
+            'CALL_HISTORY_EVENT_REUSED: '
+            'callId=${event.callId} phase=${event.phase} '
+            'messageId=$messageId',
+          );
+          return;
+        }
+      }
+
       final ttlValue = chatRow['default_ttl_sec'];
       final ttl = ttlValue is int && ttlValue > 0 ? ttlValue : 3600;
+
       await repo.sendDirectMessage(
         chatId: event.chatId,
-        plaintext: event.encode(),
+        plaintext: encodedEvent,
         ttlSeconds: ttl,
       );
+
       ref.invalidate(chatMessagesProvider(event.chatId));
       ref.invalidate(chatListProvider);
     },
