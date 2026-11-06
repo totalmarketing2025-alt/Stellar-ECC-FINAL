@@ -628,3 +628,123 @@ test("receipt delivery failure keeps the queue and sends an FCM wake-up", async 
   assert.equal(h.queue.length, 1);
   assert.deepEqual(h.wakes, ["recipient-a"]);
 });
+
+
+// Reaction payloads are opaque to the relay. These tests verify that
+// their encrypted envelope uses the same durable delivery and ACK protocol.
+
+test("reaction envelope is durably queued for an offline recipient", async () => {
+  const h = createReceiptWakeHarness({ online: false });
+  const envelope = makeEnvelope(
+    "recipient-a",
+    "STELLAR_REACTION_V1:" +
+      JSON.stringify({
+        messageId: "message-reaction-001",
+        emoji: "❤️",
+      }),
+  );
+
+  await h.room.handleSendWithReceipt(
+    h.senderSocket,
+    "reaction-offline-001",
+    envelope,
+  );
+
+  await Promise.all(h.pending);
+
+  assert.equal(h.queue.length, 1);
+  assert.equal(h.queue[0].recipient, "recipient-a");
+  assert.equal(h.queue[0].sender, "sender-a");
+  assert.deepEqual(h.queue[0].envelope, envelope);
+  assert.deepEqual(h.wakes, ["recipient-a"]);
+  assert.deepEqual(
+    h.senderSocket.sent,
+    ["STELLAR_RELAY_SEND_OK_V1:reaction-offline-001"],
+  );
+});
+
+test("reaction receipt retry with identical bytes does not duplicate the queue row", async () => {
+  const h = createHarness();
+  const envelope = makeEnvelope(
+    "recipient-a",
+    "STELLAR_REACTION_V1:" +
+      JSON.stringify({
+        messageId: "message-reaction-002",
+        emoji: "😂",
+      }),
+  );
+
+  const first = await h.room.queueEnvelopeWithReceipt(
+    "recipient-a",
+    "sender-a",
+    envelope,
+    "reaction-retry-001",
+  );
+
+  const retry = await h.room.queueEnvelopeWithReceipt(
+    "recipient-a",
+    "sender-a",
+    envelope,
+    "reaction-retry-001",
+  );
+
+  assert.equal(first.duplicate, false);
+  assert.equal(retry.duplicate, true);
+  assert.equal(retry.deliveryId, first.deliveryId);
+  assert.equal(h.queue.length, 1);
+  assert.deepEqual(h.queue[0].envelope, envelope);
+});
+
+test("recipient retrieves reaction envelope and ACK removes its queued row", async () => {
+  const h = createReceiptWakeHarness({ online: false });
+  const envelope = makeEnvelope(
+    "recipient-a",
+    "STELLAR_REACTION_V1:" +
+      JSON.stringify({
+        messageId: "message-reaction-003",
+        emoji: "👍",
+      }),
+  );
+
+  await h.room.handleSendWithReceipt(
+    h.senderSocket,
+    "reaction-delivery-001",
+    envelope,
+  );
+
+  await Promise.all(h.pending);
+
+  assert.equal(h.queue.length, 1);
+  const deliveryId = h.queue[0].id;
+
+  const flushed = await h.room.flushQueue(
+    h.recipientSocket,
+    "recipient-a",
+  );
+
+  assert.equal(flushed, true);
+  assert.equal(h.recipientSocket.sent.length, 3);
+  assert.equal(
+    h.recipientSocket.sent[0],
+    `STELLAR_RELAY_DELIVERY_V1:${deliveryId}`,
+  );
+  assert.equal(
+    h.recipientSocket.sent[1],
+    "STELLAR_RELAY_SENDER_V1:sender-a",
+  );
+  assert.deepEqual(h.recipientSocket.sent[2], envelope);
+
+  // Sending the envelope is not enough to delete it.
+  assert.equal(h.queue.length, 1);
+
+  await h.room.webSocketMessage(
+    h.recipientSocket,
+    `STELLAR_RELAY_ACK_V1:${deliveryId}`,
+  );
+
+  assert.equal(h.queue.length, 0);
+  assert.equal(
+    h.recipientSocket.sent[3],
+    `STELLAR_RELAY_ACK_OK_V1:${deliveryId}`,
+  );
+});

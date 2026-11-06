@@ -632,6 +632,8 @@ class MessageBubble extends StatelessWidget {
   const MessageBubble({
     super.key,
     required this.message,
+    this.replyMessage,
+    required this.onForward,
     required this.isOutgoing,
     required this.onReply,
     required this.onReact,
@@ -640,6 +642,8 @@ class MessageBubble extends StatelessWidget {
   });
 
   final Message message;
+  final Message? replyMessage;
+  final VoidCallback onForward;
   final bool isOutgoing;
   final VoidCallback onReply;
   final void Function(String emoji) onReact;
@@ -693,6 +697,40 @@ class MessageBubble extends StatelessWidget {
                       padding: const EdgeInsets.only(bottom: 2),
                       child: Text(message.senderId,
                           style: const TextStyle(fontSize: 11, color: StellarColors.accentPurple, fontWeight: FontWeight.w600)),
+                    ),
+                  if (replyMessage != null)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: StellarColors.bgElevated.withOpacity(0.75),
+                        borderRadius: BorderRadius.circular(8),
+                        border: const Border(
+                          left: BorderSide(color: StellarColors.accentBlue, width: 3),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            replyMessage!.senderId,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: StellarColors.accentBlue,
+                            ),
+                          ),
+                          Text(
+                            replyMessage!.mediaBlobId != null
+                                ? '📎 Attachment'
+                                : replyMessage!.bodyPlaintext,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      ),
                     ),
                   if (message.mediaBlobId != null)
                     _AttachmentPreview(
@@ -775,6 +813,14 @@ class MessageBubble extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               const Divider(),
+              ListTile(
+                leading: const Icon(Icons.forward, color: StellarColors.accentBlue),
+                title: const Text('Forward message'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  onForward();
+                },
+              ),
               ListTile(
                 leading: const Icon(
                   Icons.delete_outline,

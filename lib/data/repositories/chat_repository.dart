@@ -87,15 +87,14 @@ class ChatRepository {
       return;
     }
 
-    if (transportType == 'ack') {
-      // OutgoingTransportOutboxService calls this only after the relay
-      // has confirmed durable acceptance for this receipt ID.
-      // The recipient's separate delivery ACK protocol remains unchanged.
+    if (transportType == 'ack' || transportType == 'control') {
+      // ACKs and encrypted control messages do not have a chat-message row.
+      // They are complete once the relay confirms durable acceptance.
       await db.transportOutboxDao.delete(transportId);
 
       print(
-        'DELIVERY_ACK_OUTBOX_COMPLETE: '
-        'transportId=$transportId',
+        'CONTROL_OUTBOX_COMPLETE: '
+        'type=$transportType transportId=$transportId',
       );
       return;
     }
@@ -227,7 +226,27 @@ class ChatRepository {
 
   Future<List<Message>> loadMessages(String chatId) async {
     final rows = await db.messageDao.forChat(chatId);
-    return rows.map(Message.fromRow).toList();
+    final messages = <Message>[];
+
+    for (final row in rows) {
+      final message = Message.fromRow(row);
+      final reactionRows =
+          await db.reactionDao.forMessage(message.messageId);
+
+      messages.add(
+        message.copyWith(
+          reactions: reactionRows.map((reaction) {
+            return Reaction(
+              messageId: reaction['message_id'] as String,
+              senderId: reaction['sender_id'] as String,
+              emoji: reaction['emoji'] as String,
+            );
+          }).toList(),
+        ),
+      );
+    }
+
+    return messages;
   }
 
   Future<void> markChatRead(String chatId) async {
@@ -415,7 +434,7 @@ class ChatRepository {
       );
     }
 
-    final plaintextBytes =
+    final rawPayloadBytes =
         attachmentBytes != null
         ? AttachmentPayload.encode(
             mimeType: attachmentMimeType!,
@@ -424,6 +443,16 @@ class ChatRepository {
         : Uint8List.fromList(utf8.encode(plaintext));
 
     final messageId = _uuid.v4();
+    final plaintextBytes = Uint8List.fromList(
+      utf8.encode(
+        'STELLAR_MESSAGE_V1:'
+        '${jsonEncode({
+          'messageId': messageId,
+          'replyToId': replyToId,
+          'payload': base64Encode(rawPayloadBytes),
+        })}',
+      ),
+    );
 
     // Stable per-message token used to correlate delivery ACKs.
     final deliveryToken = Uint8List.fromList(
@@ -606,7 +635,7 @@ class ChatRepository {
       throw StateError('Group has no remote members: $chatId');
     }
 
-    final payloadBytes = attachmentBytes != null
+    final rawPayloadBytes = attachmentBytes != null
         ? AttachmentPayload.encode(
             mimeType: attachmentMimeType!,
             bytes: attachmentBytes,
@@ -614,6 +643,16 @@ class ChatRepository {
         : Uint8List.fromList(utf8.encode(plaintext));
 
     final messageId = _uuid.v4();
+    final payloadBytes = Uint8List.fromList(
+      utf8.encode(
+        'STELLAR_MESSAGE_V1:'
+        '${jsonEncode({
+          'messageId': messageId,
+          'replyToId': replyToId,
+          'payload': base64Encode(rawPayloadBytes),
+        })}',
+      ),
+    );
     final deliveryToken = Uint8List.fromList(
       utf8.encode(_uuid.v4()).take(16).toList(),
     );
@@ -1205,11 +1244,110 @@ class ChatRepository {
       return null;
     }
 
-    final attachment = AttachmentPayload.decode(plaintextBytes);
+    // Reactions are authenticated control messages. The sender identity
+    // always comes from the decrypted Signal/Sender-Key envelope.
+    const reactionPrefix = 'STELLAR_REACTION_V1:';
+    if (receiptText.startsWith(reactionPrefix)) {
+      final decoded = jsonDecode(
+        receiptText.substring(reactionPrefix.length),
+      );
+
+      const allowedReactions = {
+        '❤️', '😂', '👍', '😮', '😢', '🙏',
+      };
+
+      if (decoded is! Map<String, dynamic> ||
+          decoded['messageId'] is! String ||
+          decoded['emoji'] is! String) {
+        throw const FormatException('Invalid reaction control message');
+      }
+
+      final targetMessageId =
+          (decoded['messageId'] as String).trim();
+      final emoji = decoded['emoji'] as String;
+
+      if (targetMessageId.isEmpty ||
+          !allowedReactions.contains(emoji)) {
+        throw const FormatException('Invalid reaction target or emoji');
+      }
+
+      final target =
+          await db.messageDao.byId(targetMessageId);
+
+      // Ignore stale reactions for expired/deleted messages or messages
+      // belonging to another conversation.
+      if (target != null && target['chat_id'] == chatId) {
+        await db.reactionDao.add(
+          targetMessageId,
+          senderNickname,
+          emoji,
+        );
+      }
+
+      return null;
+    }
+
+    // Decode the authenticated application-message wrapper.
+    // Legacy messages without this prefix remain fully supported.
+    const applicationMessagePrefix = 'STELLAR_MESSAGE_V1:';
+    var applicationPayload = plaintextBytes;
+    var messageId = _uuid.v4();
+    String? replyToId;
+
+    final applicationText = utf8.decode(
+      plaintextBytes,
+      allowMalformed: true,
+    );
+
+    if (applicationText.startsWith(applicationMessagePrefix)) {
+      final decoded = jsonDecode(
+        applicationText.substring(applicationMessagePrefix.length),
+      );
+
+      if (decoded is! Map<String, dynamic> ||
+          decoded['messageId'] is! String ||
+          (decoded['replyToId'] != null &&
+              decoded['replyToId'] is! String) ||
+          decoded['payload'] is! String) {
+        throw const FormatException(
+          'Invalid authenticated application message',
+        );
+      }
+
+      final receivedMessageId =
+          (decoded['messageId'] as String).trim();
+      if (receivedMessageId.isEmpty) {
+        throw const FormatException('Missing application message ID');
+      }
+
+      messageId = receivedMessageId;
+      final receivedReplyToId = decoded['replyToId'] as String?;
+      if (receivedReplyToId != null &&
+          receivedReplyToId.trim().isNotEmpty) {
+        // The reply FK must reference a message already stored in this chat.
+        final replyTarget = await db.messageDao.byId(
+          receivedReplyToId.trim(),
+        );
+        if (replyTarget != null && replyTarget['chat_id'] == chatId) {
+          replyToId = receivedReplyToId.trim();
+        }
+      }
+
+      try {
+        applicationPayload = Uint8List.fromList(
+          base64Decode(decoded['payload'] as String),
+        );
+      } on FormatException {
+        throw const FormatException(
+          'Invalid application message payload encoding',
+        );
+      }
+    }
+
+    final attachment = AttachmentPayload.decode(applicationPayload);
     final plaintext = attachment != null
         ? '📎 Attachment'
-        : utf8.decode(plaintextBytes);
-    final messageId = _uuid.v4();
+        : utf8.decode(applicationPayload);
 
     var chatRow = await db.chatDao.byId(chatId);
 
@@ -1247,6 +1385,7 @@ class ChatRepository {
       senderId: senderNickname,
       plaintext: plaintext,
       ttlSeconds: ttl,
+      replyToId: replyToId,
       deliveryToken: envelope.deliveryToken,
     );
 
@@ -1338,7 +1477,154 @@ class ChatRepository {
   }
 
   Future<void> addReaction(String messageId, String emoji) async {
+    const allowedReactions = {
+      '❤️', '😂', '👍', '😮', '😢', '🙏',
+    };
+
+    if (!allowedReactions.contains(emoji)) {
+      throw ArgumentError.value(emoji, 'emoji', 'Unsupported reaction');
+    }
+
+    final messageRow = await db.messageDao.byId(messageId);
+    if (messageRow == null) {
+      throw StateError('Cannot react to missing message: $messageId');
+    }
+
+    final chatId = messageRow['chat_id'] as String;
+    final chatRow = await db.chatDao.byId(chatId);
+    if (chatRow == null) {
+      throw StateError('Reaction chat does not exist: $chatId');
+    }
+
+    // UPSERT means one reaction per sender per message; selecting another
+    // emoji replaces the sender's previous reaction.
     await db.reactionDao.add(messageId, localNickname, emoji);
+
+    final controlBytes = Uint8List.fromList(
+      utf8.encode(
+        'STELLAR_REACTION_V1:'
+        '${jsonEncode({
+          'messageId': messageId,
+          'emoji': emoji,
+        })}',
+      ),
+    );
+
+    final deliveryToken = Uint8List.fromList(
+      utf8.encode(_uuid.v4()).take(16).toList(),
+    );
+    final createdAt =
+        DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+    final isGroup = chatRow['chat_type'] == 'group';
+
+    if (isGroup) {
+      final members = await db.chatDao.groupMembers(chatId);
+      final seen = <String>{};
+      final recipients = <String>[];
+
+      for (final member in members) {
+        final value = member['nickname'];
+        if (value is! String || value.trim().isEmpty) continue;
+
+        final nickname = value.trim();
+        final normalized = nickname.toLowerCase();
+
+        if (normalized == localNickname.trim().toLowerCase()) continue;
+        if (seen.add(normalized)) recipients.add(nickname);
+      }
+
+      if (recipients.isEmpty) return;
+
+      final senderKeyName = SenderKeyName(
+        chatId,
+        SignalProtocolAddress(localNickname, 1),
+      );
+
+      final authenticatedPayload = Uint8List.fromList(
+        utf8.encode(
+          'STELLAR_GROUP_MESSAGE_V1:'
+          '${jsonEncode({
+            'groupId': chatId,
+            'payload': base64Encode(controlBytes),
+          })}',
+        ),
+      );
+
+      final groupCiphertext = await groupCrypto.encryptGroupMessage(
+        senderKeyName,
+        authenticatedPayload,
+      );
+
+      final outerCiphertext = Uint8List.fromList(
+        utf8.encode(
+          'STELLAR_GROUP_CIPHERTEXT_V1:'
+          '${jsonEncode({
+            'groupId': chatId,
+            'ciphertext': base64Encode(groupCiphertext),
+          })}',
+        ),
+      );
+
+      for (final recipient in recipients) {
+        final transportId = _uuid.v4();
+        final envelope = Envelope(
+          deliveryToken: deliveryToken,
+          recipientRoute: recipient,
+          ciphertext: outerCiphertext,
+        );
+
+        await db.transportOutboxDao.enqueue(
+          messageId: transportId,
+          transportId: transportId,
+          transportType: 'control',
+          deliveryToken: deliveryToken,
+          recipientRoute: recipient,
+          envelopeBytes: envelope.encode(),
+          createdAt: createdAt,
+        );
+      }
+    } else {
+      final peerName = chatRow['peer_name'] as String?;
+      final peerDeviceId = chatRow['peer_device_id'] as int?;
+
+      if (peerName == null ||
+          peerName.trim().isEmpty ||
+          peerDeviceId == null) {
+        throw StateError('Direct chat peer mapping is missing: $chatId');
+      }
+
+      await _ensureDirectSession(
+        peerName: peerName,
+        peerDeviceId: peerDeviceId,
+      );
+
+      final address = SignalProtocolAddress(peerName, peerDeviceId);
+      final ciphertextMessage = await sessionManager.encryptForSend(
+        address,
+        controlBytes,
+      );
+
+      final envelope = Envelope(
+        deliveryToken: deliveryToken,
+        recipientRoute: peerName,
+        ciphertext: Uint8List.fromList(ciphertextMessage.serialize()),
+      );
+
+      final transportId = _uuid.v4();
+      await db.transportOutboxDao.enqueue(
+        messageId: transportId,
+        transportId: transportId,
+        transportType: 'control',
+        deliveryToken: deliveryToken,
+        recipientRoute: peerName,
+        envelopeBytes: envelope.encode(),
+        createdAt: createdAt,
+      );
+    }
+
+    // The durable transport worker retries failed relay deliveries.
+    await transportOutbox.flush();
   }
 
   Future<void> updateChatTtl(String chatId, int ttlSeconds) async {

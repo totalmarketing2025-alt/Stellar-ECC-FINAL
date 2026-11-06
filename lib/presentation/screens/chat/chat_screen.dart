@@ -173,6 +173,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ),
                         );
                       }
+                      final messagesById = {
+                        for (final entry in messages)
+                          entry.messageId: entry,
+                      };
                       final timeline = _buildChatTimeline(messages);
                       return ListView.builder(
                         controller: _scrollController,
@@ -197,12 +201,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           final message = item.message!;
                           return MessageBubble(
                             message: message,
+                            replyMessage: message.replyToId == null
+                                ? null
+                                : messagesById[message.replyToId],
+                            onForward: () => _forwardMessage(message),
                             isOutgoing: message.senderId == localNickname,
                             onReply: () =>
                                 setState(() => _replyingTo = message),
-                            onReact: (emoji) => ref
-                                .read(chatRepositoryProvider)
-                                .addReaction(message.messageId, emoji),
+                            onReact: (emoji) {
+                              ref
+                                  .read(chatRepositoryProvider)
+                                  .addReaction(message.messageId, emoji)
+                                  .then((_) {
+                                if (!mounted) return;
+                                ref.invalidate(
+                                  chatMessagesProvider(widget.chatId),
+                                );
+                                ref.invalidate(chatListProvider);
+                              }).catchError((Object error) {
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Reaction failed: $error'),
+                                  ),
+                                );
+                              });
+                            },
                             onDelete: () async {
                               await ref
                                   .read(chatRepositoryProvider)
@@ -275,6 +299,85 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return timeline;
   }
 
+  Future<void> _forwardMessage(Message message) async {
+    final chatsAsync = ref.read(chatListProvider);
+    final chats = chatsAsync.maybeWhen(
+      data: (items) => items
+          .where((chat) => chat.chatId != widget.chatId)
+          .toList(),
+      orElse: () => <Chat>[],
+    );
+
+    if (chats.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No other chats available to forward to.')),
+      );
+      return;
+    }
+
+    final target = await showModalBottomSheet<Chat>(
+      context: context,
+      backgroundColor: StellarColors.bgElevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: Text('Forward to chat', style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            for (final chat in chats)
+              ListTile(
+                leading: StellarAvatar(
+                  seed: chat.chatId,
+                  label: chat.displayName,
+                  size: 38,
+                ),
+                title: Text(chat.displayName),
+                subtitle: Text(chat.chatType == ChatType.group ? 'Group' : 'Direct chat'),
+                onTap: () => Navigator.pop(sheetContext, chat),
+              ),
+          ],
+        ),
+      ),
+    );
+
+    if (!mounted || target == null) return;
+
+    try {
+      Uint8List? attachmentBytes;
+      if (message.mediaBlobId != null) {
+        attachmentBytes = await ref
+            .read(chatRepositoryProvider)
+            .loadAttachment(message.mediaBlobId!);
+      }
+
+      await ref.read(chatRepositoryProvider).sendDirectMessage(
+        chatId: target.chatId,
+        plaintext: message.bodyPlaintext,
+        ttlSeconds: target.defaultTtlSeconds,
+        attachmentBytes: attachmentBytes,
+        attachmentMimeType: attachmentBytes == null
+            ? null
+            : message.mediaMimeType,
+      );
+
+      if (!mounted) return;
+      ref.invalidate(chatMessagesProvider(target.chatId));
+      ref.invalidate(chatListProvider);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Message forwarded to ${target.displayName}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Forward failed: $error')),
+      );
+    }
+  }
+
   Future<void> _handleAttach() async {
     final path = await showModalBottomSheet<String>(
       context: context,
@@ -327,8 +430,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ttlSeconds: ttl,
           attachmentBytes: bytes,
           attachmentMimeType: mimeType,
+          replyToId: _replyingTo?.messageId,
         );
 
+    if (mounted && _replyingTo != null) {
+      setState(() => _replyingTo = null);
+    }
     ref.invalidate(chatMessagesProvider(widget.chatId));
     ref.invalidate(chatListProvider);
   }
@@ -465,9 +572,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ttlSeconds: ttl,
       attachmentBytes: bytes,
       attachmentMimeType: 'audio/mp4',
+      replyToId: _replyingTo?.messageId,
     );
 
     if (!mounted) return;
+    if (_replyingTo != null) {
+      setState(() => _replyingTo = null);
+    }
     ref.invalidate(chatMessagesProvider(widget.chatId));
     ref.invalidate(chatListProvider);
   }
