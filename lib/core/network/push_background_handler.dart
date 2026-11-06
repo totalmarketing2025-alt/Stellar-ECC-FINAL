@@ -51,21 +51,6 @@ Future<void> stellarPushBackgroundMain() async {
 
   var completed = false;
 
-  Future<void> showLocalMessageNotification() async {
-    try {
-      await backgroundChannel.invokeMethod(
-        'showMessageNotification',
-      );
-    } catch (error, stackTrace) {
-      developer.log(
-        'Local message notification failed.',
-        name: 'stellar_ecc.push.background',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-  }
-
   Future<void> complete({
     bool success = true,
   }) async {
