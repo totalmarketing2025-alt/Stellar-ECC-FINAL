@@ -30,6 +30,8 @@ class CallCoordinator {
 
   StreamSubscription<CallSignal>? _subscription;
   Timer? _ringTimeout;
+  Timer? _disconnectGraceTimeout;
+  Timer? _outgoingRingTimeout;
 
   CallSession? _activeSession;
   CallSignal? _lastSignal;
@@ -39,6 +41,9 @@ class CallCoordinator {
   final Map<String, List<CallSignal>> _pendingPreOfferIceSignals = {};
 
   static const int _maxPendingPreOfferIceSignals = 128;
+  static const Duration _disconnectGraceDuration = Duration(seconds: 15);
+  static const Duration _callStartTimeout = Duration(seconds: 30);
+  static const Duration _outgoingRingDuration = Duration(seconds: 45);
 
   final StreamController<CallSession?> _sessionController =
       StreamController<CallSession?>.broadcast();
@@ -67,6 +72,15 @@ class CallCoordinator {
 
     switch (state) {
       case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
+        // Ignore late connection events after this call has ended or failed.
+        if (session.state == CallState.failed ||
+            session.state == CallState.ended) {
+          break;
+        }
+        _disconnectGraceTimeout?.cancel();
+        _disconnectGraceTimeout = null;
+        _outgoingRingTimeout?.cancel();
+        _outgoingRingTimeout = null;
         _activeSession = session.copyWith(
           state: CallState.connected,
           connectedAt: session.connectedAt ?? DateTime.now(),
@@ -75,17 +89,28 @@ class CallCoordinator {
         break;
 
       case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
-        // WebRTC disconnected can be transient. Keep the session alive
-        // so a later Connected state can recover the active call.
-        if (session.state == CallState.connected) {
-          _activeSession = session.copyWith(
-            state: CallState.connecting,
-          );
-          _sessionController.add(_activeSession);
+        // Allow transient network interruptions to recover for 15 seconds.
+        if (session.state == CallState.connected ||
+            session.state == CallState.connecting) {
+          if (session.state == CallState.connected) {
+            _activeSession = session.copyWith(state: CallState.connecting);
+            _sessionController.add(_activeSession);
+          }
+
+          // Start the grace period only once. Repeated disconnected
+          // events must not keep extending the timeout indefinitely.
+          if (_disconnectGraceTimeout == null) {
+            final disconnectedCallId = session.callId;
+            _disconnectGraceTimeout = Timer(_disconnectGraceDuration, () {
+              unawaited(_expireDisconnectedCall(disconnectedCallId));
+            });
+          }
         }
         break;
 
       case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
+        _disconnectGraceTimeout?.cancel();
+        _disconnectGraceTimeout = null;
         _publishHistory(session, phase: 'ended', outcome: 'failed');
         _activeSession = session.copyWith(
           state: CallState.failed,
@@ -107,6 +132,8 @@ class CallCoordinator {
         break;
 
       case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
+        _disconnectGraceTimeout?.cancel();
+        _disconnectGraceTimeout = null;
         // The peer connection is already closed here. Do not call
         // CallService.end() again because that would duplicate cleanup.
         if (session.state != CallState.failed &&
@@ -129,12 +156,54 @@ class CallCoordinator {
     }
   }
 
+  Future<void> _expireDisconnectedCall(String callId) async {
+    final session = _activeSession;
+
+    if (session == null ||
+        session.callId != callId ||
+        session.state != CallState.connecting) {
+      return;
+    }
+
+    _disconnectGraceTimeout = null;
+    print('CALL_DISCONNECTED_TIMEOUT: callId=$callId');
+
+    _publishHistory(session, phase: 'ended', outcome: 'failed');
+    _activeSession = session.copyWith(state: CallState.failed);
+    _sessionController.add(_activeSession);
+
+    try {
+      final remote = session.remoteNickname;
+      if (remote != null && remote.isNotEmpty) {
+        await _callService.endForRemote(remote);
+      } else {
+        await _callService.end();
+      }
+    } catch (error) {
+      print('CALL_DISCONNECTED_CLEANUP_FAILED: $error');
+    }
+
+    // A delayed cleanup must never clear a replacement call.
+    if (_activeSession?.callId != callId) return;
+
+    _activeSession = null;
+    _lastSignal = null;
+    _pendingPlatformAction = null;
+    _pendingIncomingIceSignals.clear();
+    _pendingPreOfferIceSignals.remove(callId);
+    _sessionController.add(null);
+  }
+
   Future<void> startOutgoing({
     required String remoteNickname,
     required String chatId,
     required bool video,
   }) async {
     _ringTimeout?.cancel();
+    _disconnectGraceTimeout?.cancel();
+    _disconnectGraceTimeout = null;
+    _outgoingRingTimeout?.cancel();
+    _outgoingRingTimeout = null;
 
     if (_activeSession != null) {
       throw StateError('Another call is already active');
@@ -161,10 +230,20 @@ class CallCoordinator {
         video: video,
         callId: callId,
         chatId: chatId,
-      );
+      ).timeout(_callStartTimeout);
+
+      if (_activeSession?.callId == callId &&
+          _activeSession?.state == CallState.ringing) {
+        _outgoingRingTimeout?.cancel();
+        _outgoingRingTimeout = Timer(_outgoingRingDuration, () {
+          unawaited(_expireOutgoingCall(callId));
+        });
+      }
     } catch (_) {
       // A failed older start must not tear down a newer call.
       if (_activeSession?.callId == callId) {
+        _outgoingRingTimeout?.cancel();
+        _outgoingRingTimeout = null;
         _publishHistory(
           _activeSession!,
           phase: 'ended',
@@ -187,6 +266,52 @@ class CallCoordinator {
       }
       rethrow;
     }
+  }
+
+  Future<void> _expireOutgoingCall(String callId) async {
+    final session = _activeSession;
+
+    if (session == null ||
+        session.callId != callId ||
+        session.state != CallState.ringing) {
+      return;
+    }
+
+    _outgoingRingTimeout = null;
+
+    print('CALL_OUTGOING_NO_ANSWER: callId=$callId');
+
+    _publishHistory(
+      session,
+      phase: 'ended',
+      outcome: 'no_answer',
+    );
+
+    _activeSession = session.copyWith(state: CallState.ended);
+    _sessionController.add(_activeSession);
+
+    try {
+      final remote = session.remoteNickname;
+      if (remote != null && remote.isNotEmpty) {
+        await _callService
+            .endForRemote(remote)
+            .timeout(const Duration(seconds: 3));
+      } else {
+        await _callService.end();
+      }
+    } catch (error) {
+      print('CALL_OUTGOING_TIMEOUT_CLEANUP: $error');
+      await _callService.end();
+    }
+
+    if (_activeSession?.callId != callId) return;
+
+    _activeSession = null;
+    _lastSignal = null;
+    _pendingPlatformAction = null;
+    _pendingIncomingIceSignals.clear();
+    _pendingPreOfferIceSignals.remove(callId);
+    _sessionController.add(null);
   }
 
   String _generateCallId() {
@@ -313,6 +438,10 @@ class CallCoordinator {
 
   Future<void> endActiveCall() async {
     _ringTimeout?.cancel();
+    _disconnectGraceTimeout?.cancel();
+    _disconnectGraceTimeout = null;
+    _outgoingRingTimeout?.cancel();
+    _outgoingRingTimeout = null;
 
     final session = _activeSession;
     if (session != null) {
@@ -439,6 +568,8 @@ class CallCoordinator {
       }
 
       _ringTimeout?.cancel();
+      _disconnectGraceTimeout?.cancel();
+      _disconnectGraceTimeout = null;
 
       final preOfferIceSignals =
           _pendingPreOfferIceSignals.remove(session.callId) ?? const [];
@@ -538,6 +669,8 @@ class CallCoordinator {
 
     switch (signal.type) {
       case 'answer':
+        _outgoingRingTimeout?.cancel();
+        _outgoingRingTimeout = null;
         _activeSession = _activeSession?.copyWith(
           state: CallState.connecting,
         );
@@ -550,6 +683,10 @@ class CallCoordinator {
 
       case 'reject':
       case 'end':
+        _disconnectGraceTimeout?.cancel();
+        _disconnectGraceTimeout = null;
+        _outgoingRingTimeout?.cancel();
+        _outgoingRingTimeout = null;
         _pendingIncomingIceSignals.clear();
         _pendingPreOfferIceSignals.remove(session.callId);
         _ringTimeout?.cancel();
@@ -688,7 +825,7 @@ class CallCoordinator {
             video: action.kind == 'video',
             callId: session.callId,
             chatId: chatId,
-          );
+          ).timeout(_callStartTimeout);
 
           _activeSession = _activeSession?.copyWith(
             state: CallState.connecting,
@@ -813,6 +950,10 @@ class CallCoordinator {
 
   void clear() {
     _ringTimeout?.cancel();
+    _disconnectGraceTimeout?.cancel();
+    _disconnectGraceTimeout = null;
+    _outgoingRingTimeout?.cancel();
+    _outgoingRingTimeout = null;
 
     final remoteNickname = _activeSession?.remoteNickname;
     if (remoteNickname != null && remoteNickname.isNotEmpty) {
@@ -830,6 +971,10 @@ class CallCoordinator {
   Future<void> dispose() async {
     _disposed = true;
     _ringTimeout?.cancel();
+    _disconnectGraceTimeout?.cancel();
+    _disconnectGraceTimeout = null;
+    _outgoingRingTimeout?.cancel();
+    _outgoingRingTimeout = null;
 
     for (final timer in _historyRetryTimers.values) {
       timer.cancel();

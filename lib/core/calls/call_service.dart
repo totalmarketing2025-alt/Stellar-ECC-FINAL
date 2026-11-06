@@ -224,6 +224,8 @@ class CallService {
           _sendSignal(remoteNickname, {
             'type': 'ice-candidate',
             'candidate': candidate.toMap(),
+          }).timeout(const Duration(seconds: 3)).catchError((Object error) {
+            print('CALL_ICE_SIGNAL_FAILED: $error');
           }),
         );
       };
@@ -236,7 +238,12 @@ class CallService {
 
         print('CALL_CONNECTION_STATE: $state');
 
-        onConnectionStateChanged?.call(state);
+        try {
+          onConnectionStateChanged?.call(state);
+        } catch (error, stackTrace) {
+          print('CALL_STATE_CALLBACK_FAILED: $error');
+          print('CALL_STATE_CALLBACK_STACK: $stackTrace');
+        }
 
         final callId = _callId;
         if (callId == null || callId.isEmpty) {
@@ -245,12 +252,20 @@ class CallService {
 
         switch (state) {
           case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
-            unawaited(platformBridge.setCallActive(callId));
+            unawaited(
+              platformBridge.setCallActive(callId).catchError((Object error) {
+                print('CALL_NATIVE_ACTIVE_FAILED: $error');
+              }),
+            );
             break;
 
           case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
           case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
-            unawaited(platformBridge.setCallEnded(callId));
+            unawaited(
+              platformBridge.setCallEnded(callId).catchError((Object error) {
+                print('CALL_NATIVE_ENDED_FAILED: $error');
+              }),
+            );
             break;
 
           case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
@@ -654,7 +669,8 @@ class CallService {
 
     if (callId != null && callId.isNotEmpty && callKind != null) {
       try {
-        await _sendSignal(remoteNickname, {'type': 'end'});
+        await _sendSignal(remoteNickname, {'type': 'end'})
+            .timeout(const Duration(seconds: 3));
       } catch (error) {
         print('CALL_END_SIGNAL_FAILED: $error');
       }
