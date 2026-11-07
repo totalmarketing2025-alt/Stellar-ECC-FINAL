@@ -234,6 +234,9 @@ class CallCoordinator {
     _sessionController.add(_activeSession);
     _publishHistory(_activeSession!, phase: 'started');
 
+    // Start local ringback immediately; WebRTC setup can take several seconds.
+    unawaited(_platformBridge.startOutgoingRingback(callId));
+
     try {
       await _callService.start(
         remoteNickname: remoteNickname,
@@ -249,7 +252,6 @@ class CallCoordinator {
         _outgoingRingTimeout = Timer(_outgoingRingDuration, () {
           unawaited(_expireOutgoingCall(callId));
         });
-        unawaited(_platformBridge.startOutgoingRingback(callId));
       }
     } catch (_) {
       // A failed older start must not tear down a newer call.

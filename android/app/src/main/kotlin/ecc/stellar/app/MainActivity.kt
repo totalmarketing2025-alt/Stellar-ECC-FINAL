@@ -164,7 +164,7 @@ class MainActivity : FlutterFragmentActivity() {
                             result.success(null)
                         } else {
                             ecc.stellar.app.calls.StellarCallAudio
-                                .startOutgoingRingback(callId)
+                                .startOutgoingRingback(this@MainActivity, callId)
                             result.success(null)
                         }
                     }
