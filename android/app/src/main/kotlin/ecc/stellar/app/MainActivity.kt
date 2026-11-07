@@ -32,6 +32,8 @@ class MainActivity : FlutterFragmentActivity() {
         private const val METHOD_SET_CALL_ACTION_HANDLER_READY = "setCallActionHandlerReady"
         private const val METHOD_SET_CALL_ACTIVE = "setCallActive"
         private const val METHOD_SET_CALL_ENDED = "setCallEnded"
+        private const val METHOD_START_OUTGOING_RINGBACK = "startOutgoingRingback"
+        private const val METHOD_STOP_CALL_RINGTONE = "stopCallRingtone"
 
         private const val PREFS_NAME = "stellar_call_state"
         private const val PREF_PENDING_ACTION = "pending_call_action"
@@ -153,6 +155,27 @@ class MainActivity : FlutterFragmentActivity() {
                                 ecc.stellar.app.calls.StellarCallManager
                                     .setCallEnded(this@MainActivity, callId)
                             )
+                        }
+                    }
+
+                    METHOD_START_OUTGOING_RINGBACK -> {
+                        val callId = call.argument<String>("callId").orEmpty()
+                        if (callId.isBlank()) {
+                            result.success(null)
+                        } else {
+                            ecc.stellar.app.calls.StellarCallAudio
+                                .startOutgoingRingback(callId)
+                            result.success(null)
+                        }
+                    }
+
+                    METHOD_STOP_CALL_RINGTONE -> {
+                        val callId = call.argument<String>("callId").orEmpty()
+                        if (callId.isBlank()) {
+                            result.success(null)
+                        } else {
+                            ecc.stellar.app.calls.StellarCallAudio.stop(callId)
+                            result.success(null)
                         }
                     }
 

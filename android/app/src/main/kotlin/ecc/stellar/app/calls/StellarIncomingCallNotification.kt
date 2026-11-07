@@ -6,11 +6,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.os.Build
 import android.content.Intent
-import android.provider.Settings
 
 object StellarIncomingCallNotification {
 
-    private const val CHANNEL_ID = "stellar_incoming_calls"
+    private const val CHANNEL_ID = "stellar_incoming_calls_v2"
 
     private fun id(callId: String): Int =
         200000 + kotlin.math.abs(callId.hashCode() % 100000)
@@ -34,14 +33,7 @@ object StellarIncomingCallNotification {
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
                     description = "Stellar encrypted incoming calls"
-                    setSound(
-                        Settings.System.DEFAULT_RINGTONE_URI,
-                        android.media.AudioAttributes.Builder()
-                            .setUsage(
-                                android.media.AudioAttributes.USAGE_NOTIFICATION_RINGTONE
-                            )
-                            .build()
-                    )
+                    setSound(null, null)
                 }
             )
         }

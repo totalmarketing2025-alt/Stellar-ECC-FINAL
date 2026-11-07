@@ -176,6 +176,30 @@ class CallPlatformBridge {
     }
   }
 
+  Future<void> startOutgoingRingback(String callId) async {
+    if (callId.isEmpty) return;
+    try {
+      await _channel.invokeMethod<void>(
+        'startOutgoingRingback',
+        <String, dynamic>{'callId': callId},
+      );
+    } catch (error) {
+      print('CALL_START_RINGBACK_FAILED: $error');
+    }
+  }
+
+  Future<void> stopCallRingtone(String callId) async {
+    if (callId.isEmpty) return;
+    try {
+      await _channel.invokeMethod<void>(
+        'stopCallRingtone',
+        <String, dynamic>{'callId': callId},
+      );
+    } catch (error) {
+      print('CALL_STOP_RINGTONE_FAILED: $error');
+    }
+  }
+
   Future<void> dispose() async {
     await _controller.close();
   }

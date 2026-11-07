@@ -15,10 +15,17 @@ class CallCoordinator {
     required CallPlatformBridge platformBridge,
     this.onCallHistoryEvent,
   })  : _signalRouter = signalRouter,
-        _callService = callService;
+        _callService = callService,
+        _platformBridge = platformBridge;
 
   final CallSignalRouter _signalRouter;
   final CallService _callService;
+  final CallPlatformBridge _platformBridge;
+
+  void _stopCallAudio(String? callId) {
+    if (callId == null || callId.isEmpty) return;
+    unawaited(_platformBridge.stopCallRingtone(callId));
+  }
 
   final Future<void> Function(CallEventPayload event)? onCallHistoryEvent;
   final Set<String> _historyStartedCallIds = <String>{};
@@ -81,6 +88,7 @@ class CallCoordinator {
         _disconnectGraceTimeout = null;
         _outgoingRingTimeout?.cancel();
         _outgoingRingTimeout = null;
+        _stopCallAudio(session.callId);
         _activeSession = session.copyWith(
           state: CallState.connected,
           connectedAt: session.connectedAt ?? DateTime.now(),
@@ -109,6 +117,7 @@ class CallCoordinator {
         break;
 
       case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
+        _stopCallAudio(session.callId);
         _disconnectGraceTimeout?.cancel();
         _disconnectGraceTimeout = null;
         _publishHistory(session, phase: 'ended', outcome: 'failed');
@@ -132,6 +141,7 @@ class CallCoordinator {
         break;
 
       case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
+        _stopCallAudio(session.callId);
         _disconnectGraceTimeout?.cancel();
         _disconnectGraceTimeout = null;
         // The peer connection is already closed here. Do not call
@@ -166,6 +176,7 @@ class CallCoordinator {
     }
 
     _disconnectGraceTimeout = null;
+    _stopCallAudio(callId);
     print('CALL_DISCONNECTED_TIMEOUT: callId=$callId');
 
     _publishHistory(session, phase: 'ended', outcome: 'failed');
@@ -238,10 +249,12 @@ class CallCoordinator {
         _outgoingRingTimeout = Timer(_outgoingRingDuration, () {
           unawaited(_expireOutgoingCall(callId));
         });
+        unawaited(_platformBridge.startOutgoingRingback(callId));
       }
     } catch (_) {
       // A failed older start must not tear down a newer call.
       if (_activeSession?.callId == callId) {
+        _stopCallAudio(callId);
         _outgoingRingTimeout?.cancel();
         _outgoingRingTimeout = null;
         _publishHistory(
@@ -278,6 +291,7 @@ class CallCoordinator {
     }
 
     _outgoingRingTimeout = null;
+    _stopCallAudio(callId);
 
     print('CALL_OUTGOING_NO_ANSWER: callId=$callId');
 
@@ -445,6 +459,7 @@ class CallCoordinator {
 
     final session = _activeSession;
     if (session != null) {
+      _stopCallAudio(session.callId);
       _publishHistory(
         session,
         phase: 'ended',
@@ -592,6 +607,7 @@ class CallCoordinator {
           return;
         }
 
+        _stopCallAudio(session.callId);
         _publishHistory(
           session,
           phase: 'ended',
@@ -669,6 +685,7 @@ class CallCoordinator {
 
     switch (signal.type) {
       case 'answer':
+        _stopCallAudio(session.callId);
         _outgoingRingTimeout?.cancel();
         _outgoingRingTimeout = null;
         _activeSession = _activeSession?.copyWith(
@@ -683,6 +700,7 @@ class CallCoordinator {
 
       case 'reject':
       case 'end':
+        _stopCallAudio(session.callId);
         _disconnectGraceTimeout?.cancel();
         _disconnectGraceTimeout = null;
         _outgoingRingTimeout?.cancel();
@@ -730,6 +748,7 @@ class CallCoordinator {
         return;
       }
 
+      _stopCallAudio(session.callId);
       _publishHistory(session, phase: 'ended', outcome: 'failed');
       _activeSession = _activeSession?.copyWith(
         state: CallState.failed,
@@ -816,6 +835,7 @@ class CallCoordinator {
           return;
         }
 
+        _stopCallAudio(session.callId);
         _ringTimeout?.cancel();
 
         try {
@@ -851,6 +871,7 @@ class CallCoordinator {
           // Do not clear a different call if the active session changed
           // while the asynchronous answer operation was running.
           if (_activeSession?.callId == session.callId) {
+            _stopCallAudio(session.callId);
             _publishHistory(
               session,
               phase: 'ended',
@@ -884,6 +905,7 @@ class CallCoordinator {
         break;
 
       case 'reject':
+        _stopCallAudio(session.callId);
         // Close the local call UI immediately. Relay signaling continues
         // independently and cannot block navigation back to the chat.
         unawaited(
@@ -927,6 +949,7 @@ class CallCoordinator {
         break;
 
       case 'end':
+        _stopCallAudio(session.callId);
         _publishHistory(
           session,
           phase: 'ended',
@@ -949,6 +972,7 @@ class CallCoordinator {
   }
 
   void clear() {
+    _stopCallAudio(_activeSession?.callId);
     _ringTimeout?.cancel();
     _disconnectGraceTimeout?.cancel();
     _disconnectGraceTimeout = null;
@@ -970,6 +994,7 @@ class CallCoordinator {
 
   Future<void> dispose() async {
     _disposed = true;
+    _stopCallAudio(_activeSession?.callId);
     _ringTimeout?.cancel();
     _disconnectGraceTimeout?.cancel();
     _disconnectGraceTimeout = null;
