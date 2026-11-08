@@ -186,6 +186,8 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     switch (state) {
       case CallState.ringing:
         return 'Ringing…';
+      case CallState.answering:
+        return 'Answering…';
       case CallState.connecting:
         return 'Connecting…';
       case CallState.connected:

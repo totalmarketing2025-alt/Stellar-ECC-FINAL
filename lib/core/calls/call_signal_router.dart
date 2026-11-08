@@ -39,8 +39,17 @@ class CallSignalRouter {
     }
 
     final type = decoded['type'];
-    if (type is! String || type.isEmpty) {
-      throw StateError('Missing Stellar call signal type');
+    const allowedTypes = <String>{
+      'offer',
+      'answer',
+      'ice-candidate',
+      'reject',
+      'end',
+      'busy',
+    };
+
+    if (type is! String || !allowedTypes.contains(type)) {
+      throw StateError('Invalid Stellar call signal type');
     }
 
     final payload = <String, dynamic>{

@@ -41,6 +41,7 @@ class CallCoordinator {
   Timer? _outgoingRingTimeout;
 
   CallSession? _activeSession;
+  bool _activeCallIsOutgoing = false;
   CallSignal? _lastSignal;
   CallPlatformAction? _pendingPlatformAction;
   final Set<String> _answeringCallIds = <String>{};
@@ -99,8 +100,9 @@ class CallCoordinator {
       case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
         // Allow transient network interruptions to recover for 15 seconds.
         if (session.state == CallState.connected ||
-            session.state == CallState.connecting) {
-          if (session.state == CallState.connected) {
+            session.state == CallState.connecting ||
+            session.state == CallState.answering) {
+          if (session.state != CallState.connecting) {
             _activeSession = session.copyWith(state: CallState.connecting);
             _sessionController.add(_activeSession);
           }
@@ -134,6 +136,7 @@ class CallCoordinator {
         }
 
         _activeSession = null;
+        _activeCallIsOutgoing = false;
         _lastSignal = null;
         _pendingPlatformAction = null;
         _pendingIncomingIceSignals.clear();
@@ -155,6 +158,7 @@ class CallCoordinator {
         }
 
         _activeSession = null;
+        _activeCallIsOutgoing = false;
         _lastSignal = null;
         _pendingPlatformAction = null;
         _pendingIncomingIceSignals.clear();
@@ -198,6 +202,7 @@ class CallCoordinator {
     if (_activeSession?.callId != callId) return;
 
     _activeSession = null;
+    _activeCallIsOutgoing = false;
     _lastSignal = null;
     _pendingPlatformAction = null;
     _pendingIncomingIceSignals.clear();
@@ -229,13 +234,19 @@ class CallCoordinator {
       state: CallState.ringing,
       remoteNickname: remoteNickname,
     );
+    _activeCallIsOutgoing = true;
 
     _lastSignal = null;
     _sessionController.add(_activeSession);
     _publishHistory(_activeSession!, phase: 'started');
 
-    // Start local ringback immediately; WebRTC setup can take several seconds.
+    // Start local ringback and the overall no-answer timer immediately.
+    // WebRTC setup time is included in the outgoing call deadline.
     unawaited(_platformBridge.startOutgoingRingback(callId));
+
+    _outgoingRingTimeout = Timer(_outgoingRingDuration, () {
+      unawaited(_expireOutgoingCall(callId));
+    });
 
     try {
       await _callService.start(
@@ -246,13 +257,6 @@ class CallCoordinator {
         chatId: chatId,
       ).timeout(_callStartTimeout);
 
-      if (_activeSession?.callId == callId &&
-          _activeSession?.state == CallState.ringing) {
-        _outgoingRingTimeout?.cancel();
-        _outgoingRingTimeout = Timer(_outgoingRingDuration, () {
-          unawaited(_expireOutgoingCall(callId));
-        });
-      }
     } catch (_) {
       // A failed older start must not tear down a newer call.
       if (_activeSession?.callId == callId) {
@@ -272,6 +276,7 @@ class CallCoordinator {
 
         if (_activeSession?.callId == callId) {
           _activeSession = null;
+          _activeCallIsOutgoing = false;
           _lastSignal = null;
           _pendingPlatformAction = null;
           _pendingIncomingIceSignals.clear();
@@ -323,6 +328,7 @@ class CallCoordinator {
     if (_activeSession?.callId != callId) return;
 
     _activeSession = null;
+    _activeCallIsOutgoing = false;
     _lastSignal = null;
     _pendingPlatformAction = null;
     _pendingIncomingIceSignals.clear();
@@ -489,6 +495,7 @@ class CallCoordinator {
     }
 
     _activeSession = null;
+    _activeCallIsOutgoing = false;
     _lastSignal = null;
     _pendingPlatformAction = null;
     _pendingIncomingIceSignals.clear();
@@ -581,6 +588,26 @@ class CallCoordinator {
       // A valid incoming offer is accepted only when there is no
       // active session yet.
       if (activeSession != null) {
+        // Ignore a duplicate offer for the same call. A different
+        // authenticated offer receives BUSY without touching this call.
+        if (activeSession.callId != session.callId) {
+          final remote = session.remoteNickname;
+          if (remote != null && remote.isNotEmpty) {
+            unawaited(
+              _callService
+                  .sendBusy(
+                    remoteNickname: remote,
+                    callId: session.callId,
+                    chatId: session.chatId,
+                    kind: session.kind,
+                  )
+                  .timeout(const Duration(seconds: 3))
+                  .catchError((Object error) {
+                    print('CALL_BUSY_SIGNAL_FAILED: $error');
+                  }),
+            );
+          }
+        }
         return;
       }
 
@@ -588,13 +615,30 @@ class CallCoordinator {
       _disconnectGraceTimeout?.cancel();
       _disconnectGraceTimeout = null;
 
-      final preOfferIceSignals =
+      final queuedPreOfferIceSignals =
           _pendingPreOfferIceSignals.remove(session.callId) ?? const [];
+
+      final offerRemote =
+          session.remoteNickname?.trim().toLowerCase();
+
+      final preOfferIceSignals = queuedPreOfferIceSignals.where((candidate) {
+        final candidateRemote =
+            candidate.session.remoteNickname?.trim().toLowerCase();
+
+        return candidate.type == 'ice-candidate' &&
+            candidate.session.callId == session.callId &&
+            candidate.session.chatId == session.chatId &&
+            candidate.session.kind == session.kind &&
+            offerRemote != null &&
+            offerRemote.isNotEmpty &&
+            candidateRemote == offerRemote;
+      }).toList(growable: false);
 
       _pendingIncomingIceSignals
         ..clear()
         ..addAll(preOfferIceSignals);
 
+      _activeCallIsOutgoing = false;
       _activeSession = session.copyWith(
         state: CallState.ringing,
       );
@@ -638,6 +682,7 @@ class CallCoordinator {
         _sessionController.add(_activeSession);
 
         _activeSession = null;
+        _activeCallIsOutgoing = false;
         _lastSignal = null;
         _pendingPlatformAction = null;
         _pendingPreOfferIceSignals.remove(session.callId);
@@ -654,7 +699,30 @@ class CallCoordinator {
       return;
     }
 
-    if (_activeSession?.callId != session.callId) {
+    final activeSessionForSignal = _activeSession;
+    if (activeSessionForSignal != null &&
+        activeSessionForSignal.callId == session.callId) {
+      final activeRemote =
+          activeSessionForSignal.remoteNickname?.trim().toLowerCase();
+      final signalRemote =
+          session.remoteNickname?.trim().toLowerCase();
+
+      if (activeSessionForSignal.chatId != session.chatId ||
+          activeSessionForSignal.kind != session.kind ||
+          activeRemote == null ||
+          activeRemote.isEmpty ||
+          signalRemote == null ||
+          signalRemote.isEmpty ||
+          activeRemote != signalRemote) {
+        print(
+          'CALL_SIGNAL_IGNORED: authenticated session identity mismatch '
+          'type=${signal.type} callId=${session.callId}',
+        );
+        return;
+      }
+    }
+
+    if (activeSessionForSignal?.callId != session.callId) {
       if (signal.type == 'ice-candidate') {
         final pending =
             _pendingPreOfferIceSignals.putIfAbsent(
@@ -687,6 +755,18 @@ class CallCoordinator {
 
     switch (signal.type) {
       case 'answer':
+        final currentSession = _activeSession;
+        if (!_activeCallIsOutgoing ||
+            currentSession == null ||
+            (currentSession.state != CallState.ringing &&
+                currentSession.state != CallState.connecting)) {
+          print(
+            'CALL_ANSWER_IGNORED: invalid direction/state '
+            'callId=${session.callId}',
+          );
+          return;
+        }
+
         _stopCallAudio(session.callId);
         _outgoingRingTimeout?.cancel();
         _outgoingRingTimeout = null;
@@ -700,8 +780,81 @@ class CallCoordinator {
         // Keep outgoing UI in Ringing until the remote peer answers.
         break;
 
+      case 'busy':
+        final currentSession = _activeSession;
+        final activeRemote =
+            currentSession?.remoteNickname?.trim().toLowerCase();
+        final signalRemote =
+            session.remoteNickname?.trim().toLowerCase();
+
+        // BUSY is valid only for our outgoing call and only when
+        // every session identity field matches the authenticated sender.
+        if (!_activeCallIsOutgoing ||
+            currentSession == null ||
+            currentSession.callId != session.callId ||
+            currentSession.chatId != session.chatId ||
+            currentSession.kind != session.kind ||
+            activeRemote == null ||
+            signalRemote == null ||
+            activeRemote != signalRemote ||
+            (currentSession.state != CallState.ringing &&
+                currentSession.state != CallState.connecting)) {
+          print(
+            'CALL_BUSY_IGNORED: session identity/direction mismatch '
+            'callId=${session.callId}',
+          );
+          return;
+        }
+
+        _stopCallAudio(session.callId);
+        _ringTimeout?.cancel();
+        _ringTimeout = null;
+        _disconnectGraceTimeout?.cancel();
+        _disconnectGraceTimeout = null;
+        _outgoingRingTimeout?.cancel();
+        _outgoingRingTimeout = null;
+
+        _publishHistory(
+          currentSession,
+          phase: 'ended',
+          outcome: 'busy',
+        );
+
+        _activeSession = currentSession.copyWith(
+          state: CallState.ended,
+        );
+        _sessionController.add(_activeSession);
+
+        // CallService.end() invalidates its generation and detaches
+        // resources synchronously before awaiting native cleanup.
+        unawaited(_callService.end());
+
+        _activeSession = null;
+        _activeCallIsOutgoing = false;
+        _lastSignal = null;
+        _pendingPlatformAction = null;
+        _pendingIncomingIceSignals.clear();
+        _pendingPreOfferIceSignals.remove(session.callId);
+        _answeringCallIds.remove(session.callId);
+        _sessionController.add(null);
+        return;
+
       case 'reject':
       case 'end':
+        if (signal.type == 'reject') {
+          final currentSession = _activeSession;
+          if (!_activeCallIsOutgoing ||
+              currentSession == null ||
+              (currentSession.state != CallState.ringing &&
+                  currentSession.state != CallState.connecting)) {
+            print(
+              'CALL_REJECT_IGNORED: invalid direction/state '
+              'callId=${session.callId}',
+            );
+            return;
+          }
+        }
+
         _stopCallAudio(session.callId);
         _disconnectGraceTimeout?.cancel();
         _disconnectGraceTimeout = null;
@@ -719,6 +872,7 @@ class CallCoordinator {
         unawaited(_callService.end());
 
         _activeSession = null;
+        _activeCallIsOutgoing = false;
         _lastSignal = null;
         _sessionController.add(null);
         break;
@@ -765,6 +919,7 @@ class CallCoordinator {
 
       if (_activeSession?.callId == session.callId) {
         _activeSession = null;
+        _activeCallIsOutgoing = false;
         _lastSignal = null;
         _pendingPlatformAction = null;
         _pendingIncomingIceSignals.clear();
@@ -839,6 +994,12 @@ class CallCoordinator {
 
         _stopCallAudio(session.callId);
         _ringTimeout?.cancel();
+        _ringTimeout = null;
+
+        _activeSession = session.copyWith(
+          state: CallState.answering,
+        );
+        _sessionController.add(_activeSession);
 
         try {
           await _callService.start(
@@ -849,10 +1010,19 @@ class CallCoordinator {
             chatId: chatId,
           ).timeout(_callStartTimeout);
 
-          _activeSession = _activeSession?.copyWith(
-            state: CallState.connecting,
-          );
-          _sessionController.add(_activeSession);
+          // The session may have ended while WebRTC startup was awaiting.
+          if (_activeSession?.callId != session.callId) {
+            return;
+          }
+
+          // A fast peer connection callback may already have marked it
+          // connected. Never downgrade that state to connecting.
+          if (_activeSession?.state == CallState.answering) {
+            _activeSession = _activeSession?.copyWith(
+              state: CallState.connecting,
+            );
+            _sessionController.add(_activeSession);
+          }
 
           await _callService.handleSignal(
             remoteNickname: remoteNickname,
@@ -892,6 +1062,7 @@ class CallCoordinator {
 
             if (_activeSession?.callId == session.callId) {
               _activeSession = null;
+              _activeCallIsOutgoing = false;
               _lastSignal = null;
               _pendingIncomingIceSignals.clear();
               _pendingPreOfferIceSignals.remove(session.callId);
@@ -942,6 +1113,7 @@ class CallCoordinator {
 
         if (_activeSession?.callId == session.callId) {
           _activeSession = null;
+          _activeCallIsOutgoing = false;
           _lastSignal = null;
           _pendingPlatformAction = null;
           _pendingIncomingIceSignals.clear();
@@ -966,6 +1138,7 @@ class CallCoordinator {
         _sessionController.add(_activeSession);
 
         _activeSession = null;
+        _activeCallIsOutgoing = false;
         _lastSignal = null;
         _pendingPlatformAction = null;
         _sessionController.add(null);
@@ -989,8 +1162,12 @@ class CallCoordinator {
     }
 
     _activeSession = null;
+    _activeCallIsOutgoing = false;
     _lastSignal = null;
     _pendingPlatformAction = null;
+    _pendingIncomingIceSignals.clear();
+    _pendingPreOfferIceSignals.clear();
+    _answeringCallIds.clear();
     _sessionController.add(null);
   }
 
@@ -1009,6 +1186,14 @@ class CallCoordinator {
     _historyRetryTimers.clear();
     _historyRetryAttempts.clear();
     _historyInFlightKeys.clear();
+
+    _pendingIncomingIceSignals.clear();
+    _pendingPreOfferIceSignals.clear();
+    _answeringCallIds.clear();
+    _pendingPlatformAction = null;
+    _lastSignal = null;
+    _activeSession = null;
+    _activeCallIsOutgoing = false;
 
     _callService.onConnectionStateChanged = null;
 

@@ -535,6 +535,52 @@ class CallService {
     }
   }
 
+  // Sends BUSY for a different incoming call without modifying the
+  // currently active WebRTC session or its generation.
+  Future<void> sendBusy({
+    required String remoteNickname,
+    required String callId,
+    required String chatId,
+    required CallKind kind,
+  }) async {
+    final recipient = remoteNickname.trim().toLowerCase();
+    if (recipient.isEmpty || callId.isEmpty || chatId.isEmpty) {
+      throw ArgumentError('Invalid BUSY signal destination');
+    }
+
+    final identityKeyPair =
+        await sessionManager.identityStore.getIdentityKeyPair();
+
+    final payload = <String, dynamic>{
+      'type': 'busy',
+      'callId': callId,
+      'chatId': chatId,
+      'kind': kind == CallKind.video ? 'video' : 'voice',
+      'sentAt': DateTime.now().millisecondsSinceEpoch,
+      'recipient': recipient,
+    };
+
+    final signature = CallSignalAuthenticator.sign(
+      identityKeyPair: identityKeyPair,
+      recipient: recipient,
+      payload: payload,
+    );
+
+    final authenticatedPayload = <String, dynamic>{
+      ...payload,
+      'signature': base64Encode(signature),
+    };
+
+    final plaintext = Uint8List.fromList(
+      utf8.encode('$_signalPrefix${jsonEncode(authenticatedPayload)}'),
+    );
+
+    await relayClient.sendCallSignal(
+      recipient: recipient,
+      plaintext: plaintext,
+    );
+  }
+
   Future<void> _sendSignal(
     String remoteNickname,
     Map<String, dynamic> signal,

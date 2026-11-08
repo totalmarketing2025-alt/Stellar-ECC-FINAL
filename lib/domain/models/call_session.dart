@@ -1,4 +1,4 @@
-enum CallState { ringing, connecting, connected, ended, failed }
+enum CallState { ringing, answering, connecting, connected, ended, failed }
 enum CallKind { voice, video }
 
 class CallSession {

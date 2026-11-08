@@ -341,7 +341,16 @@ class RelayListener {
       final kind = signal['kind'];
       final chatId = signal['chatId'];
 
-      if (type is! String || type.isEmpty) {
+      const allowedCallSignalTypes = <String>{
+        'offer',
+        'answer',
+        'ice-candidate',
+        'reject',
+        'end',
+        'busy',
+      };
+
+      if (type is! String || !allowedCallSignalTypes.contains(type)) {
         return _CallSignalRouteResult.rejected;
       }
 
