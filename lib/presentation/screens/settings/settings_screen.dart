@@ -5,6 +5,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import 'stellar_security_screen.dart';
+import 'stellar_guard_screen.dart';
 import '../../state/app_providers.dart';
 import '../../../core/storage/providers.dart';
 import '../../state/security_providers.dart';
@@ -42,6 +44,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onTap: () => context.push('/security'),
           ),
           const Divider(color: StellarColors.bgElevated),
+          ListTile(
+            leading: const Icon(
+              Icons.shield_moon_outlined,
+              color: StellarColors.accentBlue,
+            ),
+            title: const Text('Stellar Security'),
+            subtitle: const Text('Learn how Stellar protects you'),
+            trailing: const Icon(
+              Icons.chevron_right,
+              color: StellarColors.textSecondary,
+            ),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const StellarSecurityScreen(),
+                ),
+              );
+            },
+          ),
+          const Divider(color: StellarColors.bgElevated),
 
           _SectionHeader('Account'),
           ListTile(
@@ -74,6 +96,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             title: const Text('Reset Identity', style: TextStyle(color: StellarColors.danger)),
             subtitle: const Text('Invalidates all sessions — contacts must re-verify you'),
             onTap: () => _confirmResetIdentity(context),
+          ),
+
+          ListTile(
+            leading: const Icon(
+              Icons.shield_moon_outlined,
+              color: StellarColors.accentPurple,
+            ),
+            title: const Text('Stellar GUARD'),
+            subtitle: const Text('Secure Stellar user removal'),
+            trailing: const Icon(
+              Icons.chevron_right,
+              color: StellarColors.textSecondary,
+            ),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const StellarGuardScreen(),
+                ),
+              );
+            },
           ),
 
           _SectionHeader('Privacy'),
