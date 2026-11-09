@@ -16,6 +16,10 @@ function decodeRecipientRoute(buffer) {
     throw new Error("Invalid envelope");
   }
 
+  const version = readU16(bytes, offset);
+  if (version !== 1 && version !== 2) {
+    throw new Error("Unsupported envelope version");
+  }
   offset += 2; // version
   offset += 4; // ttl
 
@@ -48,6 +52,16 @@ function decodeRecipientRoute(buffer) {
   );
 
   offset += routeLen;
+
+  if (version === 2) {
+    if (offset + 1 > bytes.length) {
+      throw new Error("Invalid envelope");
+    }
+    const ciphertextType = bytes[offset++];
+    if (ciphertextType !== 2 && ciphertextType !== 3) {
+      throw new Error("Invalid Signal ciphertext type");
+    }
+  }
 
   if (offset + 4 > bytes.length) {
     throw new Error("Invalid envelope");
