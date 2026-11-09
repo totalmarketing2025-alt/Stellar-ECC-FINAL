@@ -535,6 +535,8 @@ class ChatRepository {
       // Phase 4 §2) — the relay only learns a rotating token and the
       // recipient's route.
       final envelope = Envelope(
+        envelopeVersion: 2,
+        ciphertextType: ciphertextMessage.getType(),
         deliveryToken: deliveryToken,
         recipientRoute:
             peerName, // resolved server-side to an opaque route in production
@@ -906,22 +908,42 @@ class ChatRepository {
       try {
         Uint8List decrypted;
 
-        // First-contact messages are X3DH PreKeySignalMessages.
-        // Established sessions use regular SignalMessage.
-        if (await sessionManager.hasSession(address)) {
-          final signalMessage = SignalMessage.fromSerialized(
-            envelope.ciphertext,
-          );
+        // V2 carries the actual Signal ciphertext type.
+        // V1 retains its legacy session-based behavior.
+        if (envelope.envelopeVersion == 2) {
+          final CiphertextMessage message;
+
+          if (envelope.ciphertextType ==
+              CiphertextMessage.prekeyType) {
+            message = PreKeySignalMessage(envelope.ciphertext);
+          } else if (envelope.ciphertextType ==
+              CiphertextMessage.whisperType) {
+            message = SignalMessage.fromSerialized(
+              envelope.ciphertext,
+            );
+          } else {
+            throw const FormatException(
+              'Unsupported Signal ciphertext type',
+            );
+          }
+
           decrypted = await sessionManager.decryptReceived(
             address,
-            signalMessage,
+            message,
           );
         } else {
-          final preKeyMessage = PreKeySignalMessage(envelope.ciphertext);
-          decrypted = await sessionManager.decryptReceived(
-            address,
-            preKeyMessage,
-          );
+          // Legacy V1 compatibility.
+          if (await sessionManager.hasSession(address)) {
+            decrypted = await sessionManager.decryptReceived(
+              address,
+              SignalMessage.fromSerialized(envelope.ciphertext),
+            );
+          } else {
+            decrypted = await sessionManager.decryptReceived(
+              address,
+              PreKeySignalMessage(envelope.ciphertext),
+            );
+          }
         }
 
         chatId = peer.chatId;

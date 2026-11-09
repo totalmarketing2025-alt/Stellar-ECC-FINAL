@@ -10,6 +10,7 @@ import 'dart:typed_data';
 ///   bytes deliveryToken
 ///   u16 recipientRouteLength
 ///   UTF-8 recipientRoute
+///   u8 ciphertextType (V2 only: 2 = Signal, 3 = PreKey)
 ///   u32 ciphertextLength
 ///   bytes ciphertext
 class Envelope {
@@ -18,6 +19,7 @@ class Envelope {
     required this.recipientRoute,
     required this.ciphertext,
     this.envelopeVersion = 1,
+    this.ciphertextType,
     this.relayTtlSeconds = 72 * 60 * 60,
   });
 
@@ -25,10 +27,24 @@ class Envelope {
   final String recipientRoute;
   final Uint8List ciphertext;
   final int envelopeVersion;
+  final int? ciphertextType;
   final int relayTtlSeconds;
 
   Uint8List encode() {
     final recipientBytes = utf8.encode(recipientRoute);
+
+    if (envelopeVersion != 1 && envelopeVersion != 2) {
+      throw ArgumentError.value(
+        envelopeVersion, 'envelopeVersion', 'unsupported version',
+      );
+    }
+    if (envelopeVersion == 1 && ciphertextType != null) {
+      throw ArgumentError('V1 cannot contain ciphertextType');
+    }
+    if (envelopeVersion == 2 &&
+        ciphertextType != 2 && ciphertextType != 3) {
+      throw ArgumentError('V2 requires Signal ciphertext type 2 or 3');
+    }
 
     if (deliveryToken.length > 0xFFFF) {
       throw ArgumentError.value(
@@ -80,6 +96,10 @@ class Envelope {
     builder.add(_u16(recipientBytes.length));
     builder.add(recipientBytes);
 
+    if (envelopeVersion == 2) {
+      builder.addByte(ciphertextType!);
+    }
+
     builder.add(_u32(ciphertext.length));
     builder.add(ciphertext);
 
@@ -91,6 +111,10 @@ class Envelope {
 
     final version = _readU16(bytes, offset);
     offset += 2;
+
+    if (version != 1 && version != 2) {
+      throw FormatException('Unsupported envelope version: $version');
+    }
 
     final ttl = _readU32(bytes, offset);
     offset += 4;
@@ -106,6 +130,15 @@ class Envelope {
     _requireAvailable(bytes, offset, routeLen, 'recipient route');
     final routeBytes = bytes.sublist(offset, offset + routeLen);
     offset += routeLen;
+
+    int? ciphertextType;
+    if (version == 2) {
+      _requireAvailable(bytes, offset, 1, 'ciphertext type');
+      ciphertextType = bytes[offset++];
+      if (ciphertextType != 2 && ciphertextType != 3) {
+        throw FormatException('Invalid Signal ciphertext type');
+      }
+    }
 
     final ctLen = _readU32(bytes, offset);
     offset += 4;
@@ -126,6 +159,7 @@ class Envelope {
       recipientRoute: route,
       ciphertext: ciphertext,
       envelopeVersion: version,
+      ciphertextType: ciphertextType,
       relayTtlSeconds: ttl,
     );
   }

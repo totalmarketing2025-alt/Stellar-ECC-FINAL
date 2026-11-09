@@ -35,6 +35,62 @@ void main() {
       expect(decoded.recipientRoute, 'тест_用户');
     });
 
+    test('V2 round-trips PreKey ciphertext type', () {
+      final original = Envelope(
+        envelopeVersion: 2,
+        ciphertextType: 3,
+        deliveryToken: Uint8List.fromList([1, 2]),
+        recipientRoute: 'bob',
+        ciphertext: Uint8List.fromList([10, 20]),
+      );
+
+      final decoded = Envelope.decode(original.encode());
+
+      expect(decoded.envelopeVersion, 2);
+      expect(decoded.ciphertextType, 3);
+      expect(decoded.ciphertext, [10, 20]);
+    });
+
+    test('V2 round-trips regular Signal ciphertext type', () {
+      final original = Envelope(
+        envelopeVersion: 2,
+        ciphertextType: 2,
+        deliveryToken: Uint8List.fromList([1]),
+        recipientRoute: 'alice',
+        ciphertext: Uint8List.fromList([30, 40]),
+      );
+
+      final decoded = Envelope.decode(original.encode());
+
+      expect(decoded.ciphertextType, 2);
+      expect(decoded.recipientRoute, 'alice');
+    });
+
+    test('V1 remains compatible without ciphertext type', () {
+      final original = Envelope(
+        deliveryToken: Uint8List.fromList([1]),
+        recipientRoute: 'bob',
+        ciphertext: Uint8List.fromList([2]),
+      );
+
+      final decoded = Envelope.decode(original.encode());
+
+      expect(decoded.envelopeVersion, 1);
+      expect(decoded.ciphertextType, isNull);
+    });
+
+    test('rejects V2 without ciphertext type', () {
+      expect(
+        () => Envelope(
+          envelopeVersion: 2,
+          deliveryToken: Uint8List.fromList([1]),
+          recipientRoute: 'bob',
+          ciphertext: Uint8List.fromList([2]),
+        ).encode(),
+        throwsArgumentError,
+      );
+    });
+
     test('rejects truncated envelope', () {
       expect(
         () => Envelope.decode(Uint8List.fromList([0x00, 0x01])),
