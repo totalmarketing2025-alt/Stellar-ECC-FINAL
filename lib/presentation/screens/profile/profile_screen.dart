@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/stellar_theme.dart';
 import '../../state/app_providers.dart';
@@ -490,6 +491,33 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Center(
+            child: TextButton.icon(
+              onPressed: () async {
+                final uri = Uri.parse('https://www.stellarecc.com');
+                final opened = await launchUrl(
+                  uri,
+                  mode: LaunchMode.externalApplication,
+                );
+                if (!opened && mounted) {
+                  _showMessage('Could not open Stellar website.');
+                }
+              },
+              icon: const Icon(
+                Icons.language_rounded,
+                color: Color(0xFFB58AFF),
+                size: 18,
+              ),
+              label: const Text(
+                'www.stellarecc.com',
+                style: TextStyle(
+                  color: Color(0xFFB58AFF),
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
