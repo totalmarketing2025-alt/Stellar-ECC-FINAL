@@ -322,7 +322,10 @@ class CallCoordinator {
       }
     } catch (error) {
       print('CALL_OUTGOING_TIMEOUT_CLEANUP: $error');
-      await _callService.end();
+      // Avoid closing a replacement call after timeout.
+      if (_activeSession?.callId == callId) {
+        await _callService.end(expectedCallId: callId);
+      }
     }
 
     if (_activeSession?.callId != callId) return;

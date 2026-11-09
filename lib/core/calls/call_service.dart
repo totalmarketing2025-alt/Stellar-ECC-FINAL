@@ -732,7 +732,11 @@ class CallService {
     await end();
   }
 
-  Future<void> end() async {
+  Future<void> end({String? expectedCallId}) async {
+  // Prevent stale cleanup from ending a replacement call.
+  if (expectedCallId != null && _callId != expectedCallId) {
+    return;
+  }
     // Invalidate outstanding start operations before releasing resources.
     _callGeneration++;
 
