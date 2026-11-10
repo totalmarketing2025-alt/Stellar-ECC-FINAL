@@ -463,8 +463,10 @@ const RELAY_UPLOAD_ERROR_PREFIX =
   "STELLAR_UPLOAD_ERROR_V1:";
 
 const RELAY_UPLOAD_CHUNK_SIZE = 128 * 1024;
-const RELAY_UPLOAD_MAX_BYTES = 9 * 1024 * 1024;
-const RELAY_UPLOAD_TTL_MS = 5 * 60 * 1000;
+// 8 MiB attachment payloads expand via base64 before Signal encryption.
+const RELAY_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
+// Allow slow mobile clients enough time for ACK-gated 128 KiB chunks.
+const RELAY_UPLOAD_TTL_MS = 15 * 60 * 1000;
 
 const RELAY_AUTH_TTL_MS = 60 * 1000;
 
