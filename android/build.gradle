@@ -18,6 +18,22 @@ allprojects {
     }
 }
 
+// Keep legacy Flutter plugin buildscript classpaths on the same Android Gradle
+// Plugin version as the application. Some transitive plugins (for example,
+// audioplayers_android) still request AGP 7.3.1 from their own build.gradle.
+// Mixing AGP versions can break configuration on Gradle 8.7.
+subprojects { subproject ->
+    subproject.buildscript.configurations.configureEach { configuration ->
+        configuration.resolutionStrategy.eachDependency { dependency ->
+            if (dependency.requested.group == 'com.android.tools.build' &&
+                dependency.requested.name == 'gradle') {
+                dependency.useVersion '8.5.0'
+                dependency.because 'Align Flutter plugin buildscript AGP with the root project'
+            }
+        }
+    }
+}
+
 rootProject.buildDir = '../build'
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
