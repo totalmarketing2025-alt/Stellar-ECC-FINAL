@@ -135,7 +135,9 @@ class RelayClient {
       'STELLAR_UPLOAD_ERROR_V1:';
 
   static const _uploadChunkSize = 128 * 1024;
-  static const _uploadMaxBytes = 9 * 1024 * 1024;
+  // 8 MiB attachments are base64-encoded in the Signal message payload,
+  // so the encrypted relay envelope can exceed 10.7 MiB.
+  static const _uploadMaxBytes = 12 * 1024 * 1024;
   static const _directEnvelopeMaxBytes = 512 * 1024;
 
   /// Receipt-based sends use the direct protocol only.
@@ -789,7 +791,7 @@ class RelayClient {
 
     try {
       return await completer.future.timeout(
-        const Duration(seconds: 30),
+        const Duration(seconds: 90),
         onTimeout: () => throw TimeoutException(
           'Timed out waiting for relay upload ACK',
         ),
