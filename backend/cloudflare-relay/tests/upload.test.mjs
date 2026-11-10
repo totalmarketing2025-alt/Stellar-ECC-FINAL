@@ -581,11 +581,11 @@ test("concurrent DONE only delivers once", async () => {
   assert.equal(transfers.get(uploadId).status, "completed");
 });
 
-test("large upload preserves every byte at 2, 5 and 7 MiB", async (t) => {
+test("large upload preserves every byte at 2, 4, 5, 7, 8 and 11 MiB", async (t) => {
   const MiB = 1024 * 1024;
   const chunkSize = 128 * 1024;
 
-  for (const sizeMiB of [2, 5, 7]) {
+  for (const sizeMiB of [2, 4, 5, 7, 8, 11]) {
     await t.test(`${sizeMiB} MiB`, async () => {
       const totalBytes = sizeMiB * MiB;
       const route = new TextEncoder().encode("bob");
