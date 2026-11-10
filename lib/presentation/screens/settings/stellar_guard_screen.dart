@@ -47,13 +47,13 @@ class StellarGuardScreen extends StatelessWidget {
                   const SizedBox(height: 8),
                   TextField(
                     keyboardType: TextInputType.number,
-                    maxLength: 6,
+                    maxLength: 9,
                     inputFormatters: [
                       FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(6),
+                      LengthLimitingTextInputFormatter(9),
                     ],
                     decoration: const InputDecoration(
-                      hintText: 'Enter 6-digit code',
+                      hintText: 'Enter 9-digit code',
                       border: OutlineInputBorder(),
                       counterText: '',
                     ),
