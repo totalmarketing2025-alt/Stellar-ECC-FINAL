@@ -10,6 +10,10 @@ on:
       - ".github/workflows/relay-deploy.yml"
   workflow_dispatch:
 
+concurrency:
+  group: stellar-ecc-final-cloudflare-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -69,6 +73,18 @@ jobs:
           fs.writeFileSync(file, JSON.stringify(values), { mode: 0o600 });
           NODE
 
-          npx wrangler secret bulk "$secret_file"
+          # Retry transient Cloudflare Worker update conflicts (11024).
+          for attempt in 1 2 3 4 5; do
+            if npx wrangler secret bulk "$secret_file"; then
+              exit 0
+            fi
+            if [[ "$attempt" -eq 5 ]]; then
+              echo "::error::Worker secret upload failed after 5 attempts."
+              exit 1
+            fi
+            delay=$((attempt * 15))
+            echo "::warning::Secret upload attempt $attempt failed; retrying in ${delay}s."
+            sleep "$delay"
+          done
 
 # FCM deploy trigger
