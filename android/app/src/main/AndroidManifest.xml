@@ -68,6 +68,10 @@
         <!-- Silent/high-priority FCM wake pings only — no content in payload. -->
 
 
+        <receiver
+            android:name=".calls.StellarCallActionReceiver"
+            android:exported="false" />
+
         <activity
             android:name=".calls.StellarIncomingCallActivity"
             android:exported="false"
