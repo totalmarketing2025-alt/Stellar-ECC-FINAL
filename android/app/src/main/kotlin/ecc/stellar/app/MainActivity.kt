@@ -379,7 +379,16 @@ class MainActivity : FlutterFragmentActivity() {
             Context.MODE_PRIVATE
         )
 
-        if (prefs.getBoolean(PREF_STARTUP_PERMISSIONS_REQUESTED, false)) {
+        // FCM-11: A previous request does not mean notifications are enabled.
+        // Recheck the current Android permission state on every startup.
+        // Keep the one-time behavior for unrelated camera/audio permissions.
+        val previouslyRequested =
+            prefs.getBoolean(PREF_STARTUP_PERMISSIONS_REQUESTED, false)
+        if (previouslyRequested &&
+            (Build.VERSION.SDK_INT < 33 ||
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                    PackageManager.PERMISSION_GRANTED)
+        ) {
             result.success(mapOf("alreadyRequested" to true))
             return
         }
@@ -407,7 +416,9 @@ class MainActivity : FlutterFragmentActivity() {
         }
 
         val missing = required.filter {
-            checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+            checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED &&
+                (!previouslyRequested ||
+                    it == Manifest.permission.POST_NOTIFICATIONS)
         }
 
         if (missing.isEmpty()) {
