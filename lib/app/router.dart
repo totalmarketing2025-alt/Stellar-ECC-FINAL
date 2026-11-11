@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../domain/models/call_session.dart';
 import '../presentation/state/app_providers.dart';
-import '../core/calls/call_coordinator.dart';
 
 import '../presentation/screens/splash/splash_screen.dart';
 import '../presentation/screens/onboarding/welcome_screen.dart';
