@@ -62,7 +62,7 @@ object StellarIncomingCallNotification {
 
         val answer = Intent(
             context,
-            StellarIncomingCallActivity::class.java
+            StellarCallActionReceiver::class.java
         ).apply {
             action = StellarIncomingCallActivity.ACTION_ANSWER
             putExtra(StellarCallManager.EXTRA_CALL_ID, callId)
@@ -84,7 +84,7 @@ object StellarIncomingCallNotification {
 
         val reject = Intent(
             context,
-            StellarIncomingCallActivity::class.java
+            StellarCallActionReceiver::class.java
         ).apply {
             action = StellarIncomingCallActivity.ACTION_REJECT
             putExtra(StellarCallManager.EXTRA_CALL_ID, callId)
@@ -112,7 +112,7 @@ object StellarIncomingCallNotification {
                 PendingIntent.FLAG_IMMUTABLE
         )
 
-        val answerPending = PendingIntent.getActivity(
+        val answerPending = PendingIntent.getBroadcast(
             context,
             id(callId) + 1,
             answer,
@@ -120,7 +120,7 @@ object StellarIncomingCallNotification {
                 PendingIntent.FLAG_IMMUTABLE
         )
 
-        val rejectPending = PendingIntent.getActivity(
+        val rejectPending = PendingIntent.getBroadcast(
             context,
             id(callId) + 2,
             reject,
