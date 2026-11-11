@@ -205,8 +205,11 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                 await ref.read(chatRepositoryProvider).setChatPinned(chat.chatId, !chat.isPinned);
                 ref.invalidate(chatListProvider);
               } catch (error) {
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('$error')));
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('$error')),
+                  );
+                }
               }
             },
           ),
@@ -245,8 +248,11 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       await ref.read(chatRepositoryProvider).deleteLocalDirectChat(chat.chatId);
       ref.invalidate(chatListProvider);
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not delete chat: $error')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not delete chat: $error')),
+        );
+      }
     }
   }
 
