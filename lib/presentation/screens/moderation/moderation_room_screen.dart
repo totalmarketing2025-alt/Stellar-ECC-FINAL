@@ -1,3 +1,8 @@
+import "dart:io";
+import "dart:typed_data";
+
+import "package:audioplayers/audioplayers.dart";
+import "package:path_provider/path_provider.dart";
 import "package:flutter/material.dart";
 import "package:flutter_riverpod/flutter_riverpod.dart";
 
@@ -429,29 +434,56 @@ class _ModerationRoomScreenState
     );
   }
 
-  Future<void> _viewAttachment(
-    ModerationAdminMessage message,
-  ) async {
-    final mimeType = message.attachmentMimeType;
-
-    if (mimeType == null || mimeType.isEmpty) {
-      return;
-    }
-
-    final isImage = mimeType.toLowerCase().startsWith("image/");
-
-    if (!isImage) {
-      if (!mounted) return;
-
+  Future<void> _viewAttachment(ModerationAdminMessage message) async {
+    final mime = message.attachmentMimeType?.toLowerCase() ?? "";
+    if (mime.isEmpty || !_authenticated) return;
+    try {
+      final bytes = await ref.read(moderationAdminClientProvider)
+          .fetchAttachment(message.messageId);
+      if (!mounted || !_authenticated) return;
+      if (bytes.isEmpty) throw StateError("Attachment is empty");
+      // Avoid retaining oversized attachments in the admin UI.
+      if (bytes.length > 32 * 1024 * 1024) {
+        throw StateError("Attachment exceeds 32 MiB preview limit");
+      }
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text("Attachment"),
-          content: Text(
-            "Attachment is stored securely in the moderation "
-            "R2 bucket.\n\nMIME type: $mimeType",
+          title: const Text("Moderation attachment"),
+          content: SizedBox(
+            width: 440,
+            child: mime.startsWith("image/")
+                ? InteractiveViewer(
+                    child: Image.memory(bytes, fit: BoxFit.contain),
+                  )
+                : mime.startsWith("audio/")
+                    ? _ModerationAudioPlayer(bytes: bytes)
+                    : Text("File type: $mime\\nSize: ${bytes.length} bytes"),
           ),
           actions: [
+            TextButton.icon(
+              onPressed: () async {
+                try {
+                  final dir = await getApplicationDocumentsDirectory();
+                  final ext = _attachmentExtension(mime);
+                  final safeId = message.messageId
+                      .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+                  final file = File('${dir.path}/moderation_$safeId.$ext');
+                  await file.writeAsBytes(bytes, flush: true);
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Saved in app documents: ${file.path}")),
+                  );
+                } catch (error) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Save failed: $error")),
+                  );
+                }
+              },
+              icon: const Icon(Icons.save_alt),
+              label: const Text("Save to app documents"),
+            ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
               child: const Text("Close"),
@@ -459,45 +491,28 @@ class _ModerationRoomScreenState
           ],
         ),
       );
-
-      return;
-    }
-
-    try {
-      final bytes = await ref
-          .read(moderationAdminClientProvider)
-          .fetchAttachment(message.messageId);
-
+    } catch (error) {
       if (!mounted) return;
-
-      await showDialog<void>(
-        context: context,
-        builder: (context) => Dialog(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: InteractiveViewer(
-              minScale: 0.5,
-              maxScale: 4,
-              child: Image.memory(
-                bytes,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text("Unable to render attachment"),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Attachment error: $e"),
-        ),
+        SnackBar(content: Text("Attachment error: $error")),
       );
+    }
+  }
+
+  String _attachmentExtension(String mime) {
+    switch (mime.split(";").first.trim()) {
+      case "image/jpeg": return "jpg";
+      case "image/png": return "png";
+      case "image/webp": return "webp";
+      case "audio/mpeg": return "mp3";
+      case "audio/mp4":
+      case "audio/x-m4a": return "m4a";
+      case "audio/ogg": return "ogg";
+      case "audio/wav":
+      case "audio/x-wav": return "wav";
+      case "application/pdf": return "pdf";
+      case "video/mp4": return "mp4";
+      default: return "bin";
     }
   }
 
@@ -561,7 +576,7 @@ class _ModerationRoomScreenState
                           .toLowerCase()
                           .startsWith("image/")
                       ? "View attachment"
-                      : "View attachment info",
+                      : "Open attachment",
                 ),
               ),
             ],
@@ -625,6 +640,75 @@ class _ModerationRoomScreenState
           onPressed: !_loading && canGoNext ? _nextPage : null,
           icon: const Icon(Icons.chevron_right),
         ),
+      ],
+    );
+  }
+}
+
+class _ModerationAudioPlayer extends StatefulWidget {
+  const _ModerationAudioPlayer({required this.bytes});
+  final Uint8List bytes;
+
+  @override
+  State<_ModerationAudioPlayer> createState() => _ModerationAudioPlayerState();
+}
+
+class _ModerationAudioPlayerState extends State<_ModerationAudioPlayer> {
+  final AudioPlayer _player = AudioPlayer();
+  bool _playing = false;
+  String? _error;
+
+  Future<void> _toggle() async {
+    try {
+      if (_playing) {
+        await _player.pause();
+      } else {
+        await _player.play(BytesSource(widget.bytes));
+      }
+      if (mounted) setState(() => _playing = !_playing);
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    }
+  }
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text("Voice message"),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+              tooltip: _playing ? "Pause" : "Play",
+              onPressed: _toggle,
+              icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
+            ),
+            IconButton(
+              tooltip: "Stop",
+              onPressed: () async {
+                await _player.stop();
+                if (mounted) setState(() => _playing = false);
+              },
+              icon: const Icon(Icons.stop),
+            ),
+          ],
+        ),
+        StreamBuilder<Duration>(
+          stream: _player.onPositionChanged,
+          builder: (context, snapshot) {
+            final position = snapshot.data ?? Duration.zero;
+            return Text("${position.inMinutes.toString().padLeft(2, '0')}:${(position.inSeconds % 60).toString().padLeft(2, '0')}");
+          },
+        ),
+        if (_error != null) Text(_error!),
       ],
     );
   }
