@@ -29,6 +29,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final path = state.uri.path;
       if (ref.read(isUnlockedProvider)) return null;
       if (path == '/splash' || path == '/unlock') return null;
+      if (path == '/onboarding/app-lock' && ref.read(pinSetupRequiredProvider)) return null;
       if (path.startsWith('/onboarding/') && ref.read(localNicknameProvider) == null) return null;
       if (path.startsWith('/call/')) {
         final nickname = ref.read(localNicknameProvider);
