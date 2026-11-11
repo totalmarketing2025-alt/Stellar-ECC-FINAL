@@ -24,12 +24,13 @@ import '../presentation/screens/moderation/moderation_room_screen.dart';
 import '../presentation/screens/moderation/broadcast_inbox_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  return GoRouter(
+  final router = GoRouter(
     initialLocation: '/splash',
     redirect: (context, state) {
       final path = state.uri.path;
       if (ref.read(isUnlockedProvider)) return null;
-      if (path == '/splash' || path == '/unlock' || path.startsWith('/onboarding/')) return null;
+      if (path == '/splash' || path == '/unlock') return null;
+      if (path.startsWith('/onboarding/') && ref.read(localNicknameProvider) == null) return null;
       if (path.startsWith('/call/')) {
         final nickname = ref.read(localNicknameProvider);
         if (nickname != null && nickname.isNotEmpty) {
@@ -92,4 +93,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
     ],
   );
+  ref.listen<bool>(isUnlockedProvider, (previous, next) => router.refresh());
+  ref.onDispose(router.dispose);
+  return router;
 });
