@@ -424,20 +424,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
     final ttl = _perMessageTtlOverride >= 0 ? _perMessageTtlOverride : (chat?.defaultTtlSeconds ?? TtlPreset.oneHour);
 
-    await ref.read(chatRepositoryProvider).sendDirectMessage(
-          chatId: widget.chatId,
-          plaintext: '📎 Attachment',
-          ttlSeconds: ttl,
-          attachmentBytes: bytes,
-          attachmentMimeType: mimeType,
-          replyToId: _replyingTo?.messageId,
-        );
+    try {
+      await ref.read(chatRepositoryProvider).sendDirectMessage(
+            chatId: widget.chatId,
+            plaintext: '📎 Attachment',
+            ttlSeconds: ttl,
+            attachmentBytes: bytes,
+            attachmentMimeType: mimeType,
+            replyToId: _replyingTo?.messageId,
+          );
 
-    if (mounted && _replyingTo != null) {
-      setState(() => _replyingTo = null);
+      if (mounted && _replyingTo != null) {
+        setState(() => _replyingTo = null);
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Attachment could not be sent: $error'),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+    } finally {
+      ref.invalidate(chatMessagesProvider(widget.chatId));
+      ref.invalidate(chatListProvider);
     }
-    ref.invalidate(chatMessagesProvider(widget.chatId));
-    ref.invalidate(chatListProvider);
   }
 
 
