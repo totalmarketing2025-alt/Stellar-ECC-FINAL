@@ -28,8 +28,7 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
 
     if (enabled) {
       ref.read(pinSetupRequiredProvider.notifier).state = false;
-      ref.read(pinSetupRequiredProvider.notifier).state = false;
-    ref.read(isUnlockedProvider.notifier).state = true;
+      ref.read(isUnlockedProvider.notifier).state = true;
       context.go('/chats');
     } else {
       setState(() => _error = 'Biometric authentication was not enabled.');
@@ -65,6 +64,7 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
 
     if (!mounted) return;
 
+    ref.read(pinSetupRequiredProvider.notifier).state = false;
     ref.read(isUnlockedProvider.notifier).state = true;
     context.go('/chats');
   }
