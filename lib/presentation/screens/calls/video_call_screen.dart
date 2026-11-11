@@ -141,7 +141,9 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
 
-      if (context.canPop()) {
+      if (!ref.read(isUnlockedProvider)) {
+        context.go('/unlock');
+      } else if (context.canPop()) {
         context.pop();
       } else {
         context.go('/chat/${Uri.encodeComponent(widget.chatId)}');
