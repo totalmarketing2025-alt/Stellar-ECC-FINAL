@@ -7,6 +7,9 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/stellar_theme.dart';
 import '../../state/app_providers.dart';
 import '../../state/app_lock_controller.dart';
+import '../../../core/calls/call_coordinator.dart';
+import '../../../domain/models/call_session.dart';
+import '../../../app/router.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -49,6 +52,16 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
     final lockController = ref.read(appLockControllerProvider);
     await lockController.loadEnabledState();
+
+    // A call-only route does not unlock private application content.
+    final currentUri = ref.read(appRouterProvider).routeInformationProvider.value.uri;
+    final session = ref.read(callCoordinatorProvider).activeSession;
+    if (session != null && session.state != CallState.ended &&
+        session.state != CallState.failed &&
+        currentUri.queryParameters['incoming'] == '1') {
+      final kind = session.kind == CallKind.video ? 'video' : 'voice';
+      if (currentUri.path == '/call/$kind/${Uri.encodeComponent(session.chatId)}') return;
+    }
 
     final biometricEnabled =
         await lockController.isBiometricLockEnabled();
