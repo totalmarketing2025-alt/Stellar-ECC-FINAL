@@ -372,3 +372,6 @@ final chatMessagesProvider = FutureProvider.autoDispose
 /// this app session. Reset to false on cold start and on background
 /// timeout (see presentation/state/app_lock_controller.dart, module 6).
 final isUnlockedProvider = StateProvider<bool>((ref) => false);
+
+/// Set only after startup confirms no PIN exists on this device.
+final pinSetupRequiredProvider = StateProvider<bool>((ref) => false);
