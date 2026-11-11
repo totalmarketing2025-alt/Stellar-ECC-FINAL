@@ -151,6 +151,7 @@ class StellarDatabase {
     ''');
 
     _ensureChatPeerColumns(db);
+    _ensureChatPinColumn(db);
 
     db.execute('''
       CREATE TABLE IF NOT EXISTS message (
@@ -325,6 +326,12 @@ CREATE TABLE IF NOT EXISTS moderation_outbox (
 
     if (!names.contains('peer_device_id')) {
       db.execute('ALTER TABLE chat ADD COLUMN peer_device_id INTEGER;');
+    }
+  }
+
+  static void _ensureChatPinColumn(Database db) {
+    if (!db.select('PRAGMA table_info(chat)').any((row) => row['name'] == 'pinned_at')) {
+      db.execute('ALTER TABLE chat ADD COLUMN pinned_at INTEGER;');
     }
   }
 
@@ -593,7 +600,7 @@ class ChatDao {
             AND (? IS NULL OR LOWER(m.sender_id) != LOWER(?))
         ) AS unread_count
       FROM chat c
-      ORDER BY COALESCE(last_message_at, c.created_at) DESC
+      ORDER BY (c.pinned_at IS NULL) ASC, c.pinned_at ASC, COALESCE(last_message_at, c.created_at) DESC
     ''', [
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
@@ -634,6 +641,51 @@ class ChatDao {
 
   Future<void> updateDefaultTtl(String chatId, int ttlSec) async {
     _db.execute('UPDATE chat SET default_ttl_sec = ? WHERE chat_id = ?', [ttlSec, chatId]);
+  }
+
+  Future<void> setPinned(String chatId, bool pinned) async {
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+      final row = _db.select('SELECT pinned_at FROM chat WHERE chat_id = ?', [chatId]);
+      if (row.isEmpty) throw StateError('Chat not found');
+      if (pinned && row.first['pinned_at'] == null) {
+        final count = _db.select('SELECT COUNT(*) AS n FROM chat WHERE pinned_at IS NOT NULL').first['n'] as int;
+        if (count >= 5) throw StateError('Maximum 5 pinned chats');
+      }
+      _db.execute('UPDATE chat SET pinned_at = ? WHERE chat_id = ?',
+        [pinned ? (row.first['pinned_at'] ?? DateTime.now().microsecondsSinceEpoch) : null, chatId]);
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
+  }
+
+  /// Local deletion only. Never deletes moderation records or Signal keys.
+  Future<List<Map<String, Object?>>> deleteLocalDirectChat(String chatId) async {
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+      final chat = _db.select('SELECT chat_type FROM chat WHERE chat_id = ?', [chatId]);
+      if (chat.isEmpty || chat.first['chat_type'] != 'direct') {
+        throw StateError('Only existing direct chats can be deleted');
+      }
+      final pending = _db.select('''
+        SELECT 1 FROM transport_outbox
+        WHERE message_id IN (SELECT message_id FROM message WHERE chat_id = ?)
+        LIMIT 1
+      ''', [chatId]);
+      if (pending.isNotEmpty) throw StateError('Wait for pending messages to finish sending');
+      final media = _db.select('''
+        SELECT blob_id, file_path FROM media_blob
+        WHERE message_id IN (SELECT message_id FROM message WHERE chat_id = ?)
+      ''', [chatId]).map((row) => Map<String, Object?>.from(row)).toList();
+      _db.execute('DELETE FROM chat WHERE chat_id = ?', [chatId]);
+      _db.execute('COMMIT');
+      return media;
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
   }
 
   Future<void> delete(String chatId) async {

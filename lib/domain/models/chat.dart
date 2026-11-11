@@ -14,6 +14,7 @@ class Chat {
     this.memberIds = const [],
     this.peerName,
     this.peerDeviceId,
+    this.pinnedAt,
   });
 
   final String chatId;
@@ -28,6 +29,8 @@ class Chat {
   final List<String> memberIds;
   final String? peerName;
   final int? peerDeviceId;
+  final int? pinnedAt;
+  bool get isPinned => pinnedAt != null;
 
   factory Chat.fromRow(Map<String, Object?> row) {
     return Chat(
@@ -45,6 +48,7 @@ class Chat {
       unreadCount: (row['unread_count'] as int?) ?? 0,
       peerName: row['peer_name'] as String?,
       peerDeviceId: row['peer_device_id'] as int?,
+      pinnedAt: row['pinned_at'] as int?,
     );
   }
 
@@ -67,6 +71,7 @@ class Chat {
       memberIds: memberIds,
       peerName: peerName,
       peerDeviceId: peerDeviceId,
+      pinnedAt: pinnedAt,
     );
   }
 }

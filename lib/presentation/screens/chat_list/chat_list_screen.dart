@@ -122,6 +122,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                     }
                     return _ChatListTile(
                       chat: filtered[index - _broadcasts.length],
+                      onLongPress: () => _showChatActions(filtered[index - _broadcasts.length]),
                     );
                   },
                 );
@@ -186,6 +187,67 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     if (query.trim().isEmpty) return chats;
     final q = query.toLowerCase();
     return chats.where((c) => c.displayName.toLowerCase().contains(q)).toList();
+  }
+
+  Future<void> _showChatActions(Chat chat) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: StellarColors.bgElevated,
+      builder: (sheetContext) => SafeArea(child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: Icon(chat.isPinned ? Icons.push_pin_outlined : Icons.push_pin),
+            title: Text(chat.isPinned ? 'Unpin Chat' : 'Pin Chat'),
+            onTap: () async {
+              Navigator.pop(sheetContext);
+              try {
+                await ref.read(chatRepositoryProvider).setChatPinned(chat.chatId, !chat.isPinned);
+                ref.invalidate(chatListProvider);
+              } catch (error) {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('$error')));
+              }
+            },
+          ),
+          if (chat.chatType == ChatType.direct)
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: StellarColors.danger),
+              title: const Text('Delete Chat'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _confirmDeleteChat(chat);
+              },
+            ),
+        ],
+      )),
+    );
+  }
+
+  Future<void> _confirmDeleteChat(Chat chat) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete Chat?'),
+        content: Text('Delete local conversation with ${chat.displayName}? '
+          'This does not delete messages on the other device. '
+          'New incoming messages will recreate the chat.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ref.read(chatRepositoryProvider).deleteLocalDirectChat(chat.chatId);
+      ref.invalidate(chatListProvider);
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not delete chat: $error')));
+    }
   }
 
   void _showNewChatSheet(BuildContext context) {
@@ -269,13 +331,15 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
 }
 
 class _ChatListTile extends ConsumerWidget {
-  const _ChatListTile({required this.chat});
+  const _ChatListTile({required this.chat, required this.onLongPress});
   final Chat chat;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return ListTile(
       onTap: () => context.push('/chat/${chat.chatId}'),
+      onLongPress: onLongPress,
       leading: StellarAvatar(
         seed: chat.chatId,
         label: chat.displayName,
@@ -286,7 +350,12 @@ class _ChatListTile extends ConsumerWidget {
                 ?.value
             : null,
       ),
-      title: Text(chat.displayName, style: const TextStyle(fontWeight: FontWeight.w600)),
+      title: Row(children: [
+        Flexible(child: Text(chat.displayName, overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600))),
+        if (chat.isPinned) const Padding(padding: EdgeInsets.only(left: 6),
+          child: Icon(Icons.push_pin, size: 15, color: StellarColors.textSecondary)),
+      ]),
       subtitle: Text(
         chat.lastMessagePreview ?? 'No messages yet',
         maxLines: 1,

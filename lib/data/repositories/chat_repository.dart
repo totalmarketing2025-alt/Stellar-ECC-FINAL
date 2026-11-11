@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:convert';
 
@@ -216,6 +217,20 @@ class ChatRepository {
   }
 
   final _uuid = const Uuid();
+
+  Future<void> setChatPinned(String chatId, bool pinned) =>
+      db.chatDao.setPinned(chatId, pinned);
+
+  Future<void> deleteLocalDirectChat(String chatId) async {
+    final media = await db.chatDao.deleteLocalDirectChat(chatId);
+    for (final row in media) {
+      final blobId = row['blob_id'] as String;
+      final path = row['file_path'] as String;
+      // Destroy the encryption key first, then remove ciphertext on disk.
+      if (mediaService != null) await mediaService!.wipeAttachmentKey(blobId);
+      if (path.isNotEmpty && await File(path).exists()) await File(path).delete();
+    }
+  }
 
   Future<List<Chat>> loadChats() async {
     final rows = await db.chatDao.all(
