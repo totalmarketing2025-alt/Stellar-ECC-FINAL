@@ -31,6 +31,9 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
 
         val data = remoteMessage.data
 
+        Log.i("StellarFCM", "FCM-11 push received: type=" +
+            (data["type"] ?: "message") + ", wake=" + (data["wake"] ?: "0"))
+
         if (data["type"] == "call") {
             handleIncomingCall(data)
             return
@@ -174,6 +177,14 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
 
         if (pending != null) {
             builder.setContentIntent(pending)
+        }
+
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w("StellarFCM", "FCM-11 notification blocked: POST_NOTIFICATIONS denied")
+            return
         }
 
         manager.notify(
