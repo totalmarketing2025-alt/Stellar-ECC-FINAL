@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/stellar_theme.dart';
 import '../../state/app_providers.dart';
 import '../../state/app_lock_controller.dart';
-import '../../../core/calls/call_coordinator.dart';
 import '../../../domain/models/call_session.dart';
 import '../../../app/router.dart';
 
