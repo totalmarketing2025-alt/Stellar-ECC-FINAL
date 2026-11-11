@@ -48,6 +48,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
     final keyStore = ref.read(platformKeyStoreProvider);
     final hasPin = await keyStore.hasPin();
+    ref.read(pinSetupRequiredProvider.notifier).state = !hasPin;
 
     final lockController = ref.read(appLockControllerProvider);
     await lockController.loadEnabledState();
@@ -80,6 +81,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       if (hasPin) {
         context.go('/unlock');
       }
+      if (!hasPin) {
+        context.go('/onboarding/app-lock');
+      }
       return;
     }
 
@@ -88,8 +92,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       return;
     }
 
-    ref.read(isUnlockedProvider.notifier).state = true;
-    context.go('/chats');
+    // Never enter the private app when no PIN or biometric unlock exists.
+    context.go('/onboarding/app-lock');
   }
 
   @override
