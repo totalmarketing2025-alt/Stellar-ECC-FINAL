@@ -38,6 +38,18 @@ object StellarCallManager {
         activeConnections[callId] = connection
     }
 
+    fun answerIncoming(callId: String): Boolean {
+        val connection = activeConnections[callId] ?: return false
+        connection.onAnswer()
+        return true
+    }
+
+    fun rejectIncoming(callId: String): Boolean {
+        val connection = activeConnections[callId] ?: return false
+        connection.onReject()
+        return true
+    }
+
     fun setCallActive(callId: String): Boolean {
         val connection = activeConnections[callId] ?: return false
         StellarCallAudio.stop(callId)
