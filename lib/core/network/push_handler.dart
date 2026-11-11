@@ -84,6 +84,10 @@ class PushHandler {
 
         if (token != null && token.isNotEmpty) {
           await _enqueueTokenRegistration(token);
+          // Never log the FCM token itself.
+          print('FCM-11: push token registered with Directory');
+        } else {
+          print('FCM-11: Firebase returned no push token');
         }
 
         return;
