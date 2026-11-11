@@ -1,5 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../domain/models/call_session.dart';
+import '../presentation/state/app_providers.dart';
+import '../core/calls/call_coordinator.dart';
 
 import '../presentation/screens/splash/splash_screen.dart';
 import '../presentation/screens/onboarding/welcome_screen.dart';
@@ -23,6 +26,24 @@ import '../presentation/screens/moderation/broadcast_inbox_screen.dart';
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/splash',
+    redirect: (context, state) {
+      final path = state.uri.path;
+      if (ref.read(isUnlockedProvider)) return null;
+      if (path == '/splash' || path == '/unlock' || path.startsWith('/onboarding/')) return null;
+      if (path.startsWith('/call/')) {
+        final nickname = ref.read(localNicknameProvider);
+        if (nickname != null && nickname.isNotEmpty) {
+          final session = ref.read(callCoordinatorProvider).activeSession;
+          if (session != null && session.state != CallState.ended && session.state != CallState.failed &&
+              state.uri.queryParameters['incoming'] == '1') {
+            final kind = session.kind == CallKind.video ? 'video' : 'voice';
+            final allowedPath = '/call/$kind/${Uri.encodeComponent(session.chatId)}';
+            if (path == allowedPath) return null;
+          }
+        }
+      }
+      return '/unlock';
+    },
     routes: [
       GoRoute(path: '/splash', builder: (c, s) => const SplashScreen()),
       GoRoute(path: '/onboarding/welcome', builder: (c, s) => const WelcomeScreen()),
