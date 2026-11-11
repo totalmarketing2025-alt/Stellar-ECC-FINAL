@@ -20,7 +20,13 @@ class AttachmentPickerSheet extends StatelessWidget {
             color: StellarColors.accentBlue,
             onTap: () async {
               final picker = ImagePicker();
-              final file = await picker.pickImage(source: ImageSource.camera);
+              final file = await picker.pickImage(
+                source: ImageSource.camera,
+                maxWidth: 2048,
+                maxHeight: 2048,
+                imageQuality: 75,
+                requestFullMetadata: false,
+              );
               if (context.mounted) Navigator.pop(context, file?.path);
             },
           ),
