@@ -90,6 +90,7 @@ class _ChooseNicknameScreenState
 
       if (!mounted) return;
 
+      ref.read(pinSetupRequiredProvider.notifier).state = true;
       setState(() => _checking = false);
       context.go('/onboarding/recovery');
     } on DirectoryException catch (e) {
