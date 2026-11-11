@@ -79,23 +79,15 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
     private fun handleIncomingCall(
         data: Map<String, String>
     ) {
-        val callId = data["callId"].orEmpty()
-        val remote = data["from"].orEmpty()
-            .ifBlank { data["remoteNickname"].orEmpty() }
-
-        val kind = data["kind"]
-            ?.lowercase()
-            ?: "voice"
-
-        val chatId = data["chatId"]
-
-        if (callId.isBlank() || remote.isBlank()) {
+        val wake = StellarCallWake.parse(data)
+        if (wake == null) {
+            Log.w("StellarFCM", "P2-A invalid incoming call wake ignored")
             return
         }
-
-        if (kind != "voice" && kind != "video") {
-            return
-        }
+        val callId = wake.callId
+        val remote = wake.remote
+        val kind = wake.kind
+        val chatId = wake.chatId
 
         try {
             StellarCallManager.incoming(
