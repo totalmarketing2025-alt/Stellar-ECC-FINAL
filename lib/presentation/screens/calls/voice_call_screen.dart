@@ -221,7 +221,8 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
                 ),
               ),
             const Spacer(),
-            TextButton.icon(
+            if (ref.watch(isUnlockedProvider))
+              TextButton.icon(
               onPressed: () => _showSafetyNumberCompare(context),
               icon: const Icon(Icons.verified_user_outlined, size: 16, color: StellarColors.accentBlue),
               label: const Text('Verify safety number', style: TextStyle(color: StellarColors.accentBlue)),
