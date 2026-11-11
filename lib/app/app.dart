@@ -86,6 +86,10 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
       ref.read(callCoordinatorProvider).handlePlatformAction(action),
     );
 
+    final activeCall = ref.read(callCoordinatorProvider).activeSession;
+    if (activeCall == null || activeCall.callId != action.callId ||
+        activeCall.state == CallState.ended || activeCall.state == CallState.failed) return;
+
     if (action.action != 'answer' ||
         action.callId.isEmpty ||
         action.chatId == null ||
