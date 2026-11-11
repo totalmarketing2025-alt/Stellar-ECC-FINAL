@@ -12,6 +12,7 @@ import '../network/relay_client.dart';
 import '../../domain/models/call_session.dart';
 import 'call_platform_bridge.dart';
 import 'call_signal_authenticator.dart';
+import 'outbound_ice_queue.dart';
 
 enum CallDirection { outgoing, incoming }
 
@@ -51,68 +52,11 @@ class CallService {
 
   bool _remoteDescriptionSet = false;
   final List<RTCIceCandidate> _pendingIceCandidates = [];
-  final List<RTCIceCandidate> _outboundIce = [];
-  final Set<String> _outboundIceKeys = <String>{};
-  bool _outboundIceDraining = false;
-  static const int _maxOutboundIce = 128;
+  OutboundIceQueue<RTCIceCandidate>? _outboundIceQueue;
 
   void _resetOutboundIce() {
-    _outboundIce.clear();
-    _outboundIceKeys.clear();
-    _outboundIceDraining = false;
-  }
-
-  void _enqueueOutboundIce(
-    RTCIceCandidate candidate,
-    String remote,
-    int generation,
-  ) {
-    if (!_isCurrentGeneration(generation)) return;
-    final key = jsonEncode(candidate.toMap());
-    if (_outboundIceKeys.contains(key)) return;
-    if (_outboundIce.length >= _maxOutboundIce) {
-      print('CALL_ICE_QUEUE_FULL');
-      return;
-    }
-    _outboundIceKeys.add(key);
-    _outboundIce.add(candidate);
-    unawaited(_drainOutboundIce(remote, generation));
-  }
-
-  Future<void> _drainOutboundIce(String remote, int generation) async {
-    if (_outboundIceDraining || !_isCurrentGeneration(generation)) return;
-    _outboundIceDraining = true;
-    try {
-      while (_isCurrentGeneration(generation) && _outboundIce.isNotEmpty) {
-        final candidate = _outboundIce.first;
-        final key = jsonEncode(candidate.toMap());
-        var delivered = false;
-        for (var attempt = 0; attempt < 3; attempt++) {
-          if (!_isCurrentGeneration(generation)) break;
-          try {
-            await _sendSignal(remote, {
-              'type': 'ice-candidate',
-              'candidate': candidate.toMap(),
-            }).timeout(const Duration(seconds: 3));
-            delivered = true;
-            break;
-          } catch (error) {
-            print('CALL_ICE_RETRY: attempt=${attempt + 1} error=$error');
-            if (attempt < 2) {
-              await Future<void>.delayed(
-                Duration(milliseconds: 500 * (1 << attempt)),
-              );
-            }
-          }
-        }
-        if (!_isCurrentGeneration(generation)) break;
-        _outboundIce.removeAt(0);
-        _outboundIceKeys.remove(key);
-        if (!delivered) print('CALL_ICE_DELIVERY_EXHAUSTED');
-      }
-    } finally {
-      if (_isCurrentGeneration(generation)) _outboundIceDraining = false;
-    }
+    _outboundIceQueue?.clear();
+    _outboundIceQueue = null;
   }
 
   void Function(RTCPeerConnectionState state)? onConnectionStateChanged;
@@ -201,6 +145,13 @@ class CallService {
   }) async {
     final generation = ++_callGeneration;
     _resetOutboundIce();
+    _outboundIceQueue = OutboundIceQueue<RTCIceCandidate>(
+      keyOf: (candidate) => jsonEncode(candidate.toMap()),
+      send: (candidate) => _sendSignal(remoteNickname, {
+        'type': 'ice-candidate',
+        'candidate': candidate.toMap(),
+      }),
+    );
     var phase = 'initialize';
 
     try {
@@ -284,7 +235,7 @@ class CallService {
           return;
         }
 
-        _enqueueOutboundIce(candidate, remoteNickname, generation);
+        _outboundIceQueue?.enqueue(candidate);
       };
 
       _peerConnection!.onConnectionState = (RTCPeerConnectionState state) {
