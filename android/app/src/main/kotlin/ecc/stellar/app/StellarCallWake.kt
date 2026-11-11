@@ -20,8 +20,8 @@ internal data class StellarCallWake(
             if (callId.isEmpty() || callId.length > 128 ||
                 remote.isEmpty() || remote.length > 128 ||
                 kind !in setOf("voice", "video")) return null
-            if (callId.any { it.isISOControl() } ||
-                remote.any { it.isISOControl() }) return null
+            if (callId.any { Character.isISOControl(it) } ||
+                remote.any { Character.isISOControl(it) }) return null
             return StellarCallWake(callId, remote, kind,
                 data["chatId"]?.takeIf { it.isNotBlank() && it.length <= 128 })
         }
