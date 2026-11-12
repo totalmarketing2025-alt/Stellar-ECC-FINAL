@@ -159,7 +159,7 @@ object StellarCallManager {
                         TelecomManager.EXTRA_INCOMING_CALL_ADDRESS,
                         address
                     )
-                    putAll(extras)
+                    putBundle(TelecomManager.EXTRA_INCOMING_CALL_EXTRAS, extras)
                 }
             )
         } catch (error: Throwable) {
@@ -181,7 +181,15 @@ class StellarConnectionService : ConnectionService() {
         request: ConnectionRequest
     ): Connection {
 
-        val extras = request.extras ?: Bundle()
+        // Android Telecom can nest application extras under
+        // EXTRA_INCOMING_CALL_EXTRAS instead of exposing them at top level.
+        val requestExtras = request.extras ?: Bundle()
+        val nestedExtras = requestExtras.getBundle(TelecomManager.EXTRA_INCOMING_CALL_EXTRAS)
+        val extras = if (nestedExtras?.containsKey(EXTRA_CALL_ID) == true) {
+            nestedExtras
+        } else {
+            requestExtras
+        }
 
         val callId =
             extras.getString(StellarCallManager.EXTRA_CALL_ID).orEmpty()
@@ -196,9 +204,14 @@ class StellarConnectionService : ConnectionService() {
                 StellarCallManager.EXTRA_CALL_KIND
             ) ?: "voice"
 
-        val connection = StellarConnection(this)
+        if (callId.isBlank()) {
+            android.util.Log.e("StellarTelecom", "Incoming call missing callId; refusing invalid connection")
+            return Connection.createFailedConnection(
+                DisconnectCause(DisconnectCause.ERROR)
+            )
+        }
 
-        StellarCallManager.registerConnection(callId, connection)
+        val connection = StellarConnection(this)
 
         connection.callId = callId
         connection.remoteNickname = remote
@@ -234,6 +247,7 @@ class StellarConnectionService : ConnectionService() {
             }
         )
 
+        StellarCallManager.registerConnection(callId, connection)
         connection.setRinging()
         StellarCallAudio.startIncomingRingtone(this, callId)
 
