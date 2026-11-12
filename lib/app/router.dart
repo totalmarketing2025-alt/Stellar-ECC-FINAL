@@ -27,10 +27,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: '/splash',
     redirect: (context, state) {
       final path = state.uri.path;
+      // Onboarding is not private content. In particular, recovery and
+      // initial PIN creation must never be redirected to PIN unlock.
+      if (path == '/splash' || path.startsWith('/onboarding/')) return null;
+
+      // A newly registered account may have a nickname but no PIN yet.
+      // Do not display an unlock prompt for a PIN that does not exist.
+      if (ref.read(pinSetupRequiredProvider)) {
+        return path == '/onboarding/app-lock' ? null : '/onboarding/app-lock';
+      }
+
       if (ref.read(isUnlockedProvider)) return null;
-      if (path == '/splash' || path == '/unlock') return null;
-      if (path == '/onboarding/app-lock' && ref.read(pinSetupRequiredProvider)) return null;
-      if (path.startsWith('/onboarding/') && ref.read(localNicknameProvider) == null) return null;
+      if (path == '/unlock') return null;
       if (path.startsWith('/call/')) {
         final nickname = ref.read(localNicknameProvider);
         if (nickname != null && nickname.isNotEmpty) {
