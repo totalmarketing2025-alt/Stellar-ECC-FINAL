@@ -83,13 +83,26 @@ class StellarIncomingCallActivity : Activity() {
 
         val action = intent.action
 
+        // Never forward an incomplete notification action into the private app.
+        // Flutter validates the matching authenticated offer before accepting.
+        if (action != ACTION_INCOMING &&
+            (callId.isBlank() || remote.isBlank() ||
+                (kind != "voice" && kind != "video"))
+        ) {
+            finish()
+            return
+        }
+
         when (action) {
             ACTION_ANSWER -> {
+                StellarCallAudio.stop(callId)
+                StellarIncomingCallNotification.cancel(this, callId)
                 forwardAction("answer", callId, remote, kind, chatId)
                 return
             }
 
             ACTION_REJECT -> {
+                StellarCallManager.setCallEnded(this, callId)
                 forwardAction("reject", callId, remote, kind, chatId)
                 return
             }
