@@ -62,8 +62,11 @@ object StellarIncomingCallNotification {
 
         val answer = Intent(
             context,
-            StellarCallActionReceiver::class.java
+            StellarIncomingCallActivity::class.java
         ).apply {
+            // Notification action is a direct user gesture. Launching an Activity
+            // here is allowed on modern Android, unlike starting one from a
+            // background BroadcastReceiver or Telecom callback.
             action = StellarIncomingCallActivity.ACTION_ANSWER
             putExtra(StellarCallManager.EXTRA_CALL_ID, callId)
             putExtra(
@@ -84,7 +87,7 @@ object StellarIncomingCallNotification {
 
         val reject = Intent(
             context,
-            StellarCallActionReceiver::class.java
+            StellarIncomingCallActivity::class.java
         ).apply {
             action = StellarIncomingCallActivity.ACTION_REJECT
             putExtra(StellarCallManager.EXTRA_CALL_ID, callId)
@@ -112,7 +115,7 @@ object StellarIncomingCallNotification {
                 PendingIntent.FLAG_IMMUTABLE
         )
 
-        val answerPending = PendingIntent.getBroadcast(
+        val answerPending = PendingIntent.getActivity(
             context,
             id(callId) + 1,
             answer,
@@ -120,7 +123,7 @@ object StellarIncomingCallNotification {
                 PendingIntent.FLAG_IMMUTABLE
         )
 
-        val rejectPending = PendingIntent.getBroadcast(
+        val rejectPending = PendingIntent.getActivity(
             context,
             id(callId) + 2,
             reject,
