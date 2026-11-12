@@ -185,7 +185,7 @@ class StellarConnectionService : ConnectionService() {
         // EXTRA_INCOMING_CALL_EXTRAS instead of exposing them at top level.
         val requestExtras = request.extras ?: Bundle()
         val nestedExtras = requestExtras.getBundle(TelecomManager.EXTRA_INCOMING_CALL_EXTRAS)
-        val extras = if (nestedExtras?.containsKey(EXTRA_CALL_ID) == true) {
+        val extras = if (nestedExtras?.containsKey(StellarCallManager.EXTRA_CALL_ID) == true) {
             nestedExtras
         } else {
             requestExtras
