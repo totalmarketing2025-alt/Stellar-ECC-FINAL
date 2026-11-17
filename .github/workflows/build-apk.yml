@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'block6-*'
+      - 'fix/notification-call-actions-20261112'
   workflow_dispatch:
 
 jobs:
@@ -33,6 +34,9 @@ jobs:
 
       - name: Get packages
         run: flutter pub get
+
+      - name: Test call action and lock-screen contracts
+        run: flutter test test/call_notification_action_contract_test.dart
 
       - name: Build APK
         run: flutter build apk --release
