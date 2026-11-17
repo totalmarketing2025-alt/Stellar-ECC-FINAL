@@ -157,20 +157,17 @@ object StellarIncomingCallNotification {
                     fullScreenPending,
                     true
                 )
-                .addAction(
-                    android.app.Notification.Action.Builder(
-                        null,
-                        "Answer",
-                        answerPending
-                    ).build()
-                )
-                .addAction(
-                    android.app.Notification.Action.Builder(
-                        null,
-                        "Decline",
-                        rejectPending
-                    ).build()
-                )
+
+
+        // CallStyle already provides Answer and Decline on Android 12+.
+        // Add explicit actions only on older versions to avoid a third button.
+        if (Build.VERSION.SDK_INT < 31) {
+            builder.addAction(
+                android.app.Notification.Action.Builder(null, "Answer", answerPending).build()
+            ).addAction(
+                android.app.Notification.Action.Builder(null, "Reject", rejectPending).build()
+            )
+        }
 
         if (Build.VERSION.SDK_INT >= 31) {
             builder.setStyle(
