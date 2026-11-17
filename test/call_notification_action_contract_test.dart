@@ -30,6 +30,20 @@ void main() {
     expect(notification, contains('"Reject", rejectPending'));
   });
 
+  test('locked call route checks authenticated offer before PIN setup', () {
+    final router = File('lib/app/router.dart').readAsStringSync();
+    final callGuard = router.indexOf(
+      "if (path.startsWith('/call/') &&",
+    );
+    final pinSetupGuard = router.indexOf(
+      'if (ref.read(pinSetupRequiredProvider))',
+    );
+    expect(callGuard, greaterThanOrEqualTo(0));
+    expect(pinSetupGuard, greaterThan(callGuard));
+    expect(router, contains("offer?.session.callId == session.callId"));
+    expect(router, contains("state.uri.queryParameters['incoming'] == '1'"));
+  });
+
   test('Answer and Decline forward their call IDs to Flutter', () {
     expect(activity, contains('forwardAction("answer", callId, remote, kind, chatId)'));
     expect(activity, contains('forwardAction("reject", callId, remote, kind, chatId)'));
