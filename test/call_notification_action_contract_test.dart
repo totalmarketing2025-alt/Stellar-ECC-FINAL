@@ -30,6 +30,19 @@ void main() {
     expect(notification, contains('"Reject", rejectPending'));
   });
 
+  test('PIN unlock restores matching live call before chats', () {
+    final pin = File('lib/presentation/screens/onboarding/pin_unlock_screen.dart')
+        .readAsStringSync();
+    final app = File('lib/app/app.dart').readAsStringSync();
+    expect(pin, contains('pendingIncomingCallNavigationProvider'));
+    expect(pin, contains("offer?.session.callId == pendingCallId"));
+    expect(pin, contains("session.state == CallState.ringing"));
+    expect(pin, contains("'?incoming=1'"), isFalse);
+    expect(pin, contains('?incoming=1'));
+    expect(app, contains("action.action == 'open_incoming_call'"));
+    expect(app, contains('if (!ref.read(isUnlockedProvider)) return;'));
+  });
+
   test('locked call route checks authenticated offer before PIN setup', () {
     final router = File('lib/app/router.dart').readAsStringSync();
     final callGuard = router.indexOf(
@@ -44,10 +57,10 @@ void main() {
     expect(router, contains("state.uri.queryParameters['incoming'] == '1'"));
   });
 
-  test('Answer and Decline forward their call IDs to Flutter', () {
-    expect(activity, contains('forwardAction("answer", callId, remote, kind, chatId)'));
-    expect(activity, contains('forwardAction("reject", callId, remote, kind, chatId)'));
-    expect(activity, contains('StellarCallManager.setCallEnded(this, callId)'));
+  test('Notification opens call review without accepting or rejecting', () {
+    expect(activity, contains('forwardAction("open_incoming_call", callId, remote, kind, chatId)'));
+    expect(activity, isNot(contains('forwardAction("answer", callId, remote, kind, chatId)')));
+    expect(activity, isNot(contains('StellarCallManager.setCallEnded(this, callId)')));
     expect(activity, contains('callId.isBlank() || remote.isBlank()'));
   });
 }
