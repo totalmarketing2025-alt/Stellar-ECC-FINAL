@@ -95,15 +95,12 @@ class StellarIncomingCallActivity : Activity() {
 
         when (action) {
             ACTION_ANSWER -> {
-                StellarCallAudio.stop(callId)
-                StellarIncomingCallNotification.cancel(this, callId)
-                forwardAction("answer", callId, remote, kind, chatId)
+                forwardAction("open_incoming_call", callId, remote, kind, chatId)
                 return
             }
 
             ACTION_REJECT -> {
-                StellarCallManager.setCallEnded(this, callId)
-                forwardAction("reject", callId, remote, kind, chatId)
+                forwardAction("open_incoming_call", callId, remote, kind, chatId)
                 return
             }
 
@@ -289,11 +286,7 @@ class StellarIncomingCallActivity : Activity() {
                 }
 
                 setOnClickListener {
-                    StellarIncomingCallNotification.cancel(
-                        this@StellarIncomingCallActivity,
-                        callId
-                    )
-                    forwardAction(action, callId, remote, kind, chatId)
+                    forwardAction("open_incoming_call", callId, remote, kind, chatId)
                 }
             }
         }
