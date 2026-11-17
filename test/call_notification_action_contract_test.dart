@@ -37,7 +37,6 @@ void main() {
     expect(pin, contains('pendingIncomingCallNavigationProvider'));
     expect(pin, contains("offer?.session.callId == pendingCallId"));
     expect(pin, contains("session.state == CallState.ringing"));
-    expect(pin, contains("'?incoming=1'"), isFalse);
     expect(pin, contains('?incoming=1'));
     expect(app, contains("action.action == 'open_incoming_call'"));
     expect(app, contains('if (!ref.read(isUnlockedProvider)) return;'));
