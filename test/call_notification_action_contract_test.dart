@@ -39,7 +39,7 @@ void main() {
     expect(pin, contains("session.state == CallState.ringing"));
     expect(pin, contains('?incoming=1'));
     expect(app, contains("action.action == 'open_incoming_call'"));
-    expect(app, contains('if (!ref.read(isUnlockedProvider)) return;'));
+    expect(app, contains('if (!mounted || !ref.read(isUnlockedProvider)) return;'));
   });
 
   test('locked call route checks authenticated offer before PIN setup', () {
