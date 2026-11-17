@@ -941,6 +941,16 @@ class CallCoordinator {
   Future<void> _handlePlatformAction(CallPlatformAction action) async {
     final session = _activeSession;
 
+    // Only queue supported call actions while the authenticated offer is
+    // arriving. Do not let unrelated or stale native actions replace it.
+    if (action.action != 'answer' && action.action != 'reject' &&
+        action.action != 'end') {
+      return;
+    }
+    if (action.callId.isEmpty || action.remoteNickname.isEmpty) {
+      return;
+    }
+
     if (session == null) {
       _pendingPlatformAction = action;
       return;

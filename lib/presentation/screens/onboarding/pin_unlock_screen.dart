@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../domain/models/call_session.dart';
 import '../../state/app_providers.dart';
 import '../../state/security_providers.dart';
 
@@ -39,7 +40,25 @@ class _PinUnlockScreenState extends ConsumerState<PinUnlockScreen> {
     if (valid) {
       await keyStore.resetPinFailedAttempts();
       ref.read(isUnlockedProvider.notifier).state = true;
-      context.go('/chats');
+      final pendingCallId = ref.read(pendingIncomingCallNavigationProvider);
+      final coordinator = ref.read(callCoordinatorProvider);
+      final session = coordinator.activeSession;
+      final offer = coordinator.lastSignal;
+      if (pendingCallId != null &&
+          session != null &&
+          session.callId == pendingCallId &&
+          session.state == CallState.ringing &&
+          offer?.type == 'offer' &&
+          offer?.session.callId == pendingCallId) {
+        ref.read(pendingIncomingCallNavigationProvider.notifier).state = null;
+        final kind = session.kind == CallKind.video ? 'video' : 'voice';
+        context.go(
+          '/call/$kind/${Uri.encodeComponent(session.chatId)}?incoming=1',
+        );
+      } else {
+        ref.read(pendingIncomingCallNavigationProvider.notifier).state = null;
+        context.go('/chats');
+      }
     } else {
       final attempts =
           await keyStore.incrementPinFailedAttempts();

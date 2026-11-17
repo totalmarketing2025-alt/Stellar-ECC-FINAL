@@ -80,6 +80,14 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
       return;
     }
 
+    if (action.action == 'open_incoming_call') {
+      if (action.callId.isEmpty) return;
+      ref.read(pendingIncomingCallNavigationProvider.notifier).state =
+          action.callId;
+      _navigateToPendingIncomingCall();
+      return;
+    }
+
     // One owner handles the native action; the coordinator no longer
     // subscribes independently to the broadcast stream.
     unawaited(
@@ -103,6 +111,25 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
         : '/call/voice/$encodedChatId?incoming=1';
 
     ref.read(appRouterProvider).go(route);
+  }
+
+  void _navigateToPendingIncomingCall() {
+    if (!mounted || !ref.read(isUnlockedProvider)) return;
+    final callId = ref.read(pendingIncomingCallNavigationProvider);
+    if (callId == null) return;
+    final coordinator = ref.read(callCoordinatorProvider);
+    final session = coordinator.activeSession;
+    final offer = coordinator.lastSignal;
+    if (session == null || session.callId != callId ||
+        session.state != CallState.ringing ||
+        offer?.type != 'offer' || offer?.session.callId != callId) {
+      return;
+    }
+    ref.read(pendingIncomingCallNavigationProvider.notifier).state = null;
+    final kind = session.kind == CallKind.video ? 'video' : 'voice';
+    ref.read(appRouterProvider).go(
+      '/call/$kind/${Uri.encodeComponent(session.chatId)}?incoming=1',
+    );
   }
 
   void _schedulePendingNativeAction() {
@@ -131,6 +158,11 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
     if (_callSessionSubscription != null) return;
 
     _callSessionSubscription = coordinator.sessionStream.listen((session) {
+      if (session == null || session.state == CallState.ended ||
+          session.state == CallState.failed) {
+        ref.read(pendingIncomingCallNavigationProvider.notifier).state = null;
+      }
+      _navigateToPendingIncomingCall();
       _scheduleIncomingCallNavigation(coordinator, session);
     });
 
@@ -162,6 +194,11 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
           active.callId != session.callId ||
           active.state != CallState.ringing ||
           coordinator.lastSignal?.type != 'offer') {
+        _incomingNavigationPendingCallIds.remove(session.callId);
+        return;
+      }
+
+      if (!ref.read(isUnlockedProvider)) {
         _incomingNavigationPendingCallIds.remove(session.callId);
         return;
       }
@@ -201,6 +238,14 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
       _ensureIncomingCallListener(coordinator);
       _schedulePendingNativeAction();
     }
+
+    ref.listen<bool>(isUnlockedProvider, (previous, next) {
+      if (next) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _navigateToPendingIncomingCall();
+        });
+      }
+    });
 
     final router = ref.watch(appRouterProvider);
     final wantedModeEnabled = ref.watch(wantedModeWipeEnabledProvider);

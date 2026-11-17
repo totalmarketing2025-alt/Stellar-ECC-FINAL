@@ -375,3 +375,7 @@ final isUnlockedProvider = StateProvider<bool>((ref) => false);
 
 /// Set only after startup confirms no PIN exists on this device.
 final pinSetupRequiredProvider = StateProvider<bool>((ref) => false);
+
+// Call notification navigation is not a call decision. This ID is used only
+// after PIN unlock and must match a live authenticated incoming offer.
+final pendingIncomingCallNavigationProvider = StateProvider<String?>((ref) => null);

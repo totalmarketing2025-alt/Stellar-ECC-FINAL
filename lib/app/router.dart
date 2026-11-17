@@ -27,6 +27,28 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: '/splash',
     redirect: (context, state) {
       final path = state.uri.path;
+      // A verified incoming call is the only route allowed while locked.
+      // Never expose chats or settings, and never trust the URI alone:
+      // the live authenticated offer must match the active session.
+      if (path.startsWith('/call/') &&
+          state.uri.queryParameters['incoming'] == '1') {
+        final nickname = ref.read(localNicknameProvider);
+        if (nickname != null && nickname.isNotEmpty) {
+          final coordinator = ref.read(callCoordinatorProvider);
+          final session = coordinator.activeSession;
+          final offer = coordinator.lastSignal;
+          if (session != null &&
+              session.state != CallState.ended &&
+              session.state != CallState.failed &&
+              offer?.type == 'offer' &&
+              offer?.session.callId == session.callId) {
+            final kind = session.kind == CallKind.video ? 'video' : 'voice';
+            final allowedPath =
+                '/call/$kind/${Uri.encodeComponent(session.chatId)}';
+            if (path == allowedPath) return null;
+          }
+        }
+      }
       // Onboarding is not private content. In particular, recovery and
       // initial PIN creation must never be redirected to PIN unlock.
       if (path == '/splash') return null;

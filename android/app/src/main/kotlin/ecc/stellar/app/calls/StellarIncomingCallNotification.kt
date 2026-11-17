@@ -62,8 +62,11 @@ object StellarIncomingCallNotification {
 
         val answer = Intent(
             context,
-            StellarCallActionReceiver::class.java
+            StellarIncomingCallActivity::class.java
         ).apply {
+            // Notification action is a direct user gesture. Launching an Activity
+            // here is allowed on modern Android, unlike starting one from a
+            // background BroadcastReceiver or Telecom callback.
             action = StellarIncomingCallActivity.ACTION_ANSWER
             putExtra(StellarCallManager.EXTRA_CALL_ID, callId)
             putExtra(
@@ -84,7 +87,7 @@ object StellarIncomingCallNotification {
 
         val reject = Intent(
             context,
-            StellarCallActionReceiver::class.java
+            StellarIncomingCallActivity::class.java
         ).apply {
             action = StellarIncomingCallActivity.ACTION_REJECT
             putExtra(StellarCallManager.EXTRA_CALL_ID, callId)
@@ -112,7 +115,7 @@ object StellarIncomingCallNotification {
                 PendingIntent.FLAG_IMMUTABLE
         )
 
-        val answerPending = PendingIntent.getBroadcast(
+        val answerPending = PendingIntent.getActivity(
             context,
             id(callId) + 1,
             answer,
@@ -120,7 +123,7 @@ object StellarIncomingCallNotification {
                 PendingIntent.FLAG_IMMUTABLE
         )
 
-        val rejectPending = PendingIntent.getBroadcast(
+        val rejectPending = PendingIntent.getActivity(
             context,
             id(callId) + 2,
             reject,
@@ -154,20 +157,17 @@ object StellarIncomingCallNotification {
                     fullScreenPending,
                     true
                 )
-                .addAction(
-                    android.app.Notification.Action.Builder(
-                        null,
-                        "Answer",
-                        answerPending
-                    ).build()
-                )
-                .addAction(
-                    android.app.Notification.Action.Builder(
-                        null,
-                        "Decline",
-                        rejectPending
-                    ).build()
-                )
+
+
+        // CallStyle already provides Answer and Decline on Android 12+.
+        // Add explicit actions only on older versions to avoid a third button.
+        if (Build.VERSION.SDK_INT < 31) {
+            builder.addAction(
+                android.app.Notification.Action.Builder(null, "Answer", answerPending).build()
+            ).addAction(
+                android.app.Notification.Action.Builder(null, "Reject", rejectPending).build()
+            )
+        }
 
         if (Build.VERSION.SDK_INT >= 31) {
             builder.setStyle(
