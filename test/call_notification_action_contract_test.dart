@@ -24,6 +24,12 @@ void main() {
     expect(notification, contains('StellarIncomingCallActivity::class.java'));
   });
 
+  test('Android CallStyle owns the two buttons on API 31+', () {
+    expect(notification, contains('if (Build.VERSION.SDK_INT < 31) {'));
+    expect(notification, contains('Notification.CallStyle.forIncomingCall('));
+    expect(notification, contains('"Reject", rejectPending'));
+  });
+
   test('Answer and Decline forward their call IDs to Flutter', () {
     expect(activity, contains('forwardAction("answer", callId, remote, kind, chatId)'));
     expect(activity, contains('forwardAction("reject", callId, remote, kind, chatId)'));
