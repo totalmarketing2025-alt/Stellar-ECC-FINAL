@@ -180,8 +180,7 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         manager.notify(
-            MESSAGE_ID_BASE +
-                (System.currentTimeMillis() % 100000).toInt(),
+            MESSAGE_ID_BASE,
             builder.build()
         )
     }
