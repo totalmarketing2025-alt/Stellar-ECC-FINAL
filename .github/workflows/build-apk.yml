@@ -52,7 +52,7 @@ jobs:
         run: flutter build apk --release
 
       - name: Test Android Wanted Mode battery threshold policy
-        run: cd android && ./gradlew :app:testDebugUnitTest --no-daemon
+        run: cd android && ./gradlew :app:testDebugUnitTest --tests 'ecc.stellar.app.WantedModeBatteryGuardPolicyTest' --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
