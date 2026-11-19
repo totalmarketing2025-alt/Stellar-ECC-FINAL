@@ -20,6 +20,8 @@ class WantedModeForegroundService : Service() {
         private const val NOTIFICATION_ID = 7301
         private const val POWER_ALERT_CHANNEL_ID = "stellar_wanted_power_alert"
         private const val POWER_ALERT_NOTIFICATION_ID = 7305
+        private const val EVENT_ALERT_CHANNEL_ID = "stellar_wanted_event_alert_v2"
+        const val EXTRA_CHALLENGE_ID = "ecc.stellar.app.WANTED_CHALLENGE_ID"
         const val EXTRA_RESULT_RECEIVER =
             "ecc.stellar.app.WANTED_MODE_RESULT_RECEIVER"
     }
@@ -30,6 +32,8 @@ class WantedModeForegroundService : Service() {
     private var corruptionDetected = false
 
     private val deadlineHandler = Handler(Looper.getMainLooper())
+    private var previouslyPendingIds: Set<String> = emptySet()
+    private var lastAlertFingerprint: String? = null
 
     private val deadlineChecker = object : Runnable {
         override fun run() {
@@ -59,7 +63,7 @@ class WantedModeForegroundService : Service() {
                     return
                 }
 
-                val expiredCount = store.getExpired()
+                val expired = store.getExpired()
 
                 if (store.isCorrupted()) {
                     corruptionDetected = true
@@ -73,28 +77,37 @@ class WantedModeForegroundService : Service() {
                     return
                 }
 
-                val powerChallenge = store.getPending()
-                    .firstOrNull { it.category == "POWER" }
+                val pending = store.getPending()
+                val newlyExpired = expired.any {
+                    it.id in previouslyPendingIds && !it.recoveredFromReboot
+                }
+                previouslyPendingIds = pending.map { it.id }.toSet()
+
+                // USB host device attachment is an Activity intent, not a
+                // dependable runtime broadcast. Poll the host device set.
+                eventMonitor.scanUsbHostDevices()
 
                 val notificationManager =
                     getSystemService(NotificationManager::class.java)
 
-                if (powerChallenge != null) {
-                    val remainingSeconds = (
-                        (powerChallenge.deadlineMillis -
-                            System.currentTimeMillis() + 999L) / 1000L
-                    ).coerceAtLeast(0L)
-
-                    notificationManager.notify(
-                        POWER_ALERT_NOTIFICATION_ID,
-                        buildPowerAlertNotification(remainingSeconds)
-                    )
+                if (pending.isNotEmpty()) {
+                    val fingerprint = pending.joinToString("|") { it.id }
+                    if (lastAlertFingerprint != fingerprint) {
+                        notificationManager.notify(
+                            POWER_ALERT_NOTIFICATION_ID,
+                            buildEventAlertNotification(pending.first(), pending.size)
+                        )
+                        lastAlertFingerprint = fingerprint
+                    }
                 } else {
                     notificationManager.cancel(POWER_ALERT_NOTIFICATION_ID)
+                    lastAlertFingerprint = null
                 }
 
-                if (expiredCount.isNotEmpty()) {
+                if (expired.isNotEmpty()) {
                     if (
+                        newlyExpired &&
+                        canShowEventAlerts() &&
                         WantedModeWipeState.isEnabled(applicationContext) &&
                         WantedModeWipeState.request(applicationContext)
                     ) {
@@ -114,7 +127,7 @@ class WantedModeForegroundService : Service() {
                         getSystemService(NotificationManager::class.java)
                     manager.notify(
                         NOTIFICATION_ID,
-                        buildNotification(expiredCount.size)
+                        buildNotification(expired.size)
                     )
                 }
             } catch (_: Exception) {
@@ -131,6 +144,17 @@ class WantedModeForegroundService : Service() {
         return WantedModeChallengeStore(applicationContext)
     }
 
+    private fun canShowEventAlerts(): Boolean = try {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.areNotificationsEnabled() &&
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+                (manager.getNotificationChannel(EVENT_ALERT_CHANNEL_ID)
+                    ?.importance ?: NotificationManager.IMPORTANCE_NONE) >
+                    NotificationManager.IMPORTANCE_NONE)
+    } catch (_: Exception) {
+        false
+    }
+
     override fun onCreate() {
         super.onCreate()
         eventMonitor = WantedModeEventMonitor.getInstance(applicationContext)
@@ -145,6 +169,11 @@ class WantedModeForegroundService : Service() {
         val receiver = getResultReceiver(intent)
 
         try {
+            if (!WantedModeWipeState.isEnabled(applicationContext)) {
+                receiver?.send(android.app.Activity.RESULT_CANCELED, Bundle())
+                stopSelf(startId)
+                return START_NOT_STICKY
+            }
             startForeground(NOTIFICATION_ID, buildNotification())
 
             val startupStore = eventMonitorChallengeStore()
@@ -170,28 +199,11 @@ class WantedModeForegroundService : Service() {
                 return START_NOT_STICKY
             }
 
-            // Recover expired deadlines after service/process restart.
+            // Historical expirations are shown for review. A service/process
+            // restart must not convert them into a new destructive trigger.
             val expiredAtStartup = eventMonitorChallengeStore()
                 .getExpired()
                 .size
-
-            if (
-                expiredAtStartup > 0 &&
-                WantedModeWipeState.isEnabled(applicationContext) &&
-                WantedModeWipeState.request(applicationContext)
-            ) {
-                eventMonitor.stop()
-
-                getSystemService(NotificationManager::class.java)
-                    .notify(
-                        NOTIFICATION_ID,
-                        buildNotification(wipePending = true)
-                    )
-
-                receiver?.send(android.app.Activity.RESULT_OK, Bundle())
-                stopSelf(startId)
-                return START_NOT_STICKY
-            }
 
             if (expiredAtStartup > 0) {
                 val manager =
@@ -202,6 +214,8 @@ class WantedModeForegroundService : Service() {
                 )
             }
 
+            previouslyPendingIds = emptySet()
+            lastAlertFingerprint = null
             deadlineHandler.removeCallbacks(deadlineChecker)
             deadlineHandler.post(deadlineChecker)
 
@@ -281,14 +295,27 @@ class WantedModeForegroundService : Service() {
                 setShowBadge(true)
             }
             manager.createNotificationChannel(powerAlertChannel)
+
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    EVENT_ALERT_CHANNEL_ID,
+                    "Wanted Mode – event verification",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "PIN verification for USB, Bluetooth, Wi-Fi and power events"
+                    setShowBadge(true)
+                }
+            )
         }
     }
 
-    private fun buildPowerAlertNotification(
-        remainingSeconds: Long
+    private fun buildEventAlertNotification(
+        challenge: WantedModeChallengeStore.Challenge,
+        pendingCount: Int
     ): Notification {
         val launchIntent = Intent(this, MainActivity::class.java).apply {
             action = "ecc.stellar.app.OPEN_WANTED_SECURITY"
+            putExtra(EXTRA_CHALLENGE_ID, challenge.id)
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -302,24 +329,30 @@ class WantedModeForegroundService : Service() {
         )
 
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, POWER_ALERT_CHANNEL_ID)
+            Notification.Builder(this, EVENT_ALERT_CHANNEL_ID)
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
                 .setPriority(Notification.PRIORITY_HIGH)
         }
 
+        val eventSummary = if (pendingCount > 1) {
+            "${challenge.category} ${challenge.action} " +
+                "(+${pendingCount - 1}) – отвори веднаш."
+        } else {
+            "${challenge.category} ${challenge.action} – " +
+                "отвори веднаш за PIN-проверка."
+        }
+
         return builder
             .setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setContentTitle("Stellar ECC – Wanted Mode")
-            .setContentText(
-                "Полначот е приклучен. Внеси PIN – преостануваат " +
-                    "$remainingSeconds секунди."
-            )
+            .setContentTitle("Stellar ECC – Wanted Mode PIN check")
+            .setContentText(eventSummary)
             .setCategory(Notification.CATEGORY_EVENT)
             .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setAutoCancel(false)
             .setOngoing(true)
+            .setOnlyAlertOnce(false)
             .setContentIntent(pendingIntent)
             .build()
     }
@@ -379,6 +412,8 @@ class WantedModeForegroundService : Service() {
 
     override fun onDestroy() {
         deadlineHandler.removeCallbacks(deadlineChecker)
+        getSystemService(NotificationManager::class.java)
+            .cancel(POWER_ALERT_NOTIFICATION_ID)
 
         if (::eventMonitor.isInitialized) {
             eventMonitor.releaseListeners()

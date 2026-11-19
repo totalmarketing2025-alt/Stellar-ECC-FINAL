@@ -13,7 +13,14 @@ import '../../state/security_providers.dart';
 import '../../widgets/stellar_avatar.dart';
 
 class SecurityCenterScreen extends ConsumerWidget {
-  const SecurityCenterScreen({super.key});
+  const SecurityCenterScreen({
+    super.key,
+    this.openWanted = false,
+    this.wantedChallengeId,
+  });
+
+  final bool openWanted;
+  final String? wantedChallengeId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -23,6 +30,15 @@ class SecurityCenterScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Security Center')),
       body: ListView(
         children: [
+          if (openWanted)
+            _WantedModeOpenOnce(
+              challengeId: wantedChallengeId,
+              onOpen: () => _openWantedMode(
+                context,
+                ref,
+                initialChallengeId: wantedChallengeId,
+              ),
+            ),
           _ScoreCard(score: score),
 
           _SectionHeader('Devices & Sessions'),
@@ -129,14 +145,54 @@ class SecurityCenterScreen extends ConsumerWidget {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => const _FingerprintScreen()));
   }
 
-  void _openWantedMode(BuildContext context, WidgetRef ref) {
+  void _openWantedMode(
+    BuildContext context,
+    WidgetRef ref, {
+    String? initialChallengeId,
+  }) {
     showModalBottomSheet(
       context: context,
       backgroundColor: StellarColors.bgElevated,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => const _WantedModeSheet(),
+      isScrollControlled: true,
+      builder: (_) => FractionallySizedBox(
+        heightFactor: 0.85,
+        child: _WantedModeSheet(initialChallengeId: initialChallengeId),
+      ),
     );
   }
+}
+
+class _WantedModeOpenOnce extends StatefulWidget {
+  const _WantedModeOpenOnce({required this.onOpen, this.challengeId});
+  final VoidCallback onOpen;
+  final String? challengeId;
+
+  @override
+  State<_WantedModeOpenOnce> createState() => _WantedModeOpenOnceState();
+}
+
+class _WantedModeOpenOnceState extends State<_WantedModeOpenOnce> {
+  @override
+  void initState() {
+    super.initState();
+    _scheduleOpen();
+  }
+
+  @override
+  void didUpdateWidget(covariant _WantedModeOpenOnce oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.challengeId != widget.challengeId) _scheduleOpen();
+  }
+
+  void _scheduleOpen() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onOpen();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class _ScoreCard extends StatelessWidget {
@@ -433,7 +489,9 @@ class _FingerprintScreen extends ConsumerWidget {
 }
 
 class _WantedModeSheet extends ConsumerStatefulWidget {
-  const _WantedModeSheet();
+  const _WantedModeSheet({this.initialChallengeId});
+
+  final String? initialChallengeId;
 
   @override
   ConsumerState<_WantedModeSheet> createState() => _WantedModeSheetState();
@@ -446,6 +504,8 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
   bool _challengeDialogOpen = false;
   bool _challengeStoreCorrupted = false;
   bool _challengeStoreStatusUnknown = false;
+  String _monitoringStatus = 'RECOVERING';
+  String _monitoringDetails = '';
   Timer? _challengePollTimer;
   final Set<String> _shownChallengeIds = <String>{};
   List<Map<String, dynamic>> _pendingChallenges = [];
@@ -483,6 +543,7 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
     _checkingChallenges = true;
     try {
       final notifier = ref.read(wantedModeWipeEnabledProvider.notifier);
+      final health = await notifier.getMonitoringHealth();
       final corrupted = await notifier.isChallengeStoreCorrupted();
 
       final pending = corrupted
@@ -497,6 +558,8 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
       setState(() {
         _challengeStoreCorrupted = corrupted;
         _challengeStoreStatusUnknown = false;
+        _monitoringStatus = health['status']?.toString() ?? 'ERROR';
+        _monitoringDetails = health['error']?.toString() ?? '';
         _pendingChallenges = pending;
         _expiredChallenges = expired;
       });
@@ -505,6 +568,15 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
         Map<String, dynamic>? nextChallenge;
 
         for (final challenge in pending) {
+          if (challenge['id'] == widget.initialChallengeId &&
+              !_shownChallengeIds.contains(widget.initialChallengeId)) {
+            nextChallenge = challenge;
+            break;
+          }
+        }
+
+        for (final challenge in pending) {
+          if (nextChallenge != null) break;
           final id = challenge['id']?.toString();
           if (id != null &&
               id.isNotEmpty &&
@@ -538,6 +610,12 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
 
   bool _resolvingChallenge = false;
 
+  int _remainingSeconds(Map<String, dynamic> challenge) {
+    final remaining = challenge['remainingMillis'];
+    if (remaining is! num) return 0;
+    return (remaining.toInt().clamp(0, 60000) + 999) ~/ 1000;
+  }
+
   Future<void> _showChallengePinDialog(
     Map<String, dynamic> challenge,
   ) async {
@@ -547,6 +625,7 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
 
     final id = challenge['id']?.toString();
     if (id == null || id.isEmpty) return;
+    final expired = challenge['expired'] == true;
 
     _shownChallengeIds.add(id);
     _challengeDialogOpen = true;
@@ -557,7 +636,9 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
         context: context,
         barrierDismissible: true,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Verify Wanted Mode event'),
+          title: Text(expired
+              ? 'Acknowledge expired Wanted event'
+              : 'Verify Wanted Mode event'),
           content: TextField(
             controller: controller,
             autofocus: true,
@@ -591,9 +672,10 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
 
       setState(() => _resolvingChallenge = true);
 
-      final resolved = await ref
-          .read(wantedModeWipeEnabledProvider.notifier)
-          .resolveChallengeAfterPin(id: id, pin: enteredPin);
+      final notifier = ref.read(wantedModeWipeEnabledProvider.notifier);
+      final resolved = expired
+          ? await notifier.acknowledgeExpiredAfterPin(id: id, pin: enteredPin)
+          : await notifier.resolveChallengeAfterPin(id: id, pin: enteredPin);
 
       if (!mounted) return;
 
@@ -601,8 +683,10 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
         SnackBar(
           content: Text(
             resolved
-                ? 'Event verified. Wanted Mode remains active.'
-                : 'PIN incorrect or the 10-second deadline has expired.',
+                ? (expired
+                    ? 'Historical event acknowledged after PIN verification.'
+                    : 'Event verified. Wanted Mode remains active.')
+                : 'PIN incorrect or the event cannot be verified.',
           ),
         ),
       );
@@ -741,13 +825,28 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
     final wipeEnabled = ref.watch(wantedModeWipeEnabledProvider);
 
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
+        child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Wanted Mode', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+            const SizedBox(height: 8),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                _monitoringStatus == 'ACTIVE'
+                    ? Icons.shield_outlined : Icons.warning_amber_rounded,
+                color: _monitoringStatus == 'ACTIVE'
+                    ? StellarColors.success : StellarColors.danger,
+              ),
+              title: Text('Monitoring: $_monitoringStatus'),
+              subtitle: Text(_monitoringDetails.isEmpty
+                  ? 'USB detection covers USB host devices only.'
+                  : _monitoringDetails),
+            ),
             const SizedBox(height: 8),
             const Text(
               'Instantly locks the app, requiring biometric/PIN re-entry to reopen.',
@@ -810,7 +909,9 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
                     title: Text(
                       '${challenge['category']} ${challenge['action']}',
                     ),
-                    subtitle: const Text('Enter your app PIN within 10 seconds'),
+                    subtitle: Text(
+                      'Enter PIN – ${_remainingSeconds(challenge)} seconds remaining',
+                    ),
                     trailing: const Icon(Icons.lock_outline),
                     onTap: _resolvingChallenge
                         ? null
@@ -830,10 +931,18 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
                     '${_expiredChallenges.length} expired event PIN check(s)',
                   ),
                   subtitle: const Text(
-                    'These events were not verified. Do not dismiss this warning.',
+                    'These events were not verified. Review each before acknowledging with PIN.',
                   ),
                 ),
               ),
+              for (final challenge in _expiredChallenges)
+                ListTile(
+                  leading: const Icon(Icons.history, color: StellarColors.danger),
+                  title: Text('${challenge['category']} ${challenge['action']}'),
+                  subtitle: const Text('Expired – requires PIN to acknowledge'),
+                  onTap: _resolvingChallenge
+                      ? null : () => _showChallengePinDialog(challenge),
+                ),
             ],
             Align(
               alignment: Alignment.centerRight,
@@ -864,6 +973,7 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
                 ),
               ),
           ],
+        ),
         ),
       ),
     );

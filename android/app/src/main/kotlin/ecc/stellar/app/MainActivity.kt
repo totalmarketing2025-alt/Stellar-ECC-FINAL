@@ -27,6 +27,7 @@ class MainActivity : FlutterFragmentActivity() {
         private const val OPEN_WANTED_SECURITY_ACTION = "ecc.stellar.app.OPEN_WANTED_SECURITY"
         private const val WANTED_NAV_PREFS = "stellar_wanted_navigation"
         private const val PREF_PENDING_SECURITY_NAVIGATION = "pending_security_navigation"
+        private const val PREF_PENDING_SECURITY_CHALLENGE_ID = "pending_security_challenge_id"
         private const val CALL_ACTION = "ecc.stellar.app.CALL_ACTION"
         private const val METHOD_INCOMING_ACTION = "incomingCallAction"
         private const val METHOD_SET_CALL_ACTION_HANDLER_READY = "setCallActionHandlerReady"
@@ -298,6 +299,9 @@ class MainActivity : FlutterFragmentActivity() {
                 "isMonitoringEnabled" ->
                     result.success(wantedModeEventMonitor.isEnabled())
 
+                "getMonitoringHealth" ->
+                    result.success(wantedModeEventMonitor.getMonitoringHealth())
+
                 "getEvents" ->
                     result.success(wantedModeEventMonitor.readAudit())
 
@@ -312,6 +316,7 @@ class MainActivity : FlutterFragmentActivity() {
                             "action" to it.action,
                             "createdAtMillis" to it.createdAtMillis,
                             "deadlineMillis" to it.deadlineMillis,
+                            "remainingMillis" to wantedModeChallengeStore.remainingMillis(it),
                             "expired" to it.expired
                         )
                     }
@@ -326,6 +331,7 @@ class MainActivity : FlutterFragmentActivity() {
                             "action" to it.action,
                             "createdAtMillis" to it.createdAtMillis,
                             "deadlineMillis" to it.deadlineMillis,
+                            "recoveredFromReboot" to it.recoveredFromReboot,
                             "expired" to it.expired
                         )
                     }
@@ -339,6 +345,13 @@ class MainActivity : FlutterFragmentActivity() {
                     )
                 }
 
+                "acknowledgeExpiredChallenge" -> {
+                    val id = call.argument<String>("id")
+                    result.success(
+                        id != null && wantedModeChallengeStore.acknowledgeExpired(id)
+                    )
+                }
+
                 "takePendingWantedSecurityNavigation" -> {
                     val prefs = getSharedPreferences(
                         WANTED_NAV_PREFS,
@@ -348,10 +361,18 @@ class MainActivity : FlutterFragmentActivity() {
                         PREF_PENDING_SECURITY_NAVIGATION,
                         false
                     )
+                    val challengeId = prefs.getString(
+                        PREF_PENDING_SECURITY_CHALLENGE_ID,
+                        null
+                    )
                     prefs.edit()
                         .remove(PREF_PENDING_SECURITY_NAVIGATION)
-                        .apply()
-                    result.success(pending)
+                        .remove(PREF_PENDING_SECURITY_CHALLENGE_ID)
+                        .commit()
+                    result.success(mapOf(
+                        "pending" to pending,
+                        "challengeId" to (challengeId ?: "")
+                    ))
                 }
 
                 else -> result.notImplemented()
@@ -650,12 +671,16 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun deliverIntent(intent: Intent?) {
         if (intent?.action == OPEN_WANTED_SECURITY_ACTION) {
+            val challengeId = intent.getStringExtra(
+                WantedModeForegroundService.EXTRA_CHALLENGE_ID
+            )
             getSharedPreferences(
                 WANTED_NAV_PREFS,
                 Context.MODE_PRIVATE
             ).edit()
                 .putBoolean(PREF_PENDING_SECURITY_NAVIGATION, true)
-                .apply()
+                .putString(PREF_PENDING_SECURITY_CHALLENGE_ID, challengeId)
+                .commit()
 
             if (::wantedModeNavigationChannel.isInitialized) {
                 wantedModeNavigationChannel.invokeMethod("openSecurity", null)

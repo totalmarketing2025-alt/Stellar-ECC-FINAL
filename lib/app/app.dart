@@ -61,13 +61,28 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
 
   Future<void> _consumePendingWantedSecurityNavigation() async {
     try {
-      final pending = await _wantedModeMonitorChannel
-              .invokeMethod<bool>('takePendingWantedSecurityNavigation') ??
-          false;
+      // Never consume the native request before authentication. The ordinary
+      // PIN screen and the incoming-call flow must retain their own priority.
+      if (!mounted || !ref.read(isUnlockedProvider)) return;
+      final coordinator = ref.read(callCoordinatorProvider);
+      final activeCall = coordinator.activeSession;
+      if (activeCall != null &&
+          activeCall.state == CallState.ringing &&
+          coordinator.lastSignal?.type == 'offer') return;
 
-      if (!mounted || !pending) return;
+      final navigation = await _wantedModeMonitorChannel
+          .invokeMapMethod<String, dynamic>(
+        'takePendingWantedSecurityNavigation',
+      );
 
-      ref.read(appRouterProvider).go('/security');
+      if (!mounted || !ref.read(isUnlockedProvider) ||
+          navigation?['pending'] != true) return;
+
+      final id = navigation?['challengeId']?.toString() ?? '';
+      final query = id.isEmpty
+          ? '?wanted=1'
+          : '?wanted=1&challengeId=${Uri.encodeQueryComponent(id)}';
+      ref.read(appRouterProvider).go('/security$query');
     } catch (_) {
       // The pending native navigation can be retried on the next launch.
     }
@@ -163,6 +178,10 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
         ref.read(pendingIncomingCallNavigationProvider.notifier).state = null;
       }
       _navigateToPendingIncomingCall();
+      if (session == null || session.state == CallState.ended ||
+          session.state == CallState.failed) {
+        unawaited(_consumePendingWantedSecurityNavigation());
+      }
       _scheduleIncomingCallNavigation(coordinator, session);
     });
 
@@ -243,6 +262,7 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
       if (next) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _navigateToPendingIncomingCall();
+          unawaited(_consumePendingWantedSecurityNavigation());
         });
       }
     });

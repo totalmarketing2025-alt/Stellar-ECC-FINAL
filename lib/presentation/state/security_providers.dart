@@ -66,6 +66,16 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
     return result;
   }
 
+  Future<Map<String, dynamic>> getMonitoringHealth() async {
+    final status = await _monitorChannel.invokeMapMethod<String, dynamic>(
+      'getMonitoringHealth',
+    );
+    if (status == null) {
+      throw StateError('Wanted Mode monitoring health is unavailable.');
+    }
+    return status;
+  }
+
   Future<List<Map<String, dynamic>>> getPendingChallenges() async {
     final result = await _monitorChannel.invokeListMethod<dynamic>(
       'getPendingChallenges',
@@ -105,6 +115,20 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
     );
 
     return resolved == true;
+  }
+
+  /// Historical expirations are retained for review, and can only be
+  /// acknowledged after the user proves knowledge of the existing app PIN.
+  Future<bool> acknowledgeExpiredAfterPin({
+    required String id,
+    required String pin,
+  }) async {
+    if (id.trim().isEmpty || pin.isEmpty) return false;
+    if (!await _keyStore.verifyPin(pin)) return false;
+    return await _monitorChannel.invokeMethod<bool>(
+          'acknowledgeExpiredChallenge',
+          <String, dynamic>{'id': id},
+        ) == true;
   }
 
   Future<void> _load() async {

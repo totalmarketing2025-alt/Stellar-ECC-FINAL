@@ -119,7 +119,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (c, s) => GroupManagementScreen(chatId: s.pathParameters['chatId']!),
       ),
       GoRoute(path: '/group/new', builder: (c, s) => const NewGroupScreen()),
-      GoRoute(path: '/security', builder: (c, s) => const SecurityCenterScreen()),
+      GoRoute(
+        path: '/security',
+        builder: (c, s) => SecurityCenterScreen(
+          openWanted: s.uri.queryParameters['wanted'] == '1',
+          wantedChallengeId: s.uri.queryParameters['challengeId'],
+        ),
+      ),
       GoRoute(
         path: '/moderation',
         builder: (c, s) => const ModerationRoomScreen(),

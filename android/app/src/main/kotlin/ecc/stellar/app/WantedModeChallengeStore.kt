@@ -1,6 +1,8 @@
 package ecc.stellar.app
 
 import android.content.Context
+import android.os.SystemClock
+import android.provider.Settings
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -19,7 +21,10 @@ class WantedModeChallengeStore(context: Context) {
         val action: String,
         val createdAtMillis: Long,
         val deadlineMillis: Long,
-        val expired: Boolean
+        val expired: Boolean,
+        val createdAtElapsedMillis: Long = -1L,
+        val bootCount: Int = -1,
+        val recoveredFromReboot: Boolean = false
     )
 
     companion object {
@@ -41,6 +46,65 @@ class WantedModeChallengeStore(context: Context) {
             PREFS,
             Context.MODE_PRIVATE
         )
+
+    private val appContext = context.applicationContext
+
+    private fun bootCount(): Int = try {
+        Settings.Global.getInt(
+            appContext.contentResolver,
+            Settings.Global.BOOT_COUNT,
+            -1
+        )
+    } catch (_: Exception) {
+        -1
+    }
+
+    // The wall clock is retained for audit/display and legacy records only.
+    // Android's elapsed clock cannot be moved by automatic time sync.
+    private fun isRecoveredAcrossBoot(challenge: Challenge): Boolean {
+        val currentBoot = bootCount()
+        return challenge.recoveredFromReboot ||
+            (challenge.bootCount >= 0 && currentBoot >= 0 &&
+                challenge.bootCount != currentBoot) ||
+            (challenge.createdAtElapsedMillis >= 0 &&
+                SystemClock.elapsedRealtime() < challenge.createdAtElapsedMillis)
+    }
+
+    private fun deadlinePassed(challenge: Challenge): Boolean {
+        if (isRecoveredAcrossBoot(challenge)) return true
+        if (challenge.createdAtElapsedMillis >= 0) {
+            return SystemClock.elapsedRealtime() -
+                challenge.createdAtElapsedMillis >= TIMEOUT_MILLIS
+        }
+        return System.currentTimeMillis() >= challenge.deadlineMillis
+    }
+
+    fun remainingMillis(challenge: Challenge): Long {
+        if (deadlinePassed(challenge)) return 0L
+        if (challenge.createdAtElapsedMillis >= 0) {
+            return (TIMEOUT_MILLIS -
+                (SystemClock.elapsedRealtime() - challenge.createdAtElapsedMillis))
+                .coerceAtLeast(0L)
+        }
+        return (challenge.deadlineMillis - System.currentTimeMillis())
+            .coerceAtLeast(0L)
+    }
+
+    /** A reboot cancels the timing authority of every pre-boot challenge.
+     * Keep the audit history, but never turn an old deadline into a new wipe.
+     */
+    @Synchronized
+    fun markPendingRecoveredFromBoot(): Boolean {
+        if (isCorrupted()) return false
+        val current = readAll()
+        if (isCorrupted()) return false
+        return writeAll(current.map { challenge ->
+            if (challenge.expired) challenge else challenge.copy(
+                expired = true,
+                recoveredFromReboot = true
+            )
+        })
+    }
 
     @Volatile
     private var corruptionDetectedInProcess = false
@@ -75,7 +139,9 @@ class WantedModeChallengeStore(context: Context) {
             action = action,
             createdAtMillis = now,
             deadlineMillis = now + TIMEOUT_MILLIS,
-            expired = false
+            expired = false,
+            createdAtElapsedMillis = SystemClock.elapsedRealtime(),
+            bootCount = bootCount()
         )
 
         val current = readAll().toMutableList()
@@ -96,9 +162,8 @@ class WantedModeChallengeStore(context: Context) {
         val all = readAll()
         if (isCorrupted()) return emptyList()
 
-        val now = System.currentTimeMillis()
         return all
-            .filter { !it.expired && now < it.deadlineMillis }
+            .filter { !it.expired && !deadlinePassed(it) }
             .sortedBy { it.createdAtMillis }
     }
 
@@ -106,12 +171,14 @@ class WantedModeChallengeStore(context: Context) {
     fun getExpired(): List<Challenge> {
         if (isCorrupted()) return emptyList()
 
-        val now = System.currentTimeMillis()
         val all = readAll()
         if (isCorrupted()) return emptyList()
         val updated = all.map {
-            if (!it.expired && now >= it.deadlineMillis) {
-                it.copy(expired = true)
+            if (!it.expired && deadlinePassed(it)) {
+                it.copy(
+                    expired = true,
+                    recoveredFromReboot = isRecoveredAcrossBoot(it)
+                )
             } else {
                 it
             }
@@ -136,9 +203,7 @@ class WantedModeChallengeStore(context: Context) {
             ?: return false
 
         // A challenge cannot be resolved after its deadline.
-        if (challenge.expired ||
-            System.currentTimeMillis() >= challenge.deadlineMillis
-        ) {
+        if (challenge.expired || deadlinePassed(challenge)) {
             return false
         }
 
@@ -154,9 +219,7 @@ class WantedModeChallengeStore(context: Context) {
         val challenge = current.firstOrNull { it.id == id }
             ?: return false
 
-        if (!challenge.expired &&
-            System.currentTimeMillis() < challenge.deadlineMillis
-        ) {
+        if (!challenge.expired && !deadlinePassed(challenge)) {
             return false
         }
 
@@ -205,7 +268,12 @@ class WantedModeChallengeStore(context: Context) {
                         action = action,
                         createdAtMillis = created,
                         deadlineMillis = deadline,
-                        expired = item.optBoolean("expired", false)
+                        expired = item.optBoolean("expired", false),
+                        createdAtElapsedMillis =
+                            item.optLong("createdAtElapsedMillis", -1L),
+                        bootCount = item.optInt("bootCount", -1),
+                        recoveredFromReboot =
+                            item.optBoolean("recoveredFromReboot", false)
                     )
                 )
             }
@@ -231,6 +299,9 @@ class WantedModeChallengeStore(context: Context) {
                     put("createdAtMillis", challenge.createdAtMillis)
                     put("deadlineMillis", challenge.deadlineMillis)
                     put("expired", challenge.expired)
+                    put("createdAtElapsedMillis", challenge.createdAtElapsedMillis)
+                    put("bootCount", challenge.bootCount)
+                    put("recoveredFromReboot", challenge.recoveredFromReboot)
                 }
             )
         }
