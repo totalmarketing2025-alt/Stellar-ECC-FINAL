@@ -3,6 +3,7 @@ package ecc.stellar.app
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.Manifest
+import android.os.BatteryManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -21,8 +22,8 @@ import org.json.JSONObject
 /**
  * Explicitly controlled, app-local event audit.
  *
- * Events are logged only while monitoring is enabled.
- * No event causes a wipe, lock, or other destructive operation.
+ * Events and their PIN challenges are recorded only while monitoring is enabled.
+ * The foreground service owns the timeout and automatic-wipe policy.
  * Device addresses, names, and network identifiers are not stored.
  */
 class WantedModeEventMonitor(context: Context) {
@@ -43,6 +44,8 @@ class WantedModeEventMonitor(context: Context) {
         private const val KEY_ENABLED = "monitor_enabled"
         private const val KEY_EVENTS = "events"
         private const val KEY_LAST_ERROR = "last_monitor_error"
+        private const val KEY_BATTERY_ARMED = "battery_guard_armed_v1"
+        private const val KEY_BATTERY_PERCENT = "battery_guard_last_percent"
         private const val MAX_EVENTS = 100
         private const val DEDUPE_WINDOW_MS = 3000L
     }
@@ -92,6 +95,50 @@ class WantedModeEventMonitor(context: Context) {
                 BluetoothDevice.ACTION_ACL_DISCONNECTED ->
                     record("bluetooth", "disconnected")
             }
+        }
+    }
+
+    // Battery state is delivered by Android itself. Keep this receiver
+    // non-exported on modern Android to prevent a forged wipe-triggering event.
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent != null) observeBattery(intent)
+        }
+    }
+
+    @Synchronized
+    private fun observeBattery(intent: Intent) {
+        if (!isEnabled() || !WantedModeWipeState.isEnabled(appContext) ||
+            intent.action != Intent.ACTION_BATTERY_CHANGED ||
+            !intent.getBooleanExtra(BatteryManager.EXTRA_PRESENT, true)
+        ) return
+
+        val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        if (level < 0 || scale <= 0 || level > scale) return
+
+        val percent = (level.toLong() * 100L / scale).toInt()
+        val armed = prefs.getBoolean(KEY_BATTERY_ARMED, true)
+        val decision = WantedModeBatteryGuardPolicy.evaluate(armed, percent)
+        val lastPercent = prefs.getInt(KEY_BATTERY_PERCENT, -1)
+
+        // Persist the latch before creating the destructive challenge. A
+        // repeated sticky broadcast or process restart must not duplicate it.
+        if (percent != lastPercent || decision.armed != armed) {
+            if (!prefs.edit()
+                    .putInt(KEY_BATTERY_PERCENT, percent)
+                    .putBoolean(KEY_BATTERY_ARMED, decision.armed)
+                    .commit()
+            ) {
+                saveError("battery_guard_state_write_failed")
+                return
+            }
+        }
+
+        if (decision.triggerChallenge) {
+            // Uses the same 10-second PIN deadline and automatic-wipe path
+            // as USB, Bluetooth, network and power challenges.
+            record("battery", "low", percent)
         }
     }
 
@@ -187,6 +234,13 @@ class WantedModeEventMonitor(context: Context) {
             "power" to listenersRegistered,
             "bluetooth" to (listenersRegistered && bluetoothGranted),
             "wifi" to listenersRegistered,
+            "battery" to listenersRegistered,
+            "batteryPercent" to prefs.getInt(KEY_BATTERY_PERCENT, -1),
+            "batteryArmed" to prefs.getBoolean(KEY_BATTERY_ARMED, true),
+            "batteryTriggerBelowPercent" to
+                WantedModeBatteryGuardPolicy.TRIGGER_BELOW_PERCENT,
+            "batteryRearmPercent" to
+                WantedModeBatteryGuardPolicy.REARM_AT_PERCENT,
             "usbHost" to (listenersRegistered && usbHostSupported),
             "usbScope" to "HOST_ONLY",
             "error" to (error ?: "")
@@ -280,8 +334,35 @@ class WantedModeEventMonitor(context: Context) {
             knownUsbHostDevices.clear()
         }
         lastEventElapsedByType.clear()
+
+        val stickyBattery: Intent?
+        try {
+            val batteryFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            stickyBattery = if (Build.VERSION.SDK_INT >= 33) {
+                appContext.registerReceiver(
+                    batteryReceiver,
+                    batteryFilter,
+                    Context.RECEIVER_NOT_EXPORTED
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                appContext.registerReceiver(batteryReceiver, batteryFilter)
+            }
+        } catch (_: Exception) {
+            try { appContext.unregisterReceiver(receiver) } catch (_: Exception) { }
+            try {
+                connectivityManager.unregisterNetworkCallback(networkCallback)
+            } catch (_: Exception) { }
+            prefs.edit().putBoolean(KEY_ENABLED, false).apply()
+            saveError("battery_registration_failed")
+            return false
+        }
+
         listenersRegistered = true
-        return true
+        // Evaluate the sticky snapshot immediately; do not wait for the next
+        // percentage change on an already-low battery.
+        if (stickyBattery != null) observeBattery(stickyBattery)
+        return listenersRegistered && isEnabled()
     }
 
     @Synchronized
@@ -302,6 +383,12 @@ class WantedModeEventMonitor(context: Context) {
             success = false
         }
 
+        try {
+            appContext.unregisterReceiver(batteryReceiver)
+        } catch (_: Exception) {
+            success = false
+        }
+
         knownWifiNetworks.clear()
         knownUsbHostDevices.clear()
         lastEventElapsedByType.clear()
@@ -313,10 +400,10 @@ class WantedModeEventMonitor(context: Context) {
      * Records only allowlisted categories and actions.
      */
     @Synchronized
-    fun record(category: String, action: String): Boolean {
+    fun record(category: String, action: String, batteryPercent: Int? = null): Boolean {
         if (!isEnabled()) return false
 
-        if (category !in setOf("usb", "bluetooth", "network", "power")) {
+        if (category !in setOf("usb", "bluetooth", "network", "power", "battery")) {
             return false
         }
 
@@ -324,17 +411,23 @@ class WantedModeEventMonitor(context: Context) {
                 "connected",
                 "disconnected",
                 "changed",
-                "unknown"
+                "unknown",
+                "low"
             )
         ) {
             return false
         }
 
+        if ((category == "battery") != (action == "low")) return false
+        if (category == "battery" &&
+            (batteryPercent == null || batteryPercent !in 0..100)
+        ) return false
+
         val now = System.currentTimeMillis()
         val elapsed = SystemClock.elapsedRealtime()
         val dedupeKey = "$category:$action"
         val lastElapsed = lastEventElapsedByType[dedupeKey]
-        if (lastElapsed != null && elapsed >= lastElapsed &&
+        if (category != "battery" && lastElapsed != null && elapsed >= lastElapsed &&
             elapsed - lastElapsed < DEDUPE_WINDOW_MS
         ) return false
         val events = readEvents()
@@ -344,6 +437,7 @@ class WantedModeEventMonitor(context: Context) {
             "bluetooth" -> "BLUETOOTH"
             "network" -> "NETWORK"
             "power" -> "POWER"
+            "battery" -> "BATTERY"
             else -> null
         }
 
@@ -361,12 +455,14 @@ class WantedModeEventMonitor(context: Context) {
             }
         }
 
-        events.put(
-            JSONObject()
-                .put("category", category)
-                .put("action", action)
-                .put("time", now)
-        )
+        val event = JSONObject()
+            .put("category", category)
+            .put("action", action)
+            .put("time", now)
+        if (category == "battery" && batteryPercent != null) {
+            event.put("batteryPercent", batteryPercent)
+        }
+        events.put(event)
 
         while (events.length() > MAX_EVENTS) {
             events.remove(0)
@@ -387,13 +483,15 @@ class WantedModeEventMonitor(context: Context) {
 
         for (index in 0 until events.length()) {
             val item = events.optJSONObject(index) ?: continue
-            result.add(
-                mapOf(
-                    "category" to item.optString("category"),
-                    "action" to item.optString("action"),
-                    "time" to item.optLong("time")
-                )
+            val entry = mutableMapOf<String, Any>(
+                "category" to item.optString("category"),
+                "action" to item.optString("action"),
+                "time" to item.optLong("time")
             )
+            if (item.optString("category") == "battery" &&
+                item.has("batteryPercent")
+            ) entry["batteryPercent"] = item.optInt("batteryPercent")
+            result.add(entry)
         }
 
         return result

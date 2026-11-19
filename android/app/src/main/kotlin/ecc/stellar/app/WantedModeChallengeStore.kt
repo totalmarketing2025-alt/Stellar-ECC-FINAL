@@ -35,10 +35,14 @@ class WantedModeChallengeStore(context: Context) {
         private const val MAX_CHALLENGES = 50
 
         private val ALLOWED_CATEGORIES =
-            setOf("USB", "BLUETOOTH", "NETWORK", "POWER")
+            setOf("USB", "BLUETOOTH", "NETWORK", "POWER", "BATTERY")
 
         private val ALLOWED_ACTIONS =
-            setOf("connected", "disconnected", "changed")
+            setOf("connected", "disconnected", "changed", "low")
+
+        private fun allowedType(category: String, action: String): Boolean =
+            category in ALLOWED_CATEGORIES && action in ALLOWED_ACTIONS &&
+                ((category == "BATTERY") == (action == "low"))
     }
 
     private val prefs =
@@ -128,8 +132,7 @@ class WantedModeChallengeStore(context: Context) {
         category: String,
         action: String
     ): Challenge? {
-        if (category !in ALLOWED_CATEGORIES) return null
-        if (action !in ALLOWED_ACTIONS) return null
+        if (!allowedType(category, action)) return null
         if (isCorrupted()) return null
 
         val now = System.currentTimeMillis()
@@ -251,8 +254,7 @@ class WantedModeChallengeStore(context: Context) {
                 val deadline = item.optLong("deadlineMillis", -1L)
 
                 if (id.isBlank() ||
-                    category !in ALLOWED_CATEGORIES ||
-                    action !in ALLOWED_ACTIONS ||
+                    !allowedType(category, action) ||
                     created <= 0L ||
                     deadline <= created ||
                     !item.has("expired")

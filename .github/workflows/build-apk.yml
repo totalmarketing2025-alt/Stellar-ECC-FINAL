@@ -45,8 +45,14 @@ jobs:
       - name: Test Wanted Mode notification and monitoring contracts
         run: flutter test test/wanted_mode_reliability_contract_test.dart
 
+      - name: Test Wanted Mode battery contracts
+        run: flutter test test/wanted_mode_battery_guard_contract_test.dart
+
       - name: Build APK
         run: flutter build apk --release
+
+      - name: Test Android Wanted Mode battery threshold policy
+        run: cd android && ./gradlew :app:testDebugUnitTest --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

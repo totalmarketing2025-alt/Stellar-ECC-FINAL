@@ -506,6 +506,8 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
   bool _challengeStoreStatusUnknown = false;
   String _monitoringStatus = 'RECOVERING';
   String _monitoringDetails = '';
+  int _batteryPercent = -1;
+  bool _batteryGuardArmed = true;
   Timer? _challengePollTimer;
   final Set<String> _shownChallengeIds = <String>{};
   List<Map<String, dynamic>> _pendingChallenges = [];
@@ -560,6 +562,8 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
         _challengeStoreStatusUnknown = false;
         _monitoringStatus = health['status']?.toString() ?? 'ERROR';
         _monitoringDetails = health['error']?.toString() ?? '';
+        _batteryPercent = (health['batteryPercent'] as num?)?.toInt() ?? -1;
+        _batteryGuardArmed = health['batteryArmed'] == true;
         _pendingChallenges = pending;
         _expiredChallenges = expired;
       });
@@ -846,6 +850,20 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
               subtitle: Text(_monitoringDetails.isEmpty
                   ? 'USB detection covers USB host devices only.'
                   : _monitoringDetails),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                Icons.battery_alert,
+                color: _batteryPercent >= 0 && _batteryPercent < 20
+                    ? StellarColors.danger : StellarColors.textSecondary,
+              ),
+              title: Text(_batteryPercent < 0
+                  ? 'Battery Guard: waiting for battery status'
+                  : 'Battery Guard: $_batteryPercent%'),
+              subtitle: Text(_batteryGuardArmed
+                  ? 'Below 20%: 10-second PIN check; missed check triggers local wipe.'
+                  : 'Triggered. Rearms after charging to 25%.'),
             ),
             const SizedBox(height: 8),
             const Text(

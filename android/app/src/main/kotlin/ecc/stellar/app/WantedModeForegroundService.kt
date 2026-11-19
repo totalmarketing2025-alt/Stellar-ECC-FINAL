@@ -302,7 +302,7 @@ class WantedModeForegroundService : Service() {
                     "Wanted Mode – event verification",
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "PIN verification for USB, Bluetooth, Wi-Fi and power events"
+                    description = "PIN verification for USB, Bluetooth, Wi-Fi, battery and power events"
                     setShowBadge(true)
                 }
             )
@@ -336,12 +336,15 @@ class WantedModeForegroundService : Service() {
                 .setPriority(Notification.PRIORITY_HIGH)
         }
 
-        val eventSummary = if (pendingCount > 1) {
-            "${challenge.category} ${challenge.action} " +
-                "(+${pendingCount - 1}) – отвори веднаш."
+        val eventDescription = if (challenge.category == "BATTERY") {
+            "Батеријата е под 20%"
         } else {
-            "${challenge.category} ${challenge.action} – " +
-                "отвори веднаш за PIN-проверка."
+            "${challenge.category} ${challenge.action}"
+        }
+        val eventSummary = if (pendingCount > 1) {
+            "$eventDescription (+${pendingCount - 1}) – отвори веднаш."
+        } else {
+            "$eventDescription – отвори веднаш за PIN-проверка."
         }
 
         return builder
