@@ -28,10 +28,10 @@ Staging address:
    permissions restricted to deploy the staging Worker. Do not grant this
    token permission to replace or read production Worker secrets.
 3. Generate a distinct random staging reviewer secret of at least 32
-   characters. Set it in the staging Worker as `GUARD_REVIEW_SECRET` using
-   `npx wrangler@4.129.0 secret put GUARD_REVIEW_SECRET --env staging`.
-   Add the **same value** to the GitHub environment as the
-   `GUARD_STAGING_REVIEW_SECRET` secret. Never print, log, or commit it.
+   characters. Store it in the `guard-staging` GitHub Environment as
+   `GUARD_STAGING_REVIEW_SECRET`. The workflow installs this secret as
+   `GUARD_REVIEW_SECRET` **only in the staging Worker** before smoke tests.
+   Never print, log, or commit it.
 4. Do not configure `GUARD_MIGRATION_SECRET` in staging unless a separate
    manual legacy-migration test is explicitly approved. No automatic Guard
    code migration or audit backfill is run by the smoke test.
@@ -43,10 +43,9 @@ Staging address:
    the live smoke test against the exact staging hostname. Rerun failed
    jobs after credentials and reviewer approval are in place.
 
-If the staging Worker has not yet been created, provision it with the
-staging-only token before setting its Worker secret. Confirm the Worker
-name in the CLI output; never run `wrangler deploy` without `--env staging`
-for this task.
+The workflow first creates or updates the staging Worker and then installs
+its private review secret. Confirm the Worker name in CLI output; never run
+`wrangler deploy` without `--env staging` for this task.
 
 ## What the live smoke test verifies
 

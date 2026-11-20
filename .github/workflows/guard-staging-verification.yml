@@ -48,6 +48,15 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STAGING_API_TOKEN }}
         run: npx wrangler@4.129.0 deploy --env staging
 
+      - name: Install isolated staging review secret
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_STAGING_API_TOKEN }}
+          GUARD_STAGING_REVIEW_SECRET: ${{ secrets.GUARD_STAGING_REVIEW_SECRET }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GUARD_STAGING_REVIEW_SECRET" | npx wrangler@4.129.0 secret put GUARD_REVIEW_SECRET --env staging
+
       - name: Run signed Guard staging API smoke tests
         env:
           GUARD_STAGING_REVIEW_SECRET: ${{ secrets.GUARD_STAGING_REVIEW_SECRET }}
