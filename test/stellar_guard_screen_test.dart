@@ -133,6 +133,27 @@ void main() {
     expect(find.text('000000017'), findsOneWidget);
   });
 
+  testWidgets('restores the precise pending payload and selected reason',
+      (tester) async {
+    final fake = _FakeGuardService();
+    fake.pending = const GuardPendingSubmission(
+      targetCode: '000000018',
+      reason: 'scam',
+      details: 'A previous report whose response was interrupted.',
+      idempotencyKey: _caseId,
+    );
+    await _mount(tester, fake);
+
+    expect(find.text('Restore previous report'), findsOneWidget);
+    expect(tester.widget<TextFormField>(
+        find.byKey(const Key('guard_target_code'))).controller!.text,
+        '000000018');
+    expect(tester.widget<TextFormField>(
+        find.byKey(const Key('guard_details'))).controller!.text,
+        'A previous report whose response was interrupted.');
+    expect(find.text('Scam / fraud'), findsOneWidget);
+  });
+
   testWidgets('valid report requires confirmation and stays pending review',
       (tester) async {
     final fake = _FakeGuardService();

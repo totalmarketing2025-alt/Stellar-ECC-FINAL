@@ -279,7 +279,9 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              key: const Key('guard_reason'),
+              // FormField stores its initial value internally. Remount when
+              // an interrupted submission restores a different reason.
+              key: ValueKey('guard_reason_$_reason'),
               value: _reason,
               isExpanded: true,
               decoration: const InputDecoration(
