@@ -49,6 +49,98 @@ class DirectoryClient {
     ]);
   }
 
+  // Guard uses the same registered Signal identity as relay and profile
+  // operations. The caller signs the canonical, action-bound message before
+  // making the proof request; these routes never authorize deletion.
+  Future<String> getGuardIdentityChallenge({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+  }) async {
+    final data = await _guardPost('/v1/guard/code/challenge', {
+      'nickname': nickname,
+      'deviceId': deviceId,
+      'registrationId': registrationId,
+    });
+    return _guardChallenge(data);
+  }
+
+  Future<String> getOwnGuardCode({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+    required String challenge,
+    required String signature,
+  }) async {
+    final data = await _guardPost('/v1/guard/code', {
+      'nickname': nickname,
+      'deviceId': deviceId,
+      'registrationId': registrationId,
+      'challenge': challenge,
+      'signature': signature,
+    });
+    final code = data['guardCode'];
+    if (code is! String || !RegExp(r'^[0-9]{9}$').hasMatch(code)) {
+      throw const FormatException('Invalid nine-digit Guard code response');
+    }
+    return code;
+  }
+
+  Future<String> getGuardCaseChallenge({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+    required String purpose,
+  }) async {
+    final data = await _guardPost('/v1/guard/cases/challenge', {
+      'nickname': nickname,
+      'deviceId': deviceId,
+      'registrationId': registrationId,
+      'purpose': purpose,
+    });
+    return _guardChallenge(data);
+  }
+
+  Future<Map<String, dynamic>> submitGuardCase(Map<String, dynamic> proof) =>
+      _guardPost('/v1/guard/cases', proof);
+
+  Future<Map<String, dynamic>> getGuardCaseStatus({
+    required String caseId,
+    required Map<String, dynamic> proof,
+  }) => _guardPost('/v1/guard/cases/${Uri.encodeComponent(caseId)}/status', proof);
+
+  Future<Map<String, dynamic>> cancelGuardCase({
+    required String caseId,
+    required Map<String, dynamic> proof,
+  }) => _guardPost('/v1/guard/cases/${Uri.encodeComponent(caseId)}/cancel', proof);
+
+  Future<Map<String, dynamic>> _guardPost(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _request('POST', path, body: body);
+    final data = _decodeJson(
+      await _readBody(response).timeout(const Duration(seconds: 15)),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw DirectoryException(
+        data['error']?.toString() ?? 'Guard request failed',
+        response.statusCode,
+      );
+    }
+    return data;
+  }
+
+  String _guardChallenge(Map<String, dynamic> data) {
+    final challenge = data['challenge'];
+    final expiresAt = data['expiresAt'];
+    if (challenge is! String || challenge.length < 20 ||
+        expiresAt is! int || expiresAt <= 0) {
+      throw const FormatException('Invalid or expired Guard challenge response');
+    }
+    return challenge;
+  }
+
   Future<bool> checkAvailability(String nickname) async {
     final response = await _request(
       'GET',
