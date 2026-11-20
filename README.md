@@ -50,6 +50,7 @@ The Settings → Stellar GUARD screen now lets an authenticated account owner re
 
 See [Guard Phase 03 operations](backend/cloudflare-directory/GUARD_PHASE03.md) for private endpoints, migration safety and the audit threat model.
 See [Guard Phase 04 Flutter integration](backend/cloudflare-directory/GUARD_PHASE04.md) for the mobile rollout and test plan.
+Before merging or deploying Phases 01–04, follow the [Guard staging and deployment verification gate](backend/cloudflare-directory/GUARD_DEPLOYMENT_VERIFICATION.md). Pull-request CI alone does not deploy the Cloudflare Directory Worker.
 
 **Migration preparation (operator only, not yet run):** After a staging backup and verification, configure `GUARD_MIGRATION_SECRET` in the directory Worker, then invoke the authenticated migration endpoint repeatedly using its `nextCursor` until `done: true`. Verify index invariants before a production migration. Do not use the relay shared secret as the migration secret.
 

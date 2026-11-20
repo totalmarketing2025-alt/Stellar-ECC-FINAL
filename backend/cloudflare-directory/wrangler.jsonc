@@ -19,5 +19,26 @@
       ]
     }
   ],
+  "env": {
+    "staging": {
+      "workers_dev": true,
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "DIRECTORY",
+            "class_name": "DirectoryStore"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1-staging",
+          "new_sqlite_classes": [
+            "DirectoryStore"
+          ]
+        }
+      ]
+    }
+  },
   "keep_vars": true
 }

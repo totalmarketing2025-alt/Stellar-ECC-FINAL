@@ -39,8 +39,14 @@ jobs:
       - name: Run STELLAR Guard case audit and review tests
         run: node --test tests/guard_audit.test.mjs
 
+      - name: Check Guard staging smoke cannot target production
+        run: node --test tests/guard_staging_safety.test.mjs
+
       - name: Validate Wrangler configuration
         run: npx wrangler@4.129.0 deploy --dry-run
+
+      - name: Validate isolated staging configuration
+        run: npx wrangler@4.129.0 deploy --dry-run --env staging
 
       - name: Check deployment secrets
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
