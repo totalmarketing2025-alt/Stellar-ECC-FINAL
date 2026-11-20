@@ -33,6 +33,9 @@ jobs:
       - name: Run STELLAR Guard identity and migration tests
         run: node --test tests/guard_code.test.mjs
 
+      - name: Run STELLAR Guard case API tests
+        run: node --test tests/guard_case.test.mjs
+
       - name: Validate Wrangler configuration
         run: npx wrangler@4.129.0 deploy --dry-run
 

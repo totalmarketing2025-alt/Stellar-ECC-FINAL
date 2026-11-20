@@ -27,7 +27,7 @@ Wanted Mode monitors selected local device and environment events, including USB
 
 Stellar GUARD is designed as a moderator-reviewed workflow for requesting removal of another Stellar user account, identified by a **nine-digit user code**. The code is an identifier, **not** the app unlock PIN and **not** authorization to delete an account.
 
-**Current status: Phase 01 (Guard identity foundation); account removal is disabled.**
+**Current status: Phase 02 (Guard case submission API); account removal is disabled.**
 
 The current Settings screen accepts a nine-digit target code but still has a disabled Continue action. It cannot submit a case or remove an account.
 
@@ -35,7 +35,12 @@ The current Settings screen accepts a nine-digit target code but still has a dis
 - An account owner can request their **own** code using `/v1/guard/code/challenge` and `/v1/guard/code` with a one-time Signal-identity signature. Challenge issuance is rate-limited to six per account per five minutes.
 - Existing accounts can be assigned codes via a **manual**, paginated, idempotent migration at `POST /v1/internal/guard-codes/migrate` (maximum 50 accounts per request). The endpoint is disabled unless operators configure a separate `GUARD_MIGRATION_SECRET`. Migration is **not** run automatically on user listing or production startup.
 - The code-to-account index is internal. There is no public reverse-lookup endpoint and no account-deletion endpoint.
-- Subsequent phases will implement authenticated case submission, moderator approval, reliable background processing, deletion controls, abuse protection, and audit records. Knowledge of a nine-digit code alone will never authorize removal.
+- `POST /v1/guard/cases/challenge` issues a 2-minute, action-specific challenge (`purpose`: `submit`, `status`, or `cancel`) for a registered Signal device. The limit is 20 challenges per account per five minutes.
+- `POST /v1/guard/cases` accepts a signed case with a nine-digit `targetCode`, UUID `idempotencyKey`, `reason` (`harassment`, `threats`, `scam`, `impersonation`, or `other`) and 10–2,000 characters of `details`. Cases are saved as `pending_review`; **no deletion or approval runs**.
+- `POST /v1/guard/cases/{caseId}/status` and `/cancel` require a new signed challenge from the original requester. Cancellation is permitted only while the case is `pending_review`.
+- Every action proof signs the array `["stellar-guard-case-v1", action, nickname, deviceId, registrationId, challenge, caseId, targetCode, reason, details, idempotencyKey]`. Unused action fields are empty strings. The code is returned only to its authenticated owner through the Phase 01 API, and case responses never reveal whether a target code exists.
+- A reporter may create at most three new cases in 24 hours, with one active case per target; retries are idempotent. No public case listing, case approval, background deletion or moderator API is exposed.
+- Subsequent phases will implement immutable case audit, moderator approval, reliable background processing, deletion controls and further abuse protection. Knowledge of a nine-digit code alone will never authorize removal.
 
 **Migration preparation (operator only, not yet run):** After a staging backup and verification, configure `GUARD_MIGRATION_SECRET` in the directory Worker, then invoke the authenticated migration endpoint repeatedly using its `nextCursor` until `done: true`. Verify index invariants before a production migration. Do not use the relay shared secret as the migration secret.
 

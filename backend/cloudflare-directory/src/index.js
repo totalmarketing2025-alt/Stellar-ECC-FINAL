@@ -19,6 +19,17 @@ const GUARD_CHALLENGE_TTL_MS = 2 * 60 * 1000;
 const GUARD_CHALLENGE_WINDOW_MS = 5 * 60 * 1000;
 const GUARD_CHALLENGE_WINDOW_MAX = 6;
 const GUARD_MIGRATION_MAX_BATCH = 50;
+const GUARD_CASE_CHALLENGE_TTL_MS = 2 * 60 * 1000;
+const GUARD_CASE_CHALLENGE_WINDOW_MS = 5 * 60 * 1000;
+const GUARD_CASE_CHALLENGE_WINDOW_MAX = 20;
+const GUARD_CASE_SUBMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const GUARD_CASE_SUBMIT_WINDOW_MAX = 3;
+const GUARD_CASE_REASONS = new Set([
+  "harassment", "threats", "scam", "impersonation", "other",
+]);
+const GUARD_CASE_ACTIONS = new Set(["submit", "status", "cancel"]);
+const GUARD_CASE_ID_PATTERN =
+  /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
 function validGuardCode(value) {
   return typeof value === "string" && /^[0-9]{9}$/.test(value);
@@ -95,6 +106,184 @@ async function ensureGuardCode(txn, nickname, user) {
   }
 
   throw new Error("Unable to reserve a unique GUARD code");
+}
+
+function guardCaseChallengeKey(nickname, deviceId, registrationId) {
+  return `guard-case-challenge:${nickname}:${deviceId}:${registrationId}`;
+}
+
+function guardCaseAuthMessage(body, action, caseId = "") {
+  return JSON.stringify([
+    "stellar-guard-case-v1",
+    action,
+    body.nickname,
+    body.deviceId,
+    body.registrationId,
+    body.challenge,
+    caseId,
+    action === "submit" ? body.targetCode : "",
+    action === "submit" ? body.reason : "",
+    action === "submit" ? body.details : "",
+    action === "submit" ? body.idempotencyKey : "",
+  ]);
+}
+
+function guardCasePublicRecord(record) {
+  // Never reveal whether a target code resolves to a live account.
+  return {
+    caseId: record.caseId,
+    status: record.status,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function guardCaseProofFields(body) {
+  const nickname = normalizeNickname(body?.nickname);
+  const deviceId = body?.deviceId;
+  const registrationId = body?.registrationId;
+  const challenge = body?.challenge;
+  const signature = body?.signature;
+
+  if (!validNickname(nickname) ||
+      !Number.isInteger(deviceId) || deviceId < 1 || deviceId > 0x7fffffff ||
+      !Number.isInteger(registrationId) || registrationId < 1 ||
+      registrationId > 0x7fffffff ||
+      typeof challenge !== "string" || challenge.length < 1 ||
+      challenge.length > 128 || !validSignalSignature(signature)) {
+    return null;
+  }
+
+  return { nickname, deviceId, registrationId, challenge, signature };
+}
+
+async function handleGuardCaseAction(storage, fields, action, caseId = "") {
+  const userKey = `user:${fields.nickname}`;
+  const challengeKey = guardCaseChallengeKey(
+    fields.nickname, fields.deviceId, fields.registrationId,
+  );
+  const user = await storage.get(userKey);
+  const challenge = await storage.get(challengeKey);
+
+  if (!guardDeviceMatches(user, fields.deviceId, fields.registrationId) ||
+      !challenge || challenge.challenge !== fields.challenge ||
+      challenge.purpose !== action || challenge.expiresAt <= Date.now()) {
+    return { error: "Invalid or expired Guard proof", httpStatus: 401 };
+  }
+
+  const verified = await verifySignalIdentitySignature({
+    identityKey: user.bundle.identityKey,
+    message: guardCaseAuthMessage(fields, action, caseId),
+    signature: fields.signature,
+  });
+
+  return storage.transaction(async (txn) => {
+    const currentUser = await txn.get(userKey);
+    const currentChallenge = await txn.get(challengeKey);
+
+    if (!guardDeviceMatches(currentUser, fields.deviceId, fields.registrationId) ||
+        currentUser.bundle.identityKey !== user.bundle.identityKey ||
+        !currentChallenge || currentChallenge.challenge !== fields.challenge ||
+        currentChallenge.purpose !== action ||
+        currentChallenge.expiresAt <= Date.now()) {
+      return { error: "Invalid or expired Guard proof", httpStatus: 401 };
+    }
+
+    // Consume on both valid and invalid signatures. A proof cannot be replayed
+    // or repurposed for a different action or payload.
+    await txn.delete(challengeKey);
+    if (!verified) {
+      return { error: "Invalid or expired Guard proof", httpStatus: 401 };
+    }
+
+    const now = Date.now();
+    if (action === "submit") {
+      const idempotencyIndex =
+        `guard-case-idempotency:${fields.nickname}:${fields.idempotencyKey}`;
+      const existingId = await txn.get(idempotencyIndex);
+
+      if (existingId) {
+        const existing = await txn.get(`guard-case:${existingId}`);
+        if (!existing || existing.targetCode !== fields.targetCode ||
+            existing.reason !== fields.reason ||
+            existing.details !== fields.details) {
+          return { error: "Idempotency key reused", httpStatus: 409 };
+        }
+        return guardCasePublicRecord(existing);
+      }
+
+      const activeIndex =
+        `guard-case-active:${fields.nickname}:${fields.targetCode}`;
+      const activeId = await txn.get(activeIndex);
+      if (activeId) {
+        const active = await txn.get(`guard-case:${activeId}`);
+        if (active?.status === "pending_review") {
+          await txn.put(idempotencyIndex, activeId);
+          return guardCasePublicRecord(active);
+        }
+      }
+
+      const submitted = await txn.get(`guard-case-submit-limit:${fields.nickname}`);
+      const window = submitted?.expiresAt > now
+        ? submitted
+        : { count: 0, expiresAt: now + GUARD_CASE_SUBMIT_WINDOW_MS };
+
+      if (window.count >= GUARD_CASE_SUBMIT_WINDOW_MAX) {
+        return {
+          error: "Guard case submission limit reached",
+          httpStatus: 429,
+          retryAfterSeconds: Math.ceil((window.expiresAt - now) / 1000),
+        };
+      }
+
+      const owner = await ensureGuardCode(txn, fields.nickname, currentUser);
+      if (fields.targetCode === owner.code) {
+        return { error: "Cannot submit a case about your own account", httpStatus: 400 };
+      }
+
+      const indexedNickname = await txn.get(guardCodeIndexKey(fields.targetCode));
+      const indexedUser = indexedNickname
+        ? await txn.get(`user:${indexedNickname}`) : null;
+      const targetNickname = indexedUser?.guardCode === fields.targetCode
+        ? indexedNickname : null;
+
+      const record = {
+        caseId: crypto.randomUUID(),
+        requester: fields.nickname,
+        targetCode: fields.targetCode,
+        // Null for unknown codes. Neither possibility is disclosed to the caller.
+        targetNickname,
+        reason: fields.reason,
+        details: fields.details,
+        status: "pending_review",
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await txn.put(`guard-case:${record.caseId}`, record);
+      await txn.put(idempotencyIndex, record.caseId);
+      await txn.put(activeIndex, record.caseId);
+      await txn.put(`guard-case-submit-limit:${fields.nickname}`, {
+        ...window, count: window.count + 1,
+      });
+      return guardCasePublicRecord(record);
+    }
+
+    const key = `guard-case:${caseId}`;
+    const record = await txn.get(key);
+    if (!record || record.requester !== fields.nickname) {
+      return { error: "Guard case not found", httpStatus: 404 };
+    }
+
+    if (action === "cancel" && record.status === "pending_review") {
+      record.status = "cancelled";
+      record.updatedAt = now;
+      await txn.put(key, record);
+      await txn.delete(`guard-case-active:${fields.nickname}:${record.targetCode}`);
+    }
+
+    return guardCasePublicRecord(record);
+  });
 }
 
 const PROFILE_PHOTO_MAX_BYTES = 512 * 1024;
@@ -721,6 +910,122 @@ export class DirectoryStore {
         return json({ error: result.error }, result.status);
       }
 
+      return json(result);
+    }
+
+    if (request.method === "POST" &&
+        url.pathname === "/v1/guard/cases/challenge") {
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const nickname = normalizeNickname(body?.nickname);
+      const deviceId = body?.deviceId;
+      const registrationId = body?.registrationId;
+      const purpose = body?.purpose;
+      if (!validNickname(nickname) ||
+          !Number.isInteger(deviceId) || deviceId < 1 || deviceId > 0x7fffffff ||
+          !Number.isInteger(registrationId) || registrationId < 1 ||
+          registrationId > 0x7fffffff || !GUARD_CASE_ACTIONS.has(purpose)) {
+        return json({ error: "Invalid Guard case challenge request" }, 400);
+      }
+
+      const now = Date.now();
+      const challenge = createPushChallenge();
+      const expiresAt = now + GUARD_CASE_CHALLENGE_TTL_MS;
+      const result = await this.ctx.storage.transaction(async (txn) => {
+        const user = await txn.get(`user:${nickname}`);
+        if (!guardDeviceMatches(user, deviceId, registrationId)) {
+          return { error: "Registered device not found", httpStatus: 404 };
+        }
+
+        const limitKey = `guard-case-challenge-limit:${nickname}`;
+        const previous = await txn.get(limitKey);
+        const window = previous?.expiresAt > now
+          ? previous
+          : { count: 0, expiresAt: now + GUARD_CASE_CHALLENGE_WINDOW_MS };
+        if (window.count >= GUARD_CASE_CHALLENGE_WINDOW_MAX) {
+          return {
+            error: "Too many Guard case challenges",
+            httpStatus: 429,
+            retryAfterSeconds: Math.ceil((window.expiresAt - now) / 1000),
+          };
+        }
+
+        await txn.put(limitKey, { ...window, count: window.count + 1 });
+        await txn.put(
+          guardCaseChallengeKey(nickname, deviceId, registrationId),
+          { challenge, purpose, expiresAt },
+        );
+        return { challenge, expiresAt };
+      });
+
+      if (result.error) {
+        return json({
+          error: result.error,
+          ...(result.retryAfterSeconds
+            ? { retryAfterSeconds: result.retryAfterSeconds }
+            : {}),
+        }, result.httpStatus);
+      }
+      return json(result);
+    }
+
+    // No Guard case is ever approved or executed from these endpoints. Only
+    // the authenticated requester may submit, check, or cancel their case.
+    const guardCaseRoute = url.pathname.match(
+      /^\/v1\/guard\/cases\/([a-f0-9-]{36})\/(status|cancel)$/i,
+    );
+    if (request.method === "POST" &&
+        (url.pathname === "/v1/guard/cases" || guardCaseRoute)) {
+      const action = guardCaseRoute ? guardCaseRoute[2].toLowerCase() : "submit";
+      const caseId = guardCaseRoute?.[1].toLowerCase() || "";
+      if (caseId && !GUARD_CASE_ID_PATTERN.test(caseId)) {
+        return json({ error: "Invalid Guard case ID" }, 400);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const fields = guardCaseProofFields(body);
+      if (!fields) {
+        return json({ error: "Invalid Guard case proof" }, 400);
+      }
+
+      if (action === "submit") {
+        const targetCode = body?.targetCode;
+        const reason = body?.reason;
+        const details = body?.details;
+        const idempotencyKey = body?.idempotencyKey;
+        if (!validGuardCode(targetCode) || !GUARD_CASE_REASONS.has(reason) ||
+            typeof details !== "string" ||
+            details !== details.trim() || details.length < 10 ||
+            details.length > 2000 ||
+            typeof idempotencyKey !== "string" ||
+            !GUARD_CASE_ID_PATTERN.test(idempotencyKey)) {
+          return json({ error: "Invalid Guard case details" }, 400);
+        }
+        Object.assign(fields, { targetCode, reason, details, idempotencyKey });
+      }
+
+      const result = await handleGuardCaseAction(
+        this.ctx.storage, fields, action, caseId,
+      );
+      if (result.error) {
+        return json({
+          error: result.error,
+          ...(result.retryAfterSeconds
+            ? { retryAfterSeconds: result.retryAfterSeconds }
+            : {}),
+        }, result.httpStatus);
+      }
       return json(result);
     }
 
