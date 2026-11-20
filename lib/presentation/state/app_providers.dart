@@ -9,6 +9,7 @@ import '../../core/crypto/session_manager.dart';
 import '../../core/crypto/group_crypto.dart';
 import '../../core/network/relay_client.dart';
 import '../../core/network/directory_client.dart';
+import '../../core/guard/guard_case_service.dart';
 import '../../core/media/media_attachment_service.dart';
 import '../../core/profile/profile_photo_service.dart';
 import '../../core/profile/profile_photo_sync_service.dart';
@@ -79,6 +80,19 @@ final directoryClientProvider = Provider<DirectoryClient>((ref) {
 
   return client;
 });
+
+final guardCaseServiceProvider = Provider<GuardCaseService>((ref) {
+  return GuardCaseService(
+    directoryClient: ref.watch(directoryClientProvider),
+    keyStore: ref.watch(platformKeyStoreProvider),
+    identityStore: ref.watch(identityKeyStoreProvider),
+  );
+});
+
+// Separate provider permits isolated Guard widget tests without initializing
+// the application's relay connection or secure nickname controller.
+final guardNicknameProvider = Provider<String?>((ref) =>
+    ref.watch(localNicknameProvider));
 
 final relayClientProvider = Provider<RelayClient>(
   (ref) => RelayClient(

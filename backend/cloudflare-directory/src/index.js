@@ -9,6 +9,457 @@ function validNickname(nickname) {
 
 const PUSH_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
+// GUARD codes identify accounts; they are never credentials or permission to
+// remove an account. Keep the leading zeroes by storing them as strings.
+const GUARD_CODE_SPACE = 1_000_000_000;
+const GUARD_CODE_RANDOM_CEILING =
+  Math.floor(0x100000000 / GUARD_CODE_SPACE) * GUARD_CODE_SPACE;
+const GUARD_CODE_ALLOCATION_ATTEMPTS = 64;
+const GUARD_CHALLENGE_TTL_MS = 2 * 60 * 1000;
+const GUARD_CHALLENGE_WINDOW_MS = 5 * 60 * 1000;
+const GUARD_CHALLENGE_WINDOW_MAX = 6;
+const GUARD_MIGRATION_MAX_BATCH = 50;
+const GUARD_CASE_CHALLENGE_TTL_MS = 2 * 60 * 1000;
+const GUARD_CASE_CHALLENGE_WINDOW_MS = 5 * 60 * 1000;
+const GUARD_CASE_CHALLENGE_WINDOW_MAX = 20;
+const GUARD_CASE_SUBMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const GUARD_CASE_SUBMIT_WINDOW_MAX = 3;
+const GUARD_CASE_REASONS = new Set([
+  "harassment", "threats", "scam", "impersonation", "other",
+]);
+const GUARD_CASE_ACTIONS = new Set(["submit", "status", "cancel"]);
+const GUARD_CASE_ID_PATTERN =
+  /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+const GUARD_AUDIT_GENESIS_HASH = "0".repeat(64);
+const GUARD_AUDIT_MAX_EVENTS = 128;
+const GUARD_REVIEW_MAX_PAGE = 50;
+
+function validGuardCode(value) {
+  return typeof value === "string" && /^[0-9]{9}$/.test(value);
+}
+
+function newGuardCode() {
+  const sample = new Uint32Array(1);
+
+  // Rejection sampling avoids modulo bias across the full 000000000–999999999
+  // range. Math.random() must not be used for persistent identifiers.
+  do {
+    crypto.getRandomValues(sample);
+  } while (sample[0] >= GUARD_CODE_RANDOM_CEILING);
+
+  return String(sample[0] % GUARD_CODE_SPACE).padStart(9, "0");
+}
+
+function guardCodeIndexKey(code) {
+  return `guard-code:${code}`;
+}
+
+function guardChallengeKey(nickname, deviceId, registrationId) {
+  return `guard-challenge:${nickname}:${deviceId}:${registrationId}`;
+}
+
+function guardIdentityMessage({ nickname, deviceId, registrationId, challenge }) {
+  return JSON.stringify([
+    "stellar-guard-identity-v1",
+    nickname,
+    deviceId,
+    registrationId,
+    challenge,
+  ]);
+}
+
+function guardDeviceMatches(user, deviceId, registrationId) {
+  return user?.bundle &&
+    user.bundle.deviceId === deviceId &&
+    user.bundle.registrationId === registrationId;
+}
+
+async function ensureGuardCode(txn, nickname, user) {
+  const key = `user:${nickname}`;
+
+  if (user.guardCode != null) {
+    if (!validGuardCode(user.guardCode)) {
+      throw new Error("Stored GUARD code is invalid");
+    }
+
+    const owner = await txn.get(guardCodeIndexKey(user.guardCode));
+    if (owner && owner !== nickname) {
+      // Never silently change an existing identity to resolve corruption.
+      throw new Error("Stored GUARD code has a conflicting owner");
+    }
+
+    if (!owner) {
+      await txn.put(guardCodeIndexKey(user.guardCode), nickname);
+    }
+
+    return { code: user.guardCode, created: false };
+  }
+
+  for (let attempt = 0; attempt < GUARD_CODE_ALLOCATION_ATTEMPTS; attempt++) {
+    const code = newGuardCode();
+    const indexKey = guardCodeIndexKey(code);
+
+    if (await txn.get(indexKey)) {
+      continue;
+    }
+
+    await txn.put(indexKey, nickname);
+    await txn.put(key, { ...user, guardCode: code });
+    return { code, created: true };
+  }
+
+  throw new Error("Unable to reserve a unique GUARD code");
+}
+
+function guardCaseChallengeKey(nickname, deviceId, registrationId) {
+  return `guard-case-challenge:${nickname}:${deviceId}:${registrationId}`;
+}
+
+function guardCaseAuthMessage(body, action, caseId = "") {
+  return JSON.stringify([
+    "stellar-guard-case-v1",
+    action,
+    body.nickname,
+    body.deviceId,
+    body.registrationId,
+    body.challenge,
+    caseId,
+    action === "submit" ? body.targetCode : "",
+    action === "submit" ? body.reason : "",
+    action === "submit" ? body.details : "",
+    action === "submit" ? body.idempotencyKey : "",
+  ]);
+}
+
+function guardCasePublicRecord(record) {
+  // Never reveal whether a target code resolves to a live account.
+  return {
+    caseId: record.caseId,
+    status: record.status,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function guardAuditKey(caseId, sequence) {
+  return `guard-case-audit:${caseId}:${String(sequence).padStart(6, "0")}`;
+}
+
+function guardAuditSignedFields(event) {
+  return [
+    "stellar-guard-audit-v1",
+    event.caseId,
+    event.sequence,
+    event.type,
+    event.actor,
+    event.at,
+    event.fromStatus,
+    event.toStatus,
+    event.previousHash,
+    event.payloadHash,
+  ];
+}
+
+async function guardSha256(value) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256", new TextEncoder().encode(value),
+  );
+  return bytesToHex(new Uint8Array(digest));
+}
+
+function guardCasePayloadFields(record) {
+  // This is stable across status changes, and binds evidence to the case ID.
+  return [
+    "stellar-guard-case-payload-v1",
+    record.caseId,
+    record.requester,
+    record.targetCode,
+    record.targetNickname,
+    record.reason,
+    record.details,
+    record.createdAt,
+  ];
+}
+
+async function appendGuardAudit(txn, record, type, actor, fromStatus, at) {
+  const sequence = (record.auditSequence || 0) + 1;
+  if (sequence > GUARD_AUDIT_MAX_EVENTS) {
+    throw new Error("Guard case audit capacity exceeded");
+  }
+
+  const key = guardAuditKey(record.caseId, sequence);
+  if (await txn.get(key)) {
+    throw new Error("Guard audit event already exists");
+  }
+
+  record.payloadHash ||= await guardSha256(JSON.stringify(
+    guardCasePayloadFields(record),
+  ));
+  const event = {
+    caseId: record.caseId,
+    sequence,
+    type,
+    actor,
+    at,
+    fromStatus,
+    toStatus: record.status,
+    previousHash: record.auditHeadHash || GUARD_AUDIT_GENESIS_HASH,
+    payloadHash: record.payloadHash,
+  };
+  event.hash = await guardSha256(JSON.stringify(guardAuditSignedFields(event)));
+
+  await txn.put(key, event);
+  record.auditSequence = sequence;
+  record.auditHeadHash = event.hash;
+}
+
+async function verifyGuardAudit(storage, record) {
+  const prefix = `guard-case-audit:${record.caseId}:`;
+  if (record.auditSequence == null && record.auditHeadHash == null &&
+      record.payloadHash == null) {
+    // Cases created before Phase 03 are explicitly identified as untracked;
+    // never pretend their earlier history was observed by the audit system.
+    return (await storage.list({ prefix, limit: 1 })).size > 0
+      ? { state: "corrupt" }
+      : { state: "legacy", events: [] };
+  }
+
+  const count = record.auditSequence;
+  if (!Number.isInteger(count) || count < 1 ||
+      count > GUARD_AUDIT_MAX_EVENTS ||
+      typeof record.auditHeadHash !== "string" ||
+      typeof record.payloadHash !== "string") {
+    return { state: "corrupt" };
+  }
+
+  const payloadHash = await guardSha256(JSON.stringify(
+    guardCasePayloadFields(record),
+  ));
+  if (payloadHash !== record.payloadHash) {
+    return { state: "corrupt" };
+  }
+
+  const entries = await storage.list({
+    prefix,
+    limit: GUARD_AUDIT_MAX_EVENTS + 1,
+  });
+  if (entries.size !== count) {
+    return { state: "corrupt" };
+  }
+
+  let previousHash = GUARD_AUDIT_GENESIS_HASH;
+  let previousStatus = null;
+  let previousTime = 0;
+  const events = [];
+  for (let sequence = 1; sequence <= count; sequence++) {
+    const event = entries.get(guardAuditKey(record.caseId, sequence));
+    if (!event || event.caseId !== record.caseId ||
+        event.sequence !== sequence ||
+        event.payloadHash !== payloadHash ||
+        event.previousHash !== previousHash ||
+        event.fromStatus !== previousStatus ||
+        (sequence === 1 && !["case_submitted", "legacy_imported"].includes(event.type)) ||
+        !Number.isInteger(event.at) || event.at < previousTime ||
+        typeof event.hash !== "string" ||
+        event.hash !== await guardSha256(JSON.stringify(
+          guardAuditSignedFields(event),
+        ))) {
+      return { state: "corrupt" };
+    }
+    previousHash = event.hash;
+    previousStatus = event.toStatus;
+    previousTime = event.at;
+    events.push(event);
+  }
+
+  if (previousHash !== record.auditHeadHash ||
+      events.at(-1)?.toStatus !== record.status) {
+    return { state: "corrupt" };
+  }
+
+  return { state: "verified", events };
+}
+
+async function backfillLegacyGuardAudit(txn, record, now) {
+  const verified = await verifyGuardAudit(txn, record);
+  if (verified.state === "corrupt") {
+    throw new Error("Guard audit integrity violation");
+  }
+  if (verified.state === "verified") return false;
+
+  await appendGuardAudit(
+    txn, record, "legacy_imported", "system", null, now,
+  );
+  await txn.put(`guard-case:${record.caseId}`, record);
+  return true;
+}
+
+function guardCaseProofFields(body) {
+  const nickname = normalizeNickname(body?.nickname);
+  const deviceId = body?.deviceId;
+  const registrationId = body?.registrationId;
+  const challenge = body?.challenge;
+  const signature = body?.signature;
+
+  if (!validNickname(nickname) ||
+      !Number.isInteger(deviceId) || deviceId < 1 || deviceId > 0x7fffffff ||
+      !Number.isInteger(registrationId) || registrationId < 1 ||
+      registrationId > 0x7fffffff ||
+      typeof challenge !== "string" || challenge.length < 1 ||
+      challenge.length > 128 || !validSignalSignature(signature)) {
+    return null;
+  }
+
+  return { nickname, deviceId, registrationId, challenge, signature };
+}
+
+async function handleGuardCaseAction(storage, fields, action, caseId = "") {
+  const userKey = `user:${fields.nickname}`;
+  const challengeKey = guardCaseChallengeKey(
+    fields.nickname, fields.deviceId, fields.registrationId,
+  );
+  const user = await storage.get(userKey);
+  const challenge = await storage.get(challengeKey);
+
+  if (!guardDeviceMatches(user, fields.deviceId, fields.registrationId) ||
+      !challenge || challenge.challenge !== fields.challenge ||
+      challenge.purpose !== action || challenge.expiresAt <= Date.now()) {
+    return { error: "Invalid or expired Guard proof", httpStatus: 401 };
+  }
+
+  const verified = await verifySignalIdentitySignature({
+    identityKey: user.bundle.identityKey,
+    message: guardCaseAuthMessage(fields, action, caseId),
+    signature: fields.signature,
+  });
+
+  return storage.transaction(async (txn) => {
+    const currentUser = await txn.get(userKey);
+    const currentChallenge = await txn.get(challengeKey);
+
+    if (!guardDeviceMatches(currentUser, fields.deviceId, fields.registrationId) ||
+        currentUser.bundle.identityKey !== user.bundle.identityKey ||
+        !currentChallenge || currentChallenge.challenge !== fields.challenge ||
+        currentChallenge.purpose !== action ||
+        currentChallenge.expiresAt <= Date.now()) {
+      return { error: "Invalid or expired Guard proof", httpStatus: 401 };
+    }
+
+    // Consume on both valid and invalid signatures. A proof cannot be replayed
+    // or repurposed for a different action or payload.
+    await txn.delete(challengeKey);
+    if (!verified) {
+      return { error: "Invalid or expired Guard proof", httpStatus: 401 };
+    }
+
+    const now = Date.now();
+    if (action === "submit") {
+      const idempotencyIndex =
+        `guard-case-idempotency:${fields.nickname}:${fields.idempotencyKey}`;
+      const existingId = await txn.get(idempotencyIndex);
+
+      if (existingId) {
+        const existing = await txn.get(`guard-case:${existingId}`);
+        if (!existing || existing.targetCode !== fields.targetCode ||
+            existing.reason !== fields.reason ||
+            existing.details !== fields.details) {
+          return { error: "Idempotency key reused", httpStatus: 409 };
+        }
+        if ((await verifyGuardAudit(txn, existing)).state === "corrupt") {
+          return { error: "Guard audit integrity violation", httpStatus: 409 };
+        }
+        return guardCasePublicRecord(existing);
+      }
+
+      const activeIndex =
+        `guard-case-active:${fields.nickname}:${fields.targetCode}`;
+      const activeId = await txn.get(activeIndex);
+      if (activeId) {
+        const active = await txn.get(`guard-case:${activeId}`);
+        if (active?.status === "pending_review") {
+          if ((await verifyGuardAudit(txn, active)).state === "corrupt") {
+            return { error: "Guard audit integrity violation", httpStatus: 409 };
+          }
+          await txn.put(idempotencyIndex, activeId);
+          return guardCasePublicRecord(active);
+        }
+      }
+
+      const submitted = await txn.get(`guard-case-submit-limit:${fields.nickname}`);
+      const window = submitted?.expiresAt > now
+        ? submitted
+        : { count: 0, expiresAt: now + GUARD_CASE_SUBMIT_WINDOW_MS };
+
+      if (window.count >= GUARD_CASE_SUBMIT_WINDOW_MAX) {
+        return {
+          error: "Guard case submission limit reached",
+          httpStatus: 429,
+          retryAfterSeconds: Math.ceil((window.expiresAt - now) / 1000),
+        };
+      }
+
+      const owner = await ensureGuardCode(txn, fields.nickname, currentUser);
+      if (fields.targetCode === owner.code) {
+        return { error: "Cannot submit a case about your own account", httpStatus: 400 };
+      }
+
+      const indexedNickname = await txn.get(guardCodeIndexKey(fields.targetCode));
+      const indexedUser = indexedNickname
+        ? await txn.get(`user:${indexedNickname}`) : null;
+      const targetNickname = indexedUser?.guardCode === fields.targetCode
+        ? indexedNickname : null;
+
+      const record = {
+        caseId: crypto.randomUUID(),
+        requester: fields.nickname,
+        targetCode: fields.targetCode,
+        // Null for unknown codes. Neither possibility is disclosed to the caller.
+        targetNickname,
+        reason: fields.reason,
+        details: fields.details,
+        status: "pending_review",
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await appendGuardAudit(
+        txn, record, "case_submitted", fields.nickname, null, now,
+      );
+      await txn.put(`guard-case:${record.caseId}`, record);
+      await txn.put(idempotencyIndex, record.caseId);
+      await txn.put(activeIndex, record.caseId);
+      await txn.put(`guard-case-submit-limit:${fields.nickname}`, {
+        ...window, count: window.count + 1,
+      });
+      return guardCasePublicRecord(record);
+    }
+
+    const key = `guard-case:${caseId}`;
+    const record = await txn.get(key);
+    if (!record || record.requester !== fields.nickname) {
+      return { error: "Guard case not found", httpStatus: 404 };
+    }
+
+    if ((await verifyGuardAudit(txn, record)).state === "corrupt") {
+      return { error: "Guard audit integrity violation", httpStatus: 409 };
+    }
+
+    if (action === "cancel" && record.status === "pending_review") {
+      await backfillLegacyGuardAudit(txn, record, now);
+      const previousStatus = record.status;
+      record.status = "cancelled";
+      record.updatedAt = now;
+      await appendGuardAudit(
+        txn, record, "case_cancelled", fields.nickname, previousStatus, now,
+      );
+      await txn.put(key, record);
+      await txn.delete(`guard-case-active:${fields.nickname}:${record.targetCode}`);
+    }
+
+    return guardCasePublicRecord(record);
+  });
+}
+
 const PROFILE_PHOTO_MAX_BYTES = 512 * 1024;
 const PROFILE_PHOTO_MIME_TYPES = new Set([
   "image/jpeg",
@@ -495,6 +946,380 @@ export class DirectoryStore {
       return json({
         available: !user,
         nickname,
+      });
+    }
+
+    // The only public GUARD identity API returns the caller's own code after
+    // a signed proof from the registered Signal identity key. There is no
+    // public code-to-nickname lookup or account-removal operation.
+    if (request.method === "POST" &&
+        url.pathname === "/v1/guard/code/challenge") {
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const nickname = normalizeNickname(body?.nickname);
+      const deviceId = body?.deviceId;
+      const registrationId = body?.registrationId;
+
+      if (!validNickname(nickname) ||
+          !Number.isInteger(deviceId) || deviceId < 1 || deviceId > 0x7fffffff ||
+          !Number.isInteger(registrationId) || registrationId < 1 ||
+          registrationId > 0x7fffffff) {
+        return json({ error: "Invalid GUARD identity request" }, 400);
+      }
+
+      const now = Date.now();
+      const challenge = createPushChallenge();
+      const expiresAt = now + GUARD_CHALLENGE_TTL_MS;
+      const result = await this.ctx.storage.transaction(async (txn) => {
+        const user = await txn.get(`user:${nickname}`);
+        if (!guardDeviceMatches(user, deviceId, registrationId)) {
+          return { status: 404, error: "Registered device not found" };
+        }
+
+        const limitKey = `guard-challenge-limit:${nickname}`;
+        const previous = await txn.get(limitKey);
+        const window = previous?.expiresAt > now
+          ? previous
+          : { count: 0, expiresAt: now + GUARD_CHALLENGE_WINDOW_MS };
+
+        if (window.count >= GUARD_CHALLENGE_WINDOW_MAX) {
+          return {
+            status: 429,
+            error: "Too many GUARD identity challenges",
+            retryAfterSeconds: Math.ceil((window.expiresAt - now) / 1000),
+          };
+        }
+
+        await txn.put(limitKey, { ...window, count: window.count + 1 });
+        await txn.put(
+          guardChallengeKey(nickname, deviceId, registrationId),
+          { challenge, expiresAt },
+        );
+        return { challenge, expiresAt };
+      });
+
+      if (result.error) {
+        return json({
+          error: result.error,
+          ...(result.retryAfterSeconds
+            ? { retryAfterSeconds: result.retryAfterSeconds }
+            : {}),
+        }, result.status);
+      }
+
+      return json(result);
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/guard/code") {
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const nickname = normalizeNickname(body?.nickname);
+      const deviceId = body?.deviceId;
+      const registrationId = body?.registrationId;
+      const challenge = body?.challenge;
+      const signature = body?.signature;
+
+      if (!validNickname(nickname) ||
+          !Number.isInteger(deviceId) || deviceId < 1 || deviceId > 0x7fffffff ||
+          !Number.isInteger(registrationId) || registrationId < 1 ||
+          registrationId > 0x7fffffff ||
+          typeof challenge !== "string" || challenge.length > 128 ||
+          !challenge || !validSignalSignature(signature)) {
+        return json({ error: "Invalid GUARD identity proof" }, 400);
+      }
+
+      const key = `user:${nickname}`;
+      const challengeKey = guardChallengeKey(nickname, deviceId, registrationId);
+      const user = await this.ctx.storage.get(key);
+      const stored = await this.ctx.storage.get(challengeKey);
+
+      if (!guardDeviceMatches(user, deviceId, registrationId) ||
+          !stored || stored.challenge !== challenge ||
+          stored.expiresAt <= Date.now()) {
+        return json({ error: "Invalid or expired GUARD identity proof" }, 401);
+      }
+
+      const verified = await verifySignalIdentitySignature({
+        identityKey: user.bundle.identityKey,
+        message: guardIdentityMessage({
+          nickname, deviceId, registrationId, challenge,
+        }),
+        signature,
+      });
+
+      // Re-check the challenge and account *after* signature verification.
+      // Consuming it in the same transaction makes proofs one-time-use and
+      // prevents a newer challenge from being accidentally consumed.
+      const result = await this.ctx.storage.transaction(async (txn) => {
+        const currentUser = await txn.get(key);
+        const currentChallenge = await txn.get(challengeKey);
+
+        if (!guardDeviceMatches(currentUser, deviceId, registrationId) ||
+            currentUser.bundle.identityKey !== user.bundle.identityKey ||
+            !currentChallenge || currentChallenge.challenge !== challenge ||
+            currentChallenge.expiresAt <= Date.now()) {
+          return { error: "Invalid or expired GUARD identity proof", status: 401 };
+        }
+
+        await txn.delete(challengeKey);
+        if (!verified) {
+          return { error: "Invalid or expired GUARD identity proof", status: 401 };
+        }
+
+        const { code } = await ensureGuardCode(txn, nickname, currentUser);
+        return { guardCode: code };
+      });
+
+      if (result.error) {
+        return json({ error: result.error }, result.status);
+      }
+
+      return json(result);
+    }
+
+    if (request.method === "POST" &&
+        url.pathname === "/v1/guard/cases/challenge") {
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const nickname = normalizeNickname(body?.nickname);
+      const deviceId = body?.deviceId;
+      const registrationId = body?.registrationId;
+      const purpose = body?.purpose;
+      if (!validNickname(nickname) ||
+          !Number.isInteger(deviceId) || deviceId < 1 || deviceId > 0x7fffffff ||
+          !Number.isInteger(registrationId) || registrationId < 1 ||
+          registrationId > 0x7fffffff || !GUARD_CASE_ACTIONS.has(purpose)) {
+        return json({ error: "Invalid Guard case challenge request" }, 400);
+      }
+
+      const now = Date.now();
+      const challenge = createPushChallenge();
+      const expiresAt = now + GUARD_CASE_CHALLENGE_TTL_MS;
+      const result = await this.ctx.storage.transaction(async (txn) => {
+        const user = await txn.get(`user:${nickname}`);
+        if (!guardDeviceMatches(user, deviceId, registrationId)) {
+          return { error: "Registered device not found", httpStatus: 404 };
+        }
+
+        const limitKey = `guard-case-challenge-limit:${nickname}`;
+        const previous = await txn.get(limitKey);
+        const window = previous?.expiresAt > now
+          ? previous
+          : { count: 0, expiresAt: now + GUARD_CASE_CHALLENGE_WINDOW_MS };
+        if (window.count >= GUARD_CASE_CHALLENGE_WINDOW_MAX) {
+          return {
+            error: "Too many Guard case challenges",
+            httpStatus: 429,
+            retryAfterSeconds: Math.ceil((window.expiresAt - now) / 1000),
+          };
+        }
+
+        await txn.put(limitKey, { ...window, count: window.count + 1 });
+        await txn.put(
+          guardCaseChallengeKey(nickname, deviceId, registrationId),
+          { challenge, purpose, expiresAt },
+        );
+        return { challenge, expiresAt };
+      });
+
+      if (result.error) {
+        return json({
+          error: result.error,
+          ...(result.retryAfterSeconds
+            ? { retryAfterSeconds: result.retryAfterSeconds }
+            : {}),
+        }, result.httpStatus);
+      }
+      return json(result);
+    }
+
+    // No Guard case is ever approved or executed from these endpoints. Only
+    // the authenticated requester may submit, check, or cancel their case.
+    const guardCaseRoute = url.pathname.match(
+      /^\/v1\/guard\/cases\/([a-f0-9-]{36})\/(status|cancel)$/i,
+    );
+    if (request.method === "POST" &&
+        (url.pathname === "/v1/guard/cases" || guardCaseRoute)) {
+      const action = guardCaseRoute ? guardCaseRoute[2].toLowerCase() : "submit";
+      const caseId = guardCaseRoute?.[1].toLowerCase() || "";
+      if (caseId && !GUARD_CASE_ID_PATTERN.test(caseId)) {
+        return json({ error: "Invalid Guard case ID" }, 400);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const fields = guardCaseProofFields(body);
+      if (!fields) {
+        return json({ error: "Invalid Guard case proof" }, 400);
+      }
+
+      if (action === "submit") {
+        const targetCode = body?.targetCode;
+        const reason = body?.reason;
+        const details = body?.details;
+        const idempotencyKey = body?.idempotencyKey;
+        if (!validGuardCode(targetCode) || !GUARD_CASE_REASONS.has(reason) ||
+            typeof details !== "string" ||
+            details !== details.trim() || details.length < 10 ||
+            details.length > 2000 ||
+            typeof idempotencyKey !== "string" ||
+            !GUARD_CASE_ID_PATTERN.test(idempotencyKey)) {
+          return json({ error: "Invalid Guard case details" }, 400);
+        }
+        Object.assign(fields, { targetCode, reason, details, idempotencyKey });
+      }
+
+      const result = await handleGuardCaseAction(
+        this.ctx.storage, fields, action, caseId,
+      );
+      if (result.error) {
+        return json({
+          error: result.error,
+          ...(result.retryAfterSeconds
+            ? { retryAfterSeconds: result.retryAfterSeconds }
+            : {}),
+        }, result.httpStatus);
+      }
+      return json(result);
+    }
+
+    // Read-only operations access for eventual Moderator integration. This
+    // secret is independent of relay authentication and is disabled by default.
+    // It never grants case approval or account-removal privileges.
+    const guardReviewDetail = url.pathname.match(
+      /^\/v1\/internal\/guard-cases\/([a-f0-9-]{36})$/i,
+    );
+    const guardReviewList = url.pathname === "/v1/internal/guard-cases";
+    const guardAuditBackfill =
+      url.pathname === "/v1/internal/guard-cases/backfill-audit";
+    if ((request.method === "GET" && (guardReviewList || guardReviewDetail)) ||
+        (request.method === "POST" && guardAuditBackfill)) {
+      const expected = this.env.GUARD_REVIEW_SECRET;
+      if (typeof expected !== "string" || expected.length < 32 ||
+          expected === this.env.RELAY_SHARED_SECRET ||
+          expected === this.env.GUARD_MIGRATION_SECRET ||
+          request.headers.get("Authorization") !== `Bearer ${expected}`) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+
+      if (guardReviewDetail) {
+        const caseId = guardReviewDetail[1].toLowerCase();
+        if (!GUARD_CASE_ID_PATTERN.test(caseId)) {
+          return json({ error: "Invalid Guard case ID" }, 400);
+        }
+
+        const record = await this.ctx.storage.get(`guard-case:${caseId}`);
+        if (!record) return json({ error: "Guard case not found" }, 404);
+
+        const audit = await verifyGuardAudit(this.ctx.storage, record);
+        if (audit.state === "corrupt") {
+          return json({ error: "Guard audit integrity violation" }, 409);
+        }
+        return json({
+          case: record,
+          auditStatus: audit.state,
+          events: audit.events,
+        });
+      }
+
+      let limit;
+      let after;
+      if (guardReviewList) {
+        const rawLimit = url.searchParams.get("limit");
+        limit = rawLimit == null ? 25 : Number(rawLimit);
+        after = url.searchParams.get("after");
+      } else {
+        let body;
+        try {
+          body = await request.json();
+        } catch (_) {
+          return json({ error: "Invalid JSON" }, 400);
+        }
+        limit = body?.limit ?? 25;
+        after = body?.after ?? null;
+      }
+
+      if (!Number.isInteger(limit) || limit < 1 ||
+          limit > GUARD_REVIEW_MAX_PAGE ||
+          (after !== null && !GUARD_CASE_ID_PATTERN.test(after))) {
+        return json({ error: "Invalid Guard case cursor or limit" }, 400);
+      }
+
+      const options = {
+        prefix: "guard-case:", limit: limit + 1,
+        ...(after ? { startAfter: `guard-case:${after.toLowerCase()}` } : {}),
+      };
+      const entries = Array.from((await this.ctx.storage.list(options)).entries());
+      const batch = entries.slice(0, limit);
+
+      if (guardReviewList) {
+        const cases = [];
+        for (const [, record] of batch) {
+          const audit = await verifyGuardAudit(this.ctx.storage, record);
+          if (audit.state === "corrupt") {
+            return json({ error: "Guard audit integrity violation" }, 409);
+          }
+          cases.push({
+            ...guardCasePublicRecord(record),
+            requester: record.requester,
+            auditStatus: audit.state,
+          });
+        }
+        return json({
+          cases,
+          nextCursor: entries.length > limit
+            ? batch.at(-1)[0].substring("guard-case:".length) : null,
+          done: entries.length <= limit,
+        });
+      }
+
+      let migrated = 0;
+      let processed = 0;
+      for (const [key] of batch) {
+        try {
+          const changed = await this.ctx.storage.transaction(async (txn) => {
+            const record = await txn.get(key);
+            if (!record) return false;
+            return backfillLegacyGuardAudit(txn, record, Date.now());
+          });
+          if (changed) migrated++;
+          processed++;
+        } catch (_) {
+          // Earlier batches remain durable; reruns are safe and idempotent.
+          return json({
+            error: "Guard audit backfill halted on an invalid record",
+            processed,
+            migrated,
+          }, 409);
+        }
+      }
+
+      return json({
+        processed,
+        migrated,
+        nextCursor: entries.length > limit
+          ? batch.at(-1)[0].substring("guard-case:".length) : null,
+        done: entries.length <= limit,
       });
     }
 
@@ -1779,26 +2604,87 @@ export class DirectoryStore {
         return json({ error: "Invalid bundle" }, 400);
       }
 
-      const key = `user:${nickname}`;
-      const existing = await this.ctx.storage.get(key);
+      const result = await this.ctx.storage.transaction(async (txn) => {
+        const key = `user:${nickname}`;
+        if (await txn.get(key)) {
+          return { registered: false };
+        }
 
-      if (existing) {
+        await ensureGuardCode(txn, nickname, {
+          nickname,
+          bundle: body.bundle,
+        });
+        return { registered: true };
+      });
+
+      if (!result.registered) {
         return json({
           error: "Nickname already registered",
         }, 409);
       }
 
-      const user = {
-        nickname,
-        bundle: body.bundle,
-      };
-
-      await this.ctx.storage.put(key, user);
-
+      // GUARD codes are deliberately absent from registration responses.
+      // Owners retrieve their own codes with a signed challenge above.
       return json({
         ok: true,
         nickname,
       }, 201);
+    }
+
+    // Explicit, resumable legacy-account backfill. Disabled until operators
+    // configure a separate migration secret; never runs on normal user reads.
+    if (request.method === "POST" &&
+        url.pathname === "/v1/internal/guard-codes/migrate") {
+      const expectedSecret = this.env.GUARD_MIGRATION_SECRET;
+      if (!expectedSecret ||
+          request.headers.get("Authorization") !== `Bearer ${expectedSecret}`) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const limit = body?.limit ?? 25;
+      const after = body?.after ?? null;
+      if (!Number.isInteger(limit) || limit < 1 ||
+          limit > GUARD_MIGRATION_MAX_BATCH ||
+          (after !== null && !validNickname(after))) {
+        return json({ error: "Invalid migration cursor or limit" }, 400);
+      }
+
+      const options = { prefix: "user:", limit: limit + 1 };
+      if (after !== null) {
+        options.startAfter = `user:${after}`;
+      }
+
+      const page = await this.ctx.storage.list(options);
+      const entries = Array.from(page.entries());
+      const batch = entries.slice(0, limit);
+      let created = 0;
+
+      for (const [key] of batch) {
+        const nickname = key.substring("user:".length);
+        const result = await this.ctx.storage.transaction(async (txn) => {
+          const user = await txn.get(key);
+          if (!user) return { created: false };
+          return ensureGuardCode(txn, nickname, user);
+        });
+        if (result.created) created++;
+      }
+
+      const hasMore = entries.length > limit;
+      const lastKey = batch.at(-1)?.[0];
+      return json({
+        processed: batch.length,
+        created,
+        alreadyAssigned: batch.length - created,
+        nextCursor: hasMore ? lastKey.substring("user:".length) : null,
+        done: !hasMore,
+      });
     }
 
     if (
