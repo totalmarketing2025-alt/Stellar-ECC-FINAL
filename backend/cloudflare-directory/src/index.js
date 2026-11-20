@@ -9,6 +9,94 @@ function validNickname(nickname) {
 
 const PUSH_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
+// GUARD codes identify accounts; they are never credentials or permission to
+// remove an account. Keep the leading zeroes by storing them as strings.
+const GUARD_CODE_SPACE = 1_000_000_000;
+const GUARD_CODE_RANDOM_CEILING =
+  Math.floor(0x100000000 / GUARD_CODE_SPACE) * GUARD_CODE_SPACE;
+const GUARD_CODE_ALLOCATION_ATTEMPTS = 64;
+const GUARD_CHALLENGE_TTL_MS = 2 * 60 * 1000;
+const GUARD_CHALLENGE_WINDOW_MS = 5 * 60 * 1000;
+const GUARD_CHALLENGE_WINDOW_MAX = 6;
+const GUARD_MIGRATION_MAX_BATCH = 50;
+
+function validGuardCode(value) {
+  return typeof value === "string" && /^[0-9]{9}$/.test(value);
+}
+
+function newGuardCode() {
+  const sample = new Uint32Array(1);
+
+  // Rejection sampling avoids modulo bias across the full 000000000–999999999
+  // range. Math.random() must not be used for persistent identifiers.
+  do {
+    crypto.getRandomValues(sample);
+  } while (sample[0] >= GUARD_CODE_RANDOM_CEILING);
+
+  return String(sample[0] % GUARD_CODE_SPACE).padStart(9, "0");
+}
+
+function guardCodeIndexKey(code) {
+  return `guard-code:${code}`;
+}
+
+function guardChallengeKey(nickname, deviceId, registrationId) {
+  return `guard-challenge:${nickname}:${deviceId}:${registrationId}`;
+}
+
+function guardIdentityMessage({ nickname, deviceId, registrationId, challenge }) {
+  return JSON.stringify([
+    "stellar-guard-identity-v1",
+    nickname,
+    deviceId,
+    registrationId,
+    challenge,
+  ]);
+}
+
+function guardDeviceMatches(user, deviceId, registrationId) {
+  return user?.bundle &&
+    user.bundle.deviceId === deviceId &&
+    user.bundle.registrationId === registrationId;
+}
+
+async function ensureGuardCode(txn, nickname, user) {
+  const key = `user:${nickname}`;
+
+  if (user.guardCode != null) {
+    if (!validGuardCode(user.guardCode)) {
+      throw new Error("Stored GUARD code is invalid");
+    }
+
+    const owner = await txn.get(guardCodeIndexKey(user.guardCode));
+    if (owner && owner !== nickname) {
+      // Never silently change an existing identity to resolve corruption.
+      throw new Error("Stored GUARD code has a conflicting owner");
+    }
+
+    if (!owner) {
+      await txn.put(guardCodeIndexKey(user.guardCode), nickname);
+    }
+
+    return { code: user.guardCode, created: false };
+  }
+
+  for (let attempt = 0; attempt < GUARD_CODE_ALLOCATION_ATTEMPTS; attempt++) {
+    const code = newGuardCode();
+    const indexKey = guardCodeIndexKey(code);
+
+    if (await txn.get(indexKey)) {
+      continue;
+    }
+
+    await txn.put(indexKey, nickname);
+    await txn.put(key, { ...user, guardCode: code });
+    return { code, created: true };
+  }
+
+  throw new Error("Unable to reserve a unique GUARD code");
+}
+
 const PROFILE_PHOTO_MAX_BYTES = 512 * 1024;
 const PROFILE_PHOTO_MIME_TYPES = new Set([
   "image/jpeg",
@@ -496,6 +584,144 @@ export class DirectoryStore {
         available: !user,
         nickname,
       });
+    }
+
+    // The only public GUARD identity API returns the caller's own code after
+    // a signed proof from the registered Signal identity key. There is no
+    // public code-to-nickname lookup or account-removal operation.
+    if (request.method === "POST" &&
+        url.pathname === "/v1/guard/code/challenge") {
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const nickname = normalizeNickname(body?.nickname);
+      const deviceId = body?.deviceId;
+      const registrationId = body?.registrationId;
+
+      if (!validNickname(nickname) ||
+          !Number.isInteger(deviceId) || deviceId < 1 || deviceId > 0x7fffffff ||
+          !Number.isInteger(registrationId) || registrationId < 1 ||
+          registrationId > 0x7fffffff) {
+        return json({ error: "Invalid GUARD identity request" }, 400);
+      }
+
+      const now = Date.now();
+      const challenge = createPushChallenge();
+      const expiresAt = now + GUARD_CHALLENGE_TTL_MS;
+      const result = await this.ctx.storage.transaction(async (txn) => {
+        const user = await txn.get(`user:${nickname}`);
+        if (!guardDeviceMatches(user, deviceId, registrationId)) {
+          return { status: 404, error: "Registered device not found" };
+        }
+
+        const limitKey = `guard-challenge-limit:${nickname}`;
+        const previous = await txn.get(limitKey);
+        const window = previous?.expiresAt > now
+          ? previous
+          : { count: 0, expiresAt: now + GUARD_CHALLENGE_WINDOW_MS };
+
+        if (window.count >= GUARD_CHALLENGE_WINDOW_MAX) {
+          return {
+            status: 429,
+            error: "Too many GUARD identity challenges",
+            retryAfterSeconds: Math.ceil((window.expiresAt - now) / 1000),
+          };
+        }
+
+        await txn.put(limitKey, { ...window, count: window.count + 1 });
+        await txn.put(
+          guardChallengeKey(nickname, deviceId, registrationId),
+          { challenge, expiresAt },
+        );
+        return { challenge, expiresAt };
+      });
+
+      if (result.error) {
+        return json({
+          error: result.error,
+          ...(result.retryAfterSeconds
+            ? { retryAfterSeconds: result.retryAfterSeconds }
+            : {}),
+        }, result.status);
+      }
+
+      return json(result);
+    }
+
+    if (request.method === "POST" && url.pathname === "/v1/guard/code") {
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const nickname = normalizeNickname(body?.nickname);
+      const deviceId = body?.deviceId;
+      const registrationId = body?.registrationId;
+      const challenge = body?.challenge;
+      const signature = body?.signature;
+
+      if (!validNickname(nickname) ||
+          !Number.isInteger(deviceId) || deviceId < 1 || deviceId > 0x7fffffff ||
+          !Number.isInteger(registrationId) || registrationId < 1 ||
+          registrationId > 0x7fffffff ||
+          typeof challenge !== "string" || challenge.length > 128 ||
+          !challenge || !validSignalSignature(signature)) {
+        return json({ error: "Invalid GUARD identity proof" }, 400);
+      }
+
+      const key = `user:${nickname}`;
+      const challengeKey = guardChallengeKey(nickname, deviceId, registrationId);
+      const user = await this.ctx.storage.get(key);
+      const stored = await this.ctx.storage.get(challengeKey);
+
+      if (!guardDeviceMatches(user, deviceId, registrationId) ||
+          !stored || stored.challenge !== challenge ||
+          stored.expiresAt <= Date.now()) {
+        return json({ error: "Invalid or expired GUARD identity proof" }, 401);
+      }
+
+      const verified = await verifySignalIdentitySignature({
+        identityKey: user.bundle.identityKey,
+        message: guardIdentityMessage({
+          nickname, deviceId, registrationId, challenge,
+        }),
+        signature,
+      });
+
+      // Re-check the challenge and account *after* signature verification.
+      // Consuming it in the same transaction makes proofs one-time-use and
+      // prevents a newer challenge from being accidentally consumed.
+      const result = await this.ctx.storage.transaction(async (txn) => {
+        const currentUser = await txn.get(key);
+        const currentChallenge = await txn.get(challengeKey);
+
+        if (!guardDeviceMatches(currentUser, deviceId, registrationId) ||
+            currentUser.bundle.identityKey !== user.bundle.identityKey ||
+            !currentChallenge || currentChallenge.challenge !== challenge ||
+            currentChallenge.expiresAt <= Date.now()) {
+          return { error: "Invalid or expired GUARD identity proof", status: 401 };
+        }
+
+        await txn.delete(challengeKey);
+        if (!verified) {
+          return { error: "Invalid or expired GUARD identity proof", status: 401 };
+        }
+
+        const { code } = await ensureGuardCode(txn, nickname, currentUser);
+        return { guardCode: code };
+      });
+
+      if (result.error) {
+        return json({ error: result.error }, result.status);
+      }
+
+      return json(result);
     }
 
     if (
@@ -1779,26 +2005,87 @@ export class DirectoryStore {
         return json({ error: "Invalid bundle" }, 400);
       }
 
-      const key = `user:${nickname}`;
-      const existing = await this.ctx.storage.get(key);
+      const result = await this.ctx.storage.transaction(async (txn) => {
+        const key = `user:${nickname}`;
+        if (await txn.get(key)) {
+          return { registered: false };
+        }
 
-      if (existing) {
+        await ensureGuardCode(txn, nickname, {
+          nickname,
+          bundle: body.bundle,
+        });
+        return { registered: true };
+      });
+
+      if (!result.registered) {
         return json({
           error: "Nickname already registered",
         }, 409);
       }
 
-      const user = {
-        nickname,
-        bundle: body.bundle,
-      };
-
-      await this.ctx.storage.put(key, user);
-
+      // GUARD codes are deliberately absent from registration responses.
+      // Owners retrieve their own codes with a signed challenge above.
       return json({
         ok: true,
         nickname,
       }, 201);
+    }
+
+    // Explicit, resumable legacy-account backfill. Disabled until operators
+    // configure a separate migration secret; never runs on normal user reads.
+    if (request.method === "POST" &&
+        url.pathname === "/v1/internal/guard-codes/migrate") {
+      const expectedSecret = this.env.GUARD_MIGRATION_SECRET;
+      if (!expectedSecret ||
+          request.headers.get("Authorization") !== `Bearer ${expectedSecret}`) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const limit = body?.limit ?? 25;
+      const after = body?.after ?? null;
+      if (!Number.isInteger(limit) || limit < 1 ||
+          limit > GUARD_MIGRATION_MAX_BATCH ||
+          (after !== null && !validNickname(after))) {
+        return json({ error: "Invalid migration cursor or limit" }, 400);
+      }
+
+      const options = { prefix: "user:", limit: limit + 1 };
+      if (after !== null) {
+        options.startAfter = `user:${after}`;
+      }
+
+      const page = await this.ctx.storage.list(options);
+      const entries = Array.from(page.entries());
+      const batch = entries.slice(0, limit);
+      let created = 0;
+
+      for (const [key] of batch) {
+        const nickname = key.substring("user:".length);
+        const result = await this.ctx.storage.transaction(async (txn) => {
+          const user = await txn.get(key);
+          if (!user) return { created: false };
+          return ensureGuardCode(txn, nickname, user);
+        });
+        if (result.created) created++;
+      }
+
+      const hasMore = entries.length > limit;
+      const lastKey = batch.at(-1)?.[0];
+      return json({
+        processed: batch.length,
+        created,
+        alreadyAssigned: batch.length - created,
+        nextCursor: hasMore ? lastKey.substring("user:".length) : null,
+        done: !hasMore,
+      });
     }
 
     if (

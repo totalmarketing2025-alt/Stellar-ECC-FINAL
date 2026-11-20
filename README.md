@@ -25,17 +25,19 @@ Wanted Mode monitors selected local device and environment events, including USB
 
 ### Stellar GUARD — Server-Side Account Removal
 
-Stellar GUARD is designed as a protected workflow for requesting removal of a Stellar user account using a six-digit verification code.
+Stellar GUARD is designed as a moderator-reviewed workflow for requesting removal of another Stellar user account, identified by a **nine-digit user code**. The code is an identifier, **not** the app unlock PIN and **not** authorization to delete an account.
 
-**Current status: preview only.**
+**Current status: Phase 01 (Guard identity foundation); account removal is disabled.**
 
-The current Settings screen contains a six-digit code entry interface and a disabled Continue — coming soon action.
+The current Settings screen accepts a nine-digit target code but still has a disabled Continue action. It cannot submit a case or remove an account.
 
-- Server-side code generation and verification.
-- Identity verification and authorization.
-- Rate limiting and abuse prevention.
-- Server-side account-removal execution.
-- Auditing and confirmation of completed removal.
+- The directory generates a unique, cryptographically random nine-digit code when a new account is registered. Codes are stored as strings so leading zeroes are preserved and are not included in public directory responses.
+- An account owner can request their **own** code using `/v1/guard/code/challenge` and `/v1/guard/code` with a one-time Signal-identity signature. Challenge issuance is rate-limited to six per account per five minutes.
+- Existing accounts can be assigned codes via a **manual**, paginated, idempotent migration at `POST /v1/internal/guard-codes/migrate` (maximum 50 accounts per request). The endpoint is disabled unless operators configure a separate `GUARD_MIGRATION_SECRET`. Migration is **not** run automatically on user listing or production startup.
+- The code-to-account index is internal. There is no public reverse-lookup endpoint and no account-deletion endpoint.
+- Subsequent phases will implement authenticated case submission, moderator approval, reliable background processing, deletion controls, abuse protection, and audit records. Knowledge of a nine-digit code alone will never authorize removal.
+
+**Migration preparation (operator only, not yet run):** After a staging backup and verification, configure `GUARD_MIGRATION_SECRET` in the directory Worker, then invoke the authenticated migration endpoint repeatedly using its `nextCursor` until `done: true`. Verify index invariants before a production migration. Do not use the relay shared secret as the migration secret.
 
 ## Security Best Practices
 
