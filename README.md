@@ -27,7 +27,7 @@ Wanted Mode monitors selected local device and environment events, including USB
 
 Stellar GUARD is designed as a moderator-reviewed workflow for requesting removal of another Stellar user account, identified by a **nine-digit user code**. The code is an identifier, **not** the app unlock PIN and **not** authorization to delete an account.
 
-**Current status: Phase 02 (Guard case submission API); account removal is disabled.**
+**Current status: Phase 03 (Guard case audit and protected review API); account removal is disabled.**
 
 The current Settings screen accepts a nine-digit target code but still has a disabled Continue action. It cannot submit a case or remove an account.
 
@@ -40,7 +40,13 @@ The current Settings screen accepts a nine-digit target code but still has a dis
 - `POST /v1/guard/cases/{caseId}/status` and `/cancel` require a new signed challenge from the original requester. Cancellation is permitted only while the case is `pending_review`.
 - Every action proof signs the array `["stellar-guard-case-v1", action, nickname, deviceId, registrationId, challenge, caseId, targetCode, reason, details, idempotencyKey]`. Unused action fields are empty strings. The code is returned only to its authenticated owner through the Phase 01 API, and case responses never reveal whether a target code exists.
 - A reporter may create at most three new cases in 24 hours, with one active case per target; retries are idempotent. No public case listing, case approval, background deletion or moderator API is exposed.
-- Subsequent phases will implement immutable case audit, moderator approval, reliable background processing, deletion controls and further abuse protection. Knowledge of a nine-digit code alone will never authorize removal.
+- Each case now has a stable evidence digest and an append-only, SHA-256-linked history of submission and cancellation. The server verifies record/evidence consistency on review and before further case changes; modified or missing events cause a `409` integrity error.
+- An internal, **read-only** review API lists cases and retrieves details with audit events. It is disabled until a separate strong `GUARD_REVIEW_SECRET` is configured. This secret must differ from relay and migration secrets.
+- Operators can explicitly backfill pre-audit cases in bounded, idempotent batches. Backfills are marked `legacy_imported`, not misrepresented as original historical events. No automatic backfill runs on startup.
+- These application-level append-only records are **tamper-evident**, not a guarantee of immutable external storage. A privileged actor with direct write access could rewrite the record and its hashes; off-site/WORM audit anchoring is still needed before high-assurance production.
+- Subsequent phases will implement the Flutter requester interface, moderator approval, reliable background processing, deletion controls and further abuse protection. Knowledge of a nine-digit code alone will never authorize removal.
+
+See [Guard Phase 03 operations](backend/cloudflare-directory/GUARD_PHASE03.md) for private endpoints, migration safety and the audit threat model.
 
 **Migration preparation (operator only, not yet run):** After a staging backup and verification, configure `GUARD_MIGRATION_SECRET` in the directory Worker, then invoke the authenticated migration endpoint repeatedly using its `nextCursor` until `done: true`. Verify index invariants before a production migration. Do not use the relay shared secret as the migration secret.
 

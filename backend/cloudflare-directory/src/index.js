@@ -30,6 +30,9 @@ const GUARD_CASE_REASONS = new Set([
 const GUARD_CASE_ACTIONS = new Set(["submit", "status", "cancel"]);
 const GUARD_CASE_ID_PATTERN =
   /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+const GUARD_AUDIT_GENESIS_HASH = "0".repeat(64);
+const GUARD_AUDIT_MAX_EVENTS = 128;
+const GUARD_REVIEW_MAX_PAGE = 50;
 
 function validGuardCode(value) {
   return typeof value === "string" && /^[0-9]{9}$/.test(value);
@@ -138,6 +141,159 @@ function guardCasePublicRecord(record) {
   };
 }
 
+function guardAuditKey(caseId, sequence) {
+  return `guard-case-audit:${caseId}:${String(sequence).padStart(6, "0")}`;
+}
+
+function guardAuditSignedFields(event) {
+  return [
+    "stellar-guard-audit-v1",
+    event.caseId,
+    event.sequence,
+    event.type,
+    event.actor,
+    event.at,
+    event.fromStatus,
+    event.toStatus,
+    event.previousHash,
+    event.payloadHash,
+  ];
+}
+
+async function guardSha256(value) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256", new TextEncoder().encode(value),
+  );
+  return bytesToHex(new Uint8Array(digest));
+}
+
+function guardCasePayloadFields(record) {
+  // This is stable across status changes, and binds evidence to the case ID.
+  return [
+    "stellar-guard-case-payload-v1",
+    record.caseId,
+    record.requester,
+    record.targetCode,
+    record.targetNickname,
+    record.reason,
+    record.details,
+    record.createdAt,
+  ];
+}
+
+async function appendGuardAudit(txn, record, type, actor, fromStatus, at) {
+  const sequence = (record.auditSequence || 0) + 1;
+  if (sequence > GUARD_AUDIT_MAX_EVENTS) {
+    throw new Error("Guard case audit capacity exceeded");
+  }
+
+  const key = guardAuditKey(record.caseId, sequence);
+  if (await txn.get(key)) {
+    throw new Error("Guard audit event already exists");
+  }
+
+  record.payloadHash ||= await guardSha256(JSON.stringify(
+    guardCasePayloadFields(record),
+  ));
+  const event = {
+    caseId: record.caseId,
+    sequence,
+    type,
+    actor,
+    at,
+    fromStatus,
+    toStatus: record.status,
+    previousHash: record.auditHeadHash || GUARD_AUDIT_GENESIS_HASH,
+    payloadHash: record.payloadHash,
+  };
+  event.hash = await guardSha256(JSON.stringify(guardAuditSignedFields(event)));
+
+  await txn.put(key, event);
+  record.auditSequence = sequence;
+  record.auditHeadHash = event.hash;
+}
+
+async function verifyGuardAudit(storage, record) {
+  const prefix = `guard-case-audit:${record.caseId}:`;
+  if (record.auditSequence == null && record.auditHeadHash == null &&
+      record.payloadHash == null) {
+    // Cases created before Phase 03 are explicitly identified as untracked;
+    // never pretend their earlier history was observed by the audit system.
+    return (await storage.list({ prefix, limit: 1 })).size > 0
+      ? { state: "corrupt" }
+      : { state: "legacy", events: [] };
+  }
+
+  const count = record.auditSequence;
+  if (!Number.isInteger(count) || count < 1 ||
+      count > GUARD_AUDIT_MAX_EVENTS ||
+      typeof record.auditHeadHash !== "string" ||
+      typeof record.payloadHash !== "string") {
+    return { state: "corrupt" };
+  }
+
+  const payloadHash = await guardSha256(JSON.stringify(
+    guardCasePayloadFields(record),
+  ));
+  if (payloadHash !== record.payloadHash) {
+    return { state: "corrupt" };
+  }
+
+  const entries = await storage.list({
+    prefix,
+    limit: GUARD_AUDIT_MAX_EVENTS + 1,
+  });
+  if (entries.size !== count) {
+    return { state: "corrupt" };
+  }
+
+  let previousHash = GUARD_AUDIT_GENESIS_HASH;
+  let previousStatus = null;
+  let previousTime = 0;
+  const events = [];
+  for (let sequence = 1; sequence <= count; sequence++) {
+    const event = entries.get(guardAuditKey(record.caseId, sequence));
+    if (!event || event.caseId !== record.caseId ||
+        event.sequence !== sequence ||
+        event.payloadHash !== payloadHash ||
+        event.previousHash !== previousHash ||
+        event.fromStatus !== previousStatus ||
+        (sequence === 1 && !["case_submitted", "legacy_imported"].includes(event.type)) ||
+        !Number.isInteger(event.at) || event.at < previousTime ||
+        typeof event.hash !== "string" ||
+        event.hash !== await guardSha256(JSON.stringify(
+          guardAuditSignedFields(event),
+        ))) {
+      return { state: "corrupt" };
+    }
+    previousHash = event.hash;
+    previousStatus = event.toStatus;
+    previousTime = event.at;
+    events.push(event);
+  }
+
+  if (previousHash !== record.auditHeadHash ||
+      events.at(-1)?.toStatus !== record.status) {
+    return { state: "corrupt" };
+  }
+
+  return { state: "verified", events };
+}
+
+async function backfillLegacyGuardAudit(txn, record, now) {
+  const verified = await verifyGuardAudit(txn, record);
+  if (verified.state === "corrupt") {
+    throw new Error("Guard audit integrity violation");
+  }
+  if (verified.state === "verified") return false;
+
+  await appendGuardAudit(
+    txn, record, "legacy_imported", "system", null, now,
+  );
+  await txn.put(`guard-case:${record.caseId}`, record);
+  return true;
+}
+
 function guardCaseProofFields(body) {
   const nickname = normalizeNickname(body?.nickname);
   const deviceId = body?.deviceId;
@@ -209,6 +365,9 @@ async function handleGuardCaseAction(storage, fields, action, caseId = "") {
             existing.details !== fields.details) {
           return { error: "Idempotency key reused", httpStatus: 409 };
         }
+        if ((await verifyGuardAudit(txn, existing)).state === "corrupt") {
+          return { error: "Guard audit integrity violation", httpStatus: 409 };
+        }
         return guardCasePublicRecord(existing);
       }
 
@@ -218,6 +377,9 @@ async function handleGuardCaseAction(storage, fields, action, caseId = "") {
       if (activeId) {
         const active = await txn.get(`guard-case:${activeId}`);
         if (active?.status === "pending_review") {
+          if ((await verifyGuardAudit(txn, active)).state === "corrupt") {
+            return { error: "Guard audit integrity violation", httpStatus: 409 };
+          }
           await txn.put(idempotencyIndex, activeId);
           return guardCasePublicRecord(active);
         }
@@ -260,6 +422,9 @@ async function handleGuardCaseAction(storage, fields, action, caseId = "") {
         updatedAt: now,
       };
 
+      await appendGuardAudit(
+        txn, record, "case_submitted", fields.nickname, null, now,
+      );
       await txn.put(`guard-case:${record.caseId}`, record);
       await txn.put(idempotencyIndex, record.caseId);
       await txn.put(activeIndex, record.caseId);
@@ -275,9 +440,18 @@ async function handleGuardCaseAction(storage, fields, action, caseId = "") {
       return { error: "Guard case not found", httpStatus: 404 };
     }
 
+    if ((await verifyGuardAudit(txn, record)).state === "corrupt") {
+      return { error: "Guard audit integrity violation", httpStatus: 409 };
+    }
+
     if (action === "cancel" && record.status === "pending_review") {
+      await backfillLegacyGuardAudit(txn, record, now);
+      const previousStatus = record.status;
       record.status = "cancelled";
       record.updatedAt = now;
+      await appendGuardAudit(
+        txn, record, "case_cancelled", fields.nickname, previousStatus, now,
+      );
       await txn.put(key, record);
       await txn.delete(`guard-case-active:${fields.nickname}:${record.targetCode}`);
     }
@@ -1027,6 +1201,126 @@ export class DirectoryStore {
         }, result.httpStatus);
       }
       return json(result);
+    }
+
+    // Read-only operations access for eventual Moderator integration. This
+    // secret is independent of relay authentication and is disabled by default.
+    // It never grants case approval or account-removal privileges.
+    const guardReviewDetail = url.pathname.match(
+      /^\/v1\/internal\/guard-cases\/([a-f0-9-]{36})$/i,
+    );
+    const guardReviewList = url.pathname === "/v1/internal/guard-cases";
+    const guardAuditBackfill =
+      url.pathname === "/v1/internal/guard-cases/backfill-audit";
+    if ((request.method === "GET" && (guardReviewList || guardReviewDetail)) ||
+        (request.method === "POST" && guardAuditBackfill)) {
+      const expected = this.env.GUARD_REVIEW_SECRET;
+      if (typeof expected !== "string" || expected.length < 32 ||
+          expected === this.env.RELAY_SHARED_SECRET ||
+          expected === this.env.GUARD_MIGRATION_SECRET ||
+          request.headers.get("Authorization") !== `Bearer ${expected}`) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+
+      if (guardReviewDetail) {
+        const caseId = guardReviewDetail[1].toLowerCase();
+        if (!GUARD_CASE_ID_PATTERN.test(caseId)) {
+          return json({ error: "Invalid Guard case ID" }, 400);
+        }
+
+        const record = await this.ctx.storage.get(`guard-case:${caseId}`);
+        if (!record) return json({ error: "Guard case not found" }, 404);
+
+        const audit = await verifyGuardAudit(this.ctx.storage, record);
+        if (audit.state === "corrupt") {
+          return json({ error: "Guard audit integrity violation" }, 409);
+        }
+        return json({
+          case: record,
+          auditStatus: audit.state,
+          events: audit.events,
+        });
+      }
+
+      let limit;
+      let after;
+      if (guardReviewList) {
+        const rawLimit = url.searchParams.get("limit");
+        limit = rawLimit == null ? 25 : Number(rawLimit);
+        after = url.searchParams.get("after");
+      } else {
+        let body;
+        try {
+          body = await request.json();
+        } catch (_) {
+          return json({ error: "Invalid JSON" }, 400);
+        }
+        limit = body?.limit ?? 25;
+        after = body?.after ?? null;
+      }
+
+      if (!Number.isInteger(limit) || limit < 1 ||
+          limit > GUARD_REVIEW_MAX_PAGE ||
+          (after !== null && !GUARD_CASE_ID_PATTERN.test(after))) {
+        return json({ error: "Invalid Guard case cursor or limit" }, 400);
+      }
+
+      const options = {
+        prefix: "guard-case:", limit: limit + 1,
+        ...(after ? { startAfter: `guard-case:${after.toLowerCase()}` } : {}),
+      };
+      const entries = Array.from((await this.ctx.storage.list(options)).entries());
+      const batch = entries.slice(0, limit);
+
+      if (guardReviewList) {
+        const cases = [];
+        for (const [, record] of batch) {
+          const audit = await verifyGuardAudit(this.ctx.storage, record);
+          if (audit.state === "corrupt") {
+            return json({ error: "Guard audit integrity violation" }, 409);
+          }
+          cases.push({
+            ...guardCasePublicRecord(record),
+            requester: record.requester,
+            auditStatus: audit.state,
+          });
+        }
+        return json({
+          cases,
+          nextCursor: entries.length > limit
+            ? batch.at(-1)[0].substring("guard-case:".length) : null,
+          done: entries.length <= limit,
+        });
+      }
+
+      let migrated = 0;
+      let processed = 0;
+      for (const [key] of batch) {
+        try {
+          const changed = await this.ctx.storage.transaction(async (txn) => {
+            const record = await txn.get(key);
+            if (!record) return false;
+            return backfillLegacyGuardAudit(txn, record, Date.now());
+          });
+          if (changed) migrated++;
+          processed++;
+        } catch (_) {
+          // Earlier batches remain durable; reruns are safe and idempotent.
+          return json({
+            error: "Guard audit backfill halted on an invalid record",
+            processed,
+            migrated,
+          }, 409);
+        }
+      }
+
+      return json({
+        processed,
+        migrated,
+        nextCursor: entries.length > limit
+          ? batch.at(-1)[0].substring("guard-case:".length) : null,
+        done: entries.length <= limit,
+      });
     }
 
     if (

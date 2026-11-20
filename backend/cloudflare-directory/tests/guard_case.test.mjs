@@ -31,6 +31,16 @@ class Storage {
     return this.items.delete(key);
   }
 
+  async list({ prefix = "", startAfter, limit = Infinity } = {}) {
+    const keys = [...this.items.keys()]
+      .filter((key) => key.startsWith(prefix) &&
+        (startAfter === undefined || key > startAfter))
+      .sort().slice(0, limit);
+    return new Map(await Promise.all(keys.map(async (key) => [
+      key, await this.get(key),
+    ])));
+  }
+
   async transaction(fn) {
     let release;
     const previous = this.lock;
