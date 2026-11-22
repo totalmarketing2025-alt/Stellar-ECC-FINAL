@@ -52,6 +52,38 @@ class DirectoryClient {
   // Guard uses the same registered Signal identity as relay and profile
   // operations. The caller signs the canonical, action-bound message before
   // making the proof request; these routes never authorize deletion.
+  Future<String> getGuardAccountChallenge({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+  }) async => _guardChallenge(await _guardPost(
+    '/v1/guard/account/challenge',
+    {'nickname': nickname, 'deviceId': deviceId,
+      'registrationId': registrationId},
+  ));
+
+  Future<bool> getGuardAccountRevocation({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+    required String challenge,
+    required String signature,
+  }) async {
+    final response = await _guardPost('/v1/guard/account/status', {
+      'nickname': nickname,
+      'deviceId': deviceId,
+      'registrationId': registrationId,
+      'challenge': challenge,
+      'signature': signature,
+    });
+    if (response['revoked'] is! bool ||
+        !['active', 'revoked'].contains(response['status']) ||
+        response['revoked'] != (response['status'] == 'revoked')) {
+      throw const FormatException('Invalid Guard account status');
+    }
+    return response['revoked'] as bool;
+  }
+
   Future<String> getGuardIdentityChallenge({
     required String nickname,
     required int deviceId,

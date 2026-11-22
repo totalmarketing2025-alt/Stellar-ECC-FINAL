@@ -1672,6 +1672,44 @@ export class RelayRoom {
   }
 
   async fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === "/v1/internal/guard-revoke" && request.method === "POST") {
+      const secret = this.env.GUARD_MODERATOR_ACTION_SECRET;
+      if (typeof secret !== "string" || secret.length < 32 ||
+          secret === this.env.RELAY_SHARED_SECRET ||
+          request.headers.get("Authorization") !== `Bearer ${secret}`) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      let body;
+      try { body = await request.json(); } catch (_) {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+      const nickname = body?.nickname;
+      if (!validRelayPeer(nickname)) {
+        return Response.json({ error: "Invalid identity" }, { status: 400 });
+      }
+      await this.ctx.storage.put(`relay-revoked:${nickname}`, Date.now());
+      this.ctx.storage.sql.exec(
+        `DELETE FROM relay_queue_chunks WHERE delivery_id IN
+         (SELECT id FROM relay_queue WHERE recipient = ? OR sender = ?)`,
+        nickname, nickname,
+      );
+      this.ctx.storage.sql.exec(
+        `DELETE FROM relay_queue WHERE recipient = ? OR sender = ?`,
+        nickname, nickname,
+      );
+      this.ctx.storage.sql.exec(
+        `DELETE FROM relay_send_receipts WHERE recipient = ? OR sender = ?`,
+        nickname, nickname,
+      );
+      for (const ws of this.ctx.getWebSockets()) {
+        if (ws.deserializeAttachment()?.peer === nickname) {
+          try { ws.close(1008, "Account revoked"); } catch (_) {}
+        }
+      }
+      return Response.json({ ok: true });
+    }
+
     if (request.headers.get("Upgrade") !== "websocket") {
       return Response.json({
         ok: true,
@@ -1728,6 +1766,11 @@ export class RelayRoom {
   async webSocketMessage(ws, message) {
 
     const attachment = ws.deserializeAttachment() || {};
+    if (attachment.peer &&
+        await this.ctx.storage.get(`relay-revoked:${attachment.peer}`)) {
+      try { ws.close(1008, "Account revoked"); } catch (_) {}
+      return;
+    }
     const now = Date.now();
 
     /*
@@ -3099,6 +3142,93 @@ export class ModerationRoom {
         { ok: true, enabled: body.enabled },
         { headers: { "Cache-Control": "no-store" } },
       );
+    }
+
+    // Moderator Guard decisions are proxied only after an authenticated admin
+    // session; the privileged Directory secrets never reach the desktop app.
+    const guardModerationRoute = url.pathname.match(
+      /^\/v1\/moderation\/admin\/guard-cases(?:\/([a-f0-9-]{36})(?:\/(decision))?)?$/i,
+    );
+    if (guardModerationRoute) {
+      if (!(await this.authenticateModerationAdminSession(request))) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      const isDecision = guardModerationRoute[2] === "decision";
+      if ((isDecision && request.method !== "POST") ||
+          (!isDecision && request.method !== "GET")) {
+        return Response.json({ error: "Method Not Allowed" }, { status: 405 });
+      }
+      const secret = isDecision
+        ? this.env.GUARD_MODERATOR_ACTION_SECRET
+        : this.env.GUARD_REVIEW_SECRET;
+      const otherSecret = isDecision
+        ? this.env.GUARD_REVIEW_SECRET
+        : this.env.GUARD_MODERATOR_ACTION_SECRET;
+      if (!this.env.DIRECTORY_URL || typeof secret !== "string" ||
+          secret.length < 32 || secret === otherSecret ||
+          secret === this.env.RELAY_SHARED_SECRET) {
+        return Response.json({ error: "Guard service not configured" }, { status: 503 });
+      }
+      const caseId = guardModerationRoute[1]?.toLowerCase();
+      const suffix = caseId ? `/${caseId}${isDecision ? "/decision" : ""}` : "";
+      const base = this.env.DIRECTORY_URL.replace(/\/+$/, "");
+      const endpoint = `${base}/v1/internal/guard-cases${suffix}` +
+        (isDecision ? "" : url.search);
+      let body;
+      if (isDecision) {
+        try { body = await request.json(); } catch (_) {
+          return Response.json({ error: "Invalid JSON" }, { status: 400 });
+        }
+        if (!body || !["approve", "reject"].includes(body.decision) ||
+            typeof body.note !== "string" || body.note.trim().length < 5 ||
+            body.note.length > 500) {
+          return Response.json({ error: "Decision reason required" }, { status: 400 });
+        }
+      }
+      try {
+        const upstream = await fetch(endpoint, {
+          method: request.method,
+          headers: {
+            Authorization: `Bearer ${secret}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          ...(isDecision ? { body: JSON.stringify({
+            decision: body.decision, note: body.note,
+          }) } : {}),
+        });
+        if (!isDecision || !upstream.ok || body.decision !== "approve") {
+          return new Response(upstream.body, {
+            status: upstream.status,
+            headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+          });
+        }
+        const result = await upstream.json();
+        if (result?.status !== "approved" ||
+            typeof result.targetNickname !== "string" ||
+            !validRelayPeer(result.targetNickname) || !this.env.RELAY) {
+          return Response.json({ error: "Account revoked; relay cleanup needs retry" },
+            { status: 502 });
+        }
+        const room = this.env.RELAY.get(this.env.RELAY.idFromName("global"));
+        const cleanup = await room.fetch(new Request(
+          "https://relay.internal/v1/internal/guard-revoke", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${secret}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ nickname: result.targetNickname }),
+          },
+        ));
+        if (!cleanup.ok) {
+          return Response.json({ error: "Account revoked; relay cleanup needs retry" },
+            { status: 502 });
+        }
+        return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+      } catch (_) {
+        return Response.json({ error: "Guard service unavailable" }, { status: 502 });
+      }
     }
 
     if (url.pathname === "/v1/moderation/groups/register") {
@@ -4996,6 +5126,10 @@ export default {
     const isModerationAdminReports =
       url.pathname === "/v1/moderation/admin/reports";
 
+    const isModerationAdminGuardCases =
+      /^\/v1\/moderation\/admin\/guard-cases(?:\/[a-f0-9-]{36}(?:\/decision)?)?$/i
+        .test(url.pathname);
+
     const isModerationAdminReportStatus =
       /^\/v1\/moderation\/admin\/reports\/[a-f0-9-]+\/status$/i
         .test(url.pathname);
@@ -5023,6 +5157,7 @@ export default {
       isModerationAdminBroadcastAttachment ||
       isModerationBroadcastAttachment ||
       isModerationAdminReports ||
+      isModerationAdminGuardCases ||
       isModerationAdminReportStatus ||
       isModerationAdminUsers ||
       isModerationWantedMode ||
@@ -5061,6 +5196,9 @@ export default {
         isModerationAdminReports &&
         request.method === "GET";
 
+      const isAdminGuardCasesGet =
+        isModerationAdminGuardCases && request.method === "GET";
+
       const isAdminMessagesGet =
         isModerationAdminMessages &&
         request.method === "GET";
@@ -5081,6 +5219,7 @@ export default {
         !isAdminUsersGet &&
         !isAdminUserDossierGet &&
         !isAdminReportsGet &&
+        !isAdminGuardCasesGet &&
         !isAdminMessagesGet &&
         !isAdminGroupsGet &&
         !isAdminAttachmentGet &&
@@ -5098,6 +5237,7 @@ export default {
                   isModerationAdminUsers ||
                   isModerationAdminUserDossier ||
                   isModerationAdminReports ||
+                  isModerationAdminGuardCases ||
                   isModerationAdminMessages ||
                   isModerationAdminGroups ||
                   isModerationAdminGroupMessages ||

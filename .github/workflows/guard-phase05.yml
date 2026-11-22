@@ -1,0 +1,27 @@
+name: Guard Phase 05 verification
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  worker-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test backend/cloudflare-directory/tests/guard_case.test.mjs backend/cloudflare-directory/tests/guard_audit.test.mjs backend/cloudflare-relay/tests/guard_moderator_proxy.test.mjs backend/cloudflare-relay/tests/guard_revoke_room.test.mjs
+
+  flutter-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.4'
+          channel: stable
+      - run: flutter pub get
+      - run: flutter test test/guard_phase05_contract_test.dart
