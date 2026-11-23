@@ -80,6 +80,8 @@ class GroupCallCoordinator {
   Map<String, dynamic>? _iceConfiguration;
   StreamSubscription<CallSignal>? _subscription;
   Future<void> _incomingQueue = Future<void>.value();
+  final Map<String, int> _seenGroupSignals = {};
+  static const _maxSeenGroupSignals = 8192;
   int _queuedSignals = 0;
   static const _maxQueuedSignals = 256;
   Timer? _invitationTimeout;
@@ -413,6 +415,17 @@ class GroupCallCoordinator {
       signal.session.remoteNickname ?? '',
     );
     if (remote.isEmpty || remote == _local) return;
+    final sentAt = signal.payload['sentAt'];
+    final signature = signal.payload['signature'];
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final window = CallSignalAuthenticator.maxAge.inMilliseconds;
+    if (sentAt is! int || (now - sentAt).abs() > window ||
+        signature is! String || signature.isEmpty || signature.length > 256) return;
+    _seenGroupSignals.removeWhere((_, expiry) => expiry < now);
+    final replayKey = jsonEncode([remote, signature]);
+    if (_seenGroupSignals.containsKey(replayKey) ||
+        _seenGroupSignals.length >= _maxSeenGroupSignals) return;
+    _seenGroupSignals[replayKey] = sentAt + window;
     final roomId = signal.payload['roomId'] as String;
 
     if (signal.type == 'group-invite') {
