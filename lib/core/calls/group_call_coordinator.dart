@@ -625,17 +625,27 @@ class GroupCallCoordinator {
         }));
       };
       pc.onConnectionState = (state) {
-        if (!_isCurrent(generation, room.roomId)) return;
+        if (!_isCurrent(generation, room.roomId) ||
+            !identical(_peers[nickname], peer) ||
+            !_room!.joined.contains(nickname)) return;
+        peer.connectionState = state;
         final states = {..._room!.connectionStates};
-        if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
-          states[nickname] = GroupMemberCallState.connected;
-          _invitationTimeout?.cancel();
-          _invitationTimeout = null;
-        } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
-            state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
-          states[nickname] = GroupMemberCallState.failed;
-        } else {
-          return;
+        switch (state) {
+          case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
+            states[nickname] = GroupMemberCallState.connected;
+            _invitationTimeout?.cancel();
+            _invitationTimeout = null;
+            break;
+          case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
+          case RTCPeerConnectionState.RTCPeerConnectionStateConnecting:
+            states[nickname] = GroupMemberCallState.joining;
+            break;
+          case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
+          case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
+            states[nickname] = GroupMemberCallState.failed;
+            break;
+          default:
+            return;
         }
         final hasConnected = states.values
             .any((value) => value == GroupMemberCallState.connected);
@@ -913,6 +923,7 @@ class _MeshPeer {
   final RTCVideoRenderer renderer;
   final RTCRtpSender videoSender;
   MediaStream? syntheticVideoStream;
+  RTCPeerConnectionState? connectionState;
   bool offered = false;
   bool remoteDescriptionSet = false;
 }
