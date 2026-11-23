@@ -41,6 +41,7 @@ object StellarEdgeLighting {
 
     fun setAppForeground(value: Boolean) {
         appForeground = value
+        if (value) handler.post { clearCurrent() }
     }
 
     fun supported(): Boolean = Build.VERSION.SDK_INT >= 26
