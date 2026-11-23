@@ -10,6 +10,7 @@ import '../../../core/calls/call_coordinator.dart';
 import '../../../domain/models/call_session.dart';
 import '../../state/app_providers.dart';
 import '../../widgets/call_control_dock.dart';
+import '../../widgets/stellar_avatar.dart';
 
 class VideoCallScreen extends ConsumerStatefulWidget {
   const VideoCallScreen({
@@ -30,7 +31,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
   CallCoordinator? _callCoordinator;
   bool _muted = false;
   bool _speakerOn = true;
-  bool _cameraOff = false;
+  bool _cameraSwitching = false;
   bool _frontCamera = true;
   Offset _pipOffset = const Offset(16, 60);
   CallSession? _session;
@@ -149,6 +150,25 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
         context.go('/chat/${Uri.encodeComponent(widget.chatId)}');
       }
     });
+  }
+
+  Future<void> _toggleVideo() async {
+    final coordinator = _callCoordinator;
+    final session = _session;
+    if (coordinator == null || session?.state != CallState.connected ||
+        _cameraSwitching) return;
+    setState(() => _cameraSwitching = true);
+    try {
+      await coordinator.setVideoEnabled(!session!.localVideoEnabled);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not update camera: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _cameraSwitching = false);
+    }
   }
 
   @override
@@ -277,14 +297,21 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
               color: Colors.black.withOpacity(0.42),
             ),
           ),
-          if (_session?.state == CallState.connected)
+          if (_session?.state == CallState.connected &&
+              _session?.remoteVideoEnabled == true)
             Positioned.fill(
               child: RTCVideoView(
                 _remoteRenderer,
                 objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
               ),
             ),
-          Positioned(
+          if (_session?.remoteVideoEnabled != true)
+            Center(child: StellarAvatar(
+              seed: _identity,
+              label: _identity,
+              size: 120,
+            )),
+          if (_session?.localVideoEnabled == true) Positioned(
             top: 12,
             left: 12,
             right: 12,
@@ -360,8 +387,9 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                     CallControlDock(
                     muted: _muted,
                     speakerOn: _speakerOn,
-                    cameraOff: _cameraOff,
-                    showCameraControls: true,
+                    cameraOff: _session?.localVideoEnabled != true,
+                    showCameraControls: _session?.state == CallState.connected,
+                    cameraBusy: _cameraSwitching,
                     onToggleMute: () {
                       setState(() => _muted = !_muted);
                       _callCoordinator?.toggleMute(_muted);
@@ -371,13 +399,18 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                       setState(() => _speakerOn = next);
                       _callCoordinator?.setSpeakerphone(next);
                     },
-                    onToggleCamera: () {
-                      setState(() => _cameraOff = !_cameraOff);
-                      _callCoordinator?.toggleCamera(_cameraOff);
-                    },
-                    onFlipCamera: () {
-                      setState(() => _frontCamera = !_frontCamera);
-                      _callCoordinator?.switchCamera();
+                    onToggleCamera: _toggleVideo,
+                    onFlipCamera: () async {
+                      try {
+                        await _callCoordinator?.switchCamera();
+                        if (mounted) setState(() => _frontCamera = !_frontCamera);
+                      } catch (error) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Could not switch camera: $error')),
+                          );
+                        }
+                      }
                     },
                     onEndCall: () async {
                       await _callCoordinator?.endActiveCall();

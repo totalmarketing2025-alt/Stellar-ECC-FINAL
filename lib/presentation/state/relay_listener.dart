@@ -351,6 +351,7 @@ class RelayListener {
         'reject',
         'end',
         'busy',
+        'media-state',
       };
 
       if (type is! String || !allowedCallSignalTypes.contains(type)) {

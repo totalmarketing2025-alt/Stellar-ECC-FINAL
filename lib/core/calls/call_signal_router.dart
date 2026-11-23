@@ -46,6 +46,7 @@ class CallSignalRouter {
       'reject',
       'end',
       'busy',
+      'media-state',
     };
 
     if (type is! String || !allowedTypes.contains(type)) {

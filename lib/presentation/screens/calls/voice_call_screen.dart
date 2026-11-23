@@ -31,6 +31,8 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
   CallCoordinator? _callCoordinator;
   bool _muted = false;
   bool _speakerOn = false;
+  bool _cameraSwitching = false;
+  bool _frontCamera = true;
   CallSession? _session;
   bool _closingCallScreen = false;
   StreamSubscription<CallSession?>? _sessionSubscription;
@@ -152,6 +154,25 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
     });
   }
 
+  Future<void> _toggleVideo() async {
+    final coordinator = _callCoordinator;
+    final session = _session;
+    if (coordinator == null || session?.state != CallState.connected ||
+        _cameraSwitching) return;
+    setState(() => _cameraSwitching = true);
+    try {
+      await coordinator.setVideoEnabled(!session!.localVideoEnabled);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not update camera: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _cameraSwitching = false);
+    }
+  }
+
   @override
   void dispose() {
     _elapsedTicker?.cancel();
@@ -195,11 +216,36 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
               color: Colors.black.withOpacity(0.42),
             ),
           ),
+          if (session?.state == CallState.connected &&
+              session?.remoteVideoEnabled == true)
+            Positioned.fill(
+              child: RTCVideoView(
+                _remoteRenderer,
+                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+              ),
+            ),
+          if (session?.state == CallState.connected &&
+              session?.localVideoEnabled == true)
+            Positioned(
+              top: 60,
+              right: 16,
+              child: Container(
+                width: 100,
+                height: 140,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: RTCVideoView(_localRenderer, mirror: _frontCamera),
+              ),
+            ),
           SafeArea(
             child: Column(
           children: [
             const SizedBox(height: 48),
-            StellarAvatar(seed: identity, label: identity, size: 120),
+            if (session?.remoteVideoEnabled != true)
+              StellarAvatar(seed: identity, label: identity, size: 120),
             const SizedBox(height: 24),
             Text(identity, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
@@ -235,6 +281,22 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
               CallControlDock(
               muted: _muted,
               speakerOn: _speakerOn,
+              cameraOff: session?.localVideoEnabled != true,
+              cameraBusy: _cameraSwitching,
+              showCameraControls: session?.state == CallState.connected,
+              onToggleCamera: _toggleVideo,
+              onFlipCamera: () async {
+                try {
+                  await _callCoordinator?.switchCamera();
+                  if (mounted) setState(() => _frontCamera = !_frontCamera);
+                } catch (error) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Could not switch camera: $error')),
+                    );
+                  }
+                }
+              },
               onToggleMute: () {
                 setState(() => _muted = !_muted);
                 _callCoordinator?.toggleMute(_muted);

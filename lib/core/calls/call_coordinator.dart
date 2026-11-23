@@ -70,6 +70,17 @@ class CallCoordinator {
       remote: remote,
     );
     _callService.onConnectionStateChanged = _handleConnectionState;
+    _callService.onRemoteVideoChanged = _handleRemoteVideoChanged;
+  }
+
+  void _handleRemoteVideoChanged(bool enabled) {
+    final session = _activeSession;
+    if (session == null ||
+        session.callId != _callService.callId ||
+        session.state == CallState.ended ||
+        session.state == CallState.failed) return;
+    _activeSession = session.copyWith(remoteVideoEnabled: enabled);
+    _sessionController.add(_activeSession);
   }
 
   void _handleConnectionState(RTCPeerConnectionState state) {
@@ -233,6 +244,8 @@ class CallCoordinator {
       kind: video ? CallKind.video : CallKind.voice,
       state: CallState.ringing,
       remoteNickname: remoteNickname,
+      localVideoEnabled: video,
+      remoteVideoEnabled: video,
     );
     _activeCallIsOutgoing = true;
 
@@ -565,8 +578,29 @@ class CallCoordinator {
     return _callService.toggleMute(muted);
   }
 
-  Future<void> toggleCamera(bool cameraOff) {
-    return _callService.toggleCamera(cameraOff);
+  Future<void> toggleCamera(bool cameraOff) => setVideoEnabled(!cameraOff);
+
+  Future<void> setVideoEnabled(bool enabled) async {
+    final session = _activeSession;
+    final remote = session?.remoteNickname;
+    if (session == null || session.state != CallState.connected ||
+        remote == null || remote.isEmpty) {
+      throw StateError('Camera can only be switched during a connected call');
+    }
+
+    try {
+      await _callService.setVideoEnabled(remote, enabled);
+    } finally {
+      // Even if sending the signed state fails, reflect the real camera
+      // state locally; the media transition may already have succeeded.
+      final current = _activeSession;
+      if (current?.callId == session.callId) {
+        _activeSession = current!.copyWith(
+          localVideoEnabled: _callService.localVideoEnabled,
+        );
+        _sessionController.add(_activeSession);
+      }
+    }
   }
 
   Future<void> switchCamera() {
@@ -644,6 +678,8 @@ class CallCoordinator {
       _activeCallIsOutgoing = false;
       _activeSession = session.copyWith(
         state: CallState.ringing,
+        localVideoEnabled: session.kind == CallKind.video,
+        remoteVideoEnabled: session.kind == CallKind.video,
       );
       _lastSignal = signal;
 
@@ -1209,6 +1245,7 @@ class CallCoordinator {
     _activeCallIsOutgoing = false;
 
     _callService.onConnectionStateChanged = null;
+    _callService.onRemoteVideoChanged = null;
 
     await _subscription?.cancel();
     await _sessionController.close();
