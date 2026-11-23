@@ -124,21 +124,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           const _StellarConnectionIndicator(),
           IconButton(
             icon: const Icon(Icons.call_outlined),
-            tooltip: chat?.chatType == ChatType.group
-                ? 'Group voice calls are not available yet'
-                : 'Voice call',
-            onPressed: chat?.chatType == ChatType.group
-                ? null
-                : () => context.push('/call/voice/${widget.chatId}'),
+            tooltip: chat?.chatType == ChatType.direct
+                ? 'Voice call'
+                : 'Group voice calls are not available yet',
+            onPressed: chat?.chatType == ChatType.direct
+                ? () => context.push('/call/voice/${widget.chatId}')
+                : null,
           ),
           IconButton(
             icon: const Icon(Icons.videocam_outlined),
-            tooltip: chat?.chatType == ChatType.group
-                ? 'Group video calls are not available yet'
-                : 'Video call',
-            onPressed: chat?.chatType == ChatType.group
-                ? null
-                : () => context.push('/call/video/${widget.chatId}'),
+            tooltip: chat?.chatType == ChatType.direct
+                ? 'Video call'
+                : 'Group video calls are not available yet',
+            onPressed: chat?.chatType == ChatType.direct
+                ? () => context.push('/call/video/${widget.chatId}')
+                : null,
           ),
         ],
       ),

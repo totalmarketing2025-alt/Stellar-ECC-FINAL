@@ -31,8 +31,9 @@ class CallControlDock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 24),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      // Five controls must also fit narrow Android displays without overflow.
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
       decoration: BoxDecoration(
         color: StellarColors.bgElevated.withOpacity(0.9),
         borderRadius: BorderRadius.circular(32),
@@ -44,11 +45,13 @@ class CallControlDock extends StatelessWidget {
             icon: muted ? Icons.mic_off : Icons.mic,
             active: muted,
             onTap: onToggleMute,
+            tooltip: muted ? 'Unmute microphone' : 'Mute microphone',
           ),
           _DockButton(
             icon: speakerOn ? Icons.volume_up : Icons.volume_down,
             active: speakerOn,
             onTap: onToggleSpeaker,
+            tooltip: speakerOn ? 'Turn speaker off' : 'Turn speaker on',
           ),
           if (showCameraControls) ...[
             _DockButton(
@@ -69,6 +72,7 @@ class CallControlDock extends StatelessWidget {
             active: true,
             activeColor: StellarColors.danger,
             onTap: onEndCall,
+            tooltip: 'End call',
           ),
         ],
       ),
