@@ -19,6 +19,7 @@ import '../../core/calls/call_signal_router.dart';
 import '../../core/calls/call_coordinator.dart';
 import '../../core/calls/call_platform_bridge.dart';
 import '../../core/calls/call_service.dart';
+import '../../core/calls/group_call_coordinator.dart';
 import '../../data/repositories/chat_repository.dart';
 import '../../domain/models/chat.dart';
 import '../../domain/models/message.dart';
@@ -135,6 +136,8 @@ final callCoordinatorProvider = Provider<CallCoordinator>((ref) {
     signalRouter: ref.watch(callSignalRouterProvider),
     callService: ref.watch(callServiceProvider),
     platformBridge: ref.watch(callPlatformBridgeProvider),
+    isGroupCallActive: () =>
+        ref.read(groupCallCoordinatorProvider).activeRoom != null,
     onCallHistoryEvent: (event) async {
       final repo = ref.read(chatRepositoryProvider);
       final chatRow = await repo.db.chatDao.byId(event.chatId);
@@ -196,6 +199,25 @@ final callCoordinatorProvider = Provider<CallCoordinator>((ref) {
   coordinator.start();
   ref.onDispose(coordinator.dispose);
 
+  return coordinator;
+});
+
+final groupCallCoordinatorProvider = Provider<GroupCallCoordinator>((ref) {
+  final nickname = ref.watch(localNicknameProvider);
+  if (nickname == null || nickname.isEmpty) {
+    throw StateError('A local nickname is required for group calls');
+  }
+  final coordinator = GroupCallCoordinator(
+    db: ref.watch(databaseProvider),
+    relay: ref.watch(relayClientProvider),
+    directory: ref.watch(directoryClientProvider),
+    sessionManager: ref.watch(sessionManagerProvider),
+    signalRouter: ref.watch(callSignalRouterProvider),
+    localNickname: nickname,
+    hasDirectCall: () => ref.read(callCoordinatorProvider).activeSession != null,
+  );
+  coordinator.start();
+  ref.onDispose(coordinator.dispose);
   return coordinator;
 });
 

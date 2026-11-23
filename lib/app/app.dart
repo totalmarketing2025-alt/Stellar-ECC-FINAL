@@ -12,8 +12,10 @@ import '../presentation/state/incoming_message_pulse.dart';
 import '../presentation/state/app_providers.dart';
 import '../presentation/state/security_providers.dart';
 import '../core/calls/call_coordinator.dart';
+import '../core/calls/group_call_coordinator.dart';
 import '../core/calls/call_platform_bridge.dart';
 import '../domain/models/call_session.dart';
+import '../domain/models/group_call_room.dart';
 
 class StellarEccApp extends ConsumerStatefulWidget {
   const StellarEccApp({super.key});
@@ -30,6 +32,7 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
   CallPlatformAction? _pendingNativeCallAction;
   bool _pendingNativeActionScheduled = false;
   StreamSubscription<CallSession?>? _callSessionSubscription;
+  StreamSubscription<GroupCallRoom?>? _groupCallSubscription;
   final Set<String> _incomingNavigationPendingCallIds = <String>{};
 
   static const MethodChannel _wantedModeNavigationChannel =
@@ -240,6 +243,32 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
     _scheduleIncomingCallNavigation(coordinator, coordinator.activeSession);
   }
 
+  void _ensureGroupCallListener(GroupCallCoordinator coordinator) {
+    if (_groupCallSubscription != null) return;
+    _groupCallSubscription = coordinator.roomStream.listen((room) {
+      if (room?.isIncoming == true) _scheduleGroupInvitationNavigation(room!);
+    });
+    final existing = coordinator.activeRoom;
+    if (existing?.isIncoming == true) {
+      _scheduleGroupInvitationNavigation(existing!);
+    }
+  }
+
+  void _scheduleGroupInvitationNavigation(GroupCallRoom room) {
+    if (!mounted || !ref.read(isUnlockedProvider)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !ref.read(isUnlockedProvider)) return;
+      final active = ref.read(groupCallCoordinatorProvider).activeRoom;
+      if (active == null || active.roomId != room.roomId ||
+          !active.isIncoming) return;
+      final router = ref.read(appRouterProvider);
+      final route = '/group/call/${Uri.encodeComponent(room.chatId)}';
+      if (router.routeInformationProvider.value.uri.path != route) {
+        router.go('$route?incoming=1');
+      }
+    });
+  }
+
   void _scheduleIncomingCallNavigation(
     CallCoordinator coordinator,
     CallSession? session,
@@ -293,6 +322,7 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
     _guardAccountTimer?.cancel();
     _callActionSubscription?.cancel();
     _callSessionSubscription?.cancel();
+    _groupCallSubscription?.cancel();
     super.dispose();
   }
 
@@ -308,6 +338,8 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
     if (nickname != null && nickname.isNotEmpty) {
       final coordinator = ref.watch(callCoordinatorProvider);
       _ensureIncomingCallListener(coordinator);
+      final groupCoordinator = ref.watch(groupCallCoordinatorProvider);
+      _ensureGroupCallListener(groupCoordinator);
       _schedulePendingNativeAction();
     }
 
@@ -315,6 +347,10 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
       if (next) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _navigateToPendingIncomingCall();
+          final groupRoom = ref.read(groupCallCoordinatorProvider).activeRoom;
+          if (groupRoom?.isIncoming == true) {
+            _scheduleGroupInvitationNavigation(groupRoom!);
+          }
           unawaited(_consumePendingWantedSecurityNavigation());
         });
       }

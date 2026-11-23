@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../../domain/models/call_session.dart';
+import 'group_call_protocol.dart';
 
 class CallSignalRouter {
   final StreamController<CallSignal> _controller =
@@ -49,8 +50,14 @@ class CallSignalRouter {
       'media-state',
     };
 
-    if (type is! String || !allowedTypes.contains(type)) {
+    if (type is! String ||
+        (!allowedTypes.contains(type) && !GroupCallProtocol.types.contains(type))) {
       throw StateError('Invalid Stellar call signal type');
+    }
+
+    if (GroupCallProtocol.types.contains(type) &&
+        !GroupCallProtocol.isValidGroupSignal(decoded.cast<String, dynamic>())) {
+      throw StateError('Invalid signed group call signal');
     }
 
     final payload = <String, dynamic>{

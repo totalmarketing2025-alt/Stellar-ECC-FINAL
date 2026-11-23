@@ -14,6 +14,7 @@ import '../presentation/screens/chat_list/chat_list_screen.dart';
 import '../presentation/screens/chat/chat_screen.dart';
 import '../presentation/screens/calls/voice_call_screen.dart';
 import '../presentation/screens/calls/video_call_screen.dart';
+import '../presentation/screens/calls/group_call_screen.dart';
 import '../presentation/screens/settings/settings_screen.dart';
 import '../presentation/screens/profile/profile_screen.dart';
 import '../presentation/screens/groups/group_management_screen.dart';
@@ -107,6 +108,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (c, s) => VideoCallScreen(
           chatId: s.pathParameters['chatId']!,
           incoming: s.uri.queryParameters['incoming'] == '1',
+        ),
+      ),
+      GoRoute(
+        path: '/group/call/:chatId',
+        builder: (c, s) => GroupCallScreen(
+          chatId: s.pathParameters['chatId']!,
+          incoming: s.uri.queryParameters['incoming'] == '1',
+          video: s.uri.queryParameters['video'] == '1',
         ),
       ),
       GoRoute(path: '/settings', builder: (c, s) => const SettingsScreen()),

@@ -33,9 +33,9 @@
    camera permission is denied or the switch fails, the existing audio call
    continues.
 
-## Next slice: real group voice/video calls (not implemented yet)
+## Second slice: in-app group voice/video mesh (test candidate)
 
-### Proposed initial product: small private mesh rooms (2–4 participants)
+### Implemented architecture: small private mesh rooms (2–4 participants)
 
 Use **one RTCPeerConnection per remote participant** with independent ICE,
 connection state, audio and video renderers, but one local camera/microphone
@@ -44,33 +44,35 @@ the decrypted media, and bounds upload cost: for four participants the local
 device sends three encoded media paths. Gate larger rooms until a dedicated,
 audited E2EE-capable SFU architecture is available.
 
-Required modules and invariants:
+The in-app test build now includes an authenticated room invitation and join
+flow, local membership-digest validation, monotonic media state, independent
+per-peer WebRTC connections with a shared local media capture, bounded ICE
+queues, 2×2 tiles, camera/mic/speaker controls, periodic presence messages,
+participant leave without tearing down other connections, and a hard
+four-device cap. The original 1:1 call coordinator remains separate.
 
-1. **Group identity and membership:** load authoritative local group
-   membership from `ChatDao.groupMembers`; verify signed invite/send/join
-   membership on receipt; reject outsiders, removed users and stale epochs.
-2. **Room protocol:** authenticated group `roomId`, membership epoch,
-   participant ID, per-peer `pairCallId`, per-peer ordered offer/answer/ICE,
-   invite/join/leave/busy/timeout; separate from existing 1:1 signal routing.
-   Include a replay cache, bounded queues and strict sender/recipient checks.
-3. **Coordinator:** map participant → peer connection, cancel one participant
-   without ending everybody, track reconnect/backoff, support active speaker
-   and independent camera/mic status. Limit simultaneous joins and teardown
-   all tracks on account lock and Wanted Mode wipe.
-4. **UI:** group-chat voice/video call actions, incoming room invitation,
-   2–4 tiles, participant names, speaking indicators, host-free join/leave,
-   camera/mic/speaker/switch controls and screen-off audio continuation.
-5. **Native notifications:** group invitation channel, background wake,
-   accept/decline/rejoin identities, Android foreground camera/microphone
-   service requirements. Do not reuse a single-peer call ID for a group.
-6. **Security:** DTLS fingerprints per peer, authenticated membership updates,
-   key rotation when a member leaves, and a documented media E2EE threat
-   model. Avoid implying that Signal Sender Keys automatically encrypt media.
-7. **Verification:** three real Android devices on mixed Wi-Fi/mobile data,
-   TURN-only tests, audio routing, push background/locked-screen entry,
-   leave/rejoin, lost network, camera permissions, 2→4 participants,
-   low-memory cleanup, battery and latency measurements.
+**Not completed for a production claim:**
 
-Do not expose a "working group call" button until these elements are wired and
-validated end to end. A group chat's current voice/video actions must not
-silently dial the group ID as if it were one nickname.
+1. **Native background behavior:** group invitations are currently delivered
+   when the app is running and receiving relay messages. Android call wake,
+   lock-screen answer/decline, foreground media service, and screen-off audio
+   continuation are **not** yet completed for group calls.
+2. **Resilience:** reconnect/backoff and an explicit rejoin-from-chat flow,
+   plus lifecycle cleanup on account lock and Wanted Mode wipe need hardened
+   device testing. The current implementation tears down failed peers, and
+   periodic signed presence heals lost join notifications.
+3. **Security hardening:** current media uses authenticated signaling and
+   peer-to-peer DTLS-SRTP. Signal Sender Keys encrypt text, not media. Audit
+   revocation, identity-key rotation, room collision and membership epoch
+   handling before treating group media as a hardened E2EE product.
+4. **Product polish:** active-speaker indicator, group call history, network
+   quality hints, participant reconnect UI, and moderator/security audit.
+5. **Verification:** three or four real Android devices on mixed Wi-Fi/mobile
+   data, TURN-only tests, end-to-end audio/video, invite/accept/decline,
+   participant leave/rejoin, lost network, permission denial, low-memory
+   cleanup, battery and latency measurements.
+
+This is a **test candidate**, not a production-ready claim, until the
+cross-device tests and native lifecycle work above are complete. Group call
+actions now route to a separate group room and never dial a group ID as if it
+were a direct nickname.

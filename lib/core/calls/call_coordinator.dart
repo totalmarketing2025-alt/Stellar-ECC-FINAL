@@ -14,6 +14,7 @@ class CallCoordinator {
     required CallService callService,
     required CallPlatformBridge platformBridge,
     this.onCallHistoryEvent,
+    this.isGroupCallActive,
   })  : _signalRouter = signalRouter,
         _callService = callService,
         _platformBridge = platformBridge;
@@ -21,6 +22,7 @@ class CallCoordinator {
   final CallSignalRouter _signalRouter;
   final CallService _callService;
   final CallPlatformBridge _platformBridge;
+  final bool Function()? isGroupCallActive;
 
   void _stopCallAudio(String? callId) {
     if (callId == null || callId.isEmpty) return;
@@ -616,6 +618,9 @@ class CallCoordinator {
   }
 
   void _handleSignal(CallSignal signal) {
+    // Group-room signaling is owned by GroupCallCoordinator. Never interpret
+    // an invited group participant as an ordinary 1:1 call.
+    if (signal.type.startsWith('group-')) return;
     final session = signal.session;
 
     if (signal.type == 'offer') {
@@ -624,10 +629,10 @@ class CallCoordinator {
       // Never let a new offer overwrite an already active call.
       // A valid incoming offer is accepted only when there is no
       // active session yet.
-      if (activeSession != null) {
+      if (activeSession != null || isGroupCallActive?.call() == true) {
         // Ignore a duplicate offer for the same call. A different
         // authenticated offer receives BUSY without touching this call.
-        if (activeSession.callId != session.callId) {
+        if (activeSession?.callId != session.callId) {
           final remote = session.remoteNickname;
           if (remote != null && remote.isNotEmpty) {
             unawaited(
