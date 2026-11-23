@@ -79,7 +79,47 @@ class GroupCallCoordinator {
       _room!.phase != GroupCallPhase.ended &&
       _room!.phase != GroupCallPhase.failed;
 
+  bool _drainingNativeActions = false;
+  bool _nativeDrainRequested = false;
+
+  Future<void> _drainNativeActions() async {
+    _nativeDrainRequested = true;
+    if (_drainingNativeActions || _disposed) return;
+    _drainingNativeActions = true;
+    try {
+      while (_nativeDrainRequested && !_disposed) {
+        _nativeDrainRequested = false;
+        final actions = await _nativeGroupCalls.invokeListMethod<dynamic>(
+          'takeGroupActions',
+        );
+        for (final action in actions ?? const []) {
+          if (_disposed || action is! Map) continue;
+          final room = _room;
+          if (room == null || room.phase != GroupCallPhase.ringing ||
+              action['roomId'] != room.roomId) continue;
+          if (action['action'] == 'join') {
+            await acceptInvitation();
+          } else if (action['action'] == 'decline') {
+            await declineInvitation();
+          }
+        }
+      }
+    } on MissingPluginException {
+      // Native actions are Android-only.
+    } on PlatformException {
+      // In-app controls remain available.
+    } finally {
+      _drainingNativeActions = false;
+    }
+  }
+
   void start() {
+    _nativeGroupCalls.setMethodCallHandler((call) async {
+      if (call.method == 'groupActionsAvailable') {
+        await _drainNativeActions();
+      }
+    });
+    unawaited(_drainNativeActions());
     _subscription ??= signalRouter.incoming.listen((signal) {
       if (!signal.type.startsWith('group-')) return;
       _incomingQueue = _incomingQueue
@@ -825,6 +865,7 @@ class GroupCallCoordinator {
 
   Future<void> dispose() async {
     _disposed = true;
+    _nativeGroupCalls.setMethodCallHandler(null);
     await _subscription?.cancel();
     final room = _room;
     if (room != null) await _closeRoom(room.roomId);
