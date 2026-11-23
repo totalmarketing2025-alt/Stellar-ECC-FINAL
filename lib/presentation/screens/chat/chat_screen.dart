@@ -124,11 +124,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           const _StellarConnectionIndicator(),
           IconButton(
             icon: const Icon(Icons.call_outlined),
-            onPressed: () => context.push('/call/voice/${widget.chatId}'),
+            tooltip: 'Voice call',
+            onPressed: chat?.chatType == ChatType.direct
+                ? () => context.push('/call/voice/${widget.chatId}')
+                : chat?.chatType == ChatType.group
+                    ? () => context.push('/group/call/${Uri.encodeComponent(widget.chatId)}')
+                    : null,
           ),
           IconButton(
             icon: const Icon(Icons.videocam_outlined),
-            onPressed: () => context.push('/call/video/${widget.chatId}'),
+            tooltip: 'Video call',
+            onPressed: chat?.chatType == ChatType.direct
+                ? () => context.push('/call/video/${widget.chatId}')
+                : chat?.chatType == ChatType.group
+                    ? () => context.push('/group/call/${Uri.encodeComponent(widget.chatId)}?video=1')
+                    : null,
           ),
         ],
       ),

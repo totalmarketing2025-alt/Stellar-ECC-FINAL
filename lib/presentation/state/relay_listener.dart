@@ -11,6 +11,7 @@ import '../../core/network/envelope.dart';
 import '../../data/repositories/chat_repository.dart';
 import '../../domain/models/call_session.dart';
 import '../../core/calls/call_signal_authenticator.dart';
+import '../../core/calls/group_call_protocol.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 import 'app_providers.dart';
 import 'incoming_message_pulse.dart';
@@ -351,9 +352,17 @@ class RelayListener {
         'reject',
         'end',
         'busy',
+        'media-state',
       };
 
-      if (type is! String || !allowedCallSignalTypes.contains(type)) {
+      if (type is! String ||
+          (!allowedCallSignalTypes.contains(type) &&
+              !GroupCallProtocol.types.contains(type))) {
+        return _CallSignalRouteResult.rejected;
+      }
+
+      if (GroupCallProtocol.types.contains(type) &&
+          !GroupCallProtocol.isValidGroupSignal(signal)) {
         return _CallSignalRouteResult.rejected;
       }
 

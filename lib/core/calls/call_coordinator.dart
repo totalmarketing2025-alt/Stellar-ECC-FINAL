@@ -14,6 +14,7 @@ class CallCoordinator {
     required CallService callService,
     required CallPlatformBridge platformBridge,
     this.onCallHistoryEvent,
+    this.isGroupCallActive,
   })  : _signalRouter = signalRouter,
         _callService = callService,
         _platformBridge = platformBridge;
@@ -21,6 +22,7 @@ class CallCoordinator {
   final CallSignalRouter _signalRouter;
   final CallService _callService;
   final CallPlatformBridge _platformBridge;
+  final bool Function()? isGroupCallActive;
 
   void _stopCallAudio(String? callId) {
     if (callId == null || callId.isEmpty) return;
@@ -70,6 +72,17 @@ class CallCoordinator {
       remote: remote,
     );
     _callService.onConnectionStateChanged = _handleConnectionState;
+    _callService.onRemoteVideoChanged = _handleRemoteVideoChanged;
+  }
+
+  void _handleRemoteVideoChanged(bool enabled) {
+    final session = _activeSession;
+    if (session == null ||
+        session.callId != _callService.callId ||
+        session.state == CallState.ended ||
+        session.state == CallState.failed) return;
+    _activeSession = session.copyWith(remoteVideoEnabled: enabled);
+    _sessionController.add(_activeSession);
   }
 
   void _handleConnectionState(RTCPeerConnectionState state) {
@@ -233,6 +246,8 @@ class CallCoordinator {
       kind: video ? CallKind.video : CallKind.voice,
       state: CallState.ringing,
       remoteNickname: remoteNickname,
+      localVideoEnabled: video,
+      remoteVideoEnabled: video,
     );
     _activeCallIsOutgoing = true;
 
@@ -565,8 +580,29 @@ class CallCoordinator {
     return _callService.toggleMute(muted);
   }
 
-  Future<void> toggleCamera(bool cameraOff) {
-    return _callService.toggleCamera(cameraOff);
+  Future<void> toggleCamera(bool cameraOff) => setVideoEnabled(!cameraOff);
+
+  Future<void> setVideoEnabled(bool enabled) async {
+    final session = _activeSession;
+    final remote = session?.remoteNickname;
+    if (session == null || session.state != CallState.connected ||
+        remote == null || remote.isEmpty) {
+      throw StateError('Camera can only be switched during a connected call');
+    }
+
+    try {
+      await _callService.setVideoEnabled(remote, enabled);
+    } finally {
+      // Even if sending the signed state fails, reflect the real camera
+      // state locally; the media transition may already have succeeded.
+      final current = _activeSession;
+      if (current?.callId == session.callId) {
+        _activeSession = current!.copyWith(
+          localVideoEnabled: _callService.localVideoEnabled,
+        );
+        _sessionController.add(_activeSession);
+      }
+    }
   }
 
   Future<void> switchCamera() {
@@ -582,6 +618,9 @@ class CallCoordinator {
   }
 
   void _handleSignal(CallSignal signal) {
+    // Group-room signaling is owned by GroupCallCoordinator. Never interpret
+    // an invited group participant as an ordinary 1:1 call.
+    if (signal.type.startsWith('group-')) return;
     final session = signal.session;
 
     if (signal.type == 'offer') {
@@ -590,10 +629,10 @@ class CallCoordinator {
       // Never let a new offer overwrite an already active call.
       // A valid incoming offer is accepted only when there is no
       // active session yet.
-      if (activeSession != null) {
+      if (activeSession != null || isGroupCallActive?.call() == true) {
         // Ignore a duplicate offer for the same call. A different
         // authenticated offer receives BUSY without touching this call.
-        if (activeSession.callId != session.callId) {
+        if (activeSession?.callId != session.callId) {
           final remote = session.remoteNickname;
           if (remote != null && remote.isNotEmpty) {
             unawaited(
@@ -644,6 +683,8 @@ class CallCoordinator {
       _activeCallIsOutgoing = false;
       _activeSession = session.copyWith(
         state: CallState.ringing,
+        localVideoEnabled: session.kind == CallKind.video,
+        remoteVideoEnabled: session.kind == CallKind.video,
       );
       _lastSignal = signal;
 
@@ -1209,6 +1250,7 @@ class CallCoordinator {
     _activeCallIsOutgoing = false;
 
     _callService.onConnectionStateChanged = null;
+    _callService.onRemoteVideoChanged = null;
 
     await _subscription?.cancel();
     await _sessionController.close();

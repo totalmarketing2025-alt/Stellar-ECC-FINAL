@@ -12,6 +12,7 @@ class CallControlDock extends StatelessWidget {
     required this.onEndCall,
     this.cameraOff = false,
     this.showCameraControls = false,
+    this.cameraBusy = false,
     this.onToggleCamera,
     this.onFlipCamera,
   });
@@ -20,6 +21,7 @@ class CallControlDock extends StatelessWidget {
   final bool speakerOn;
   final bool cameraOff;
   final bool showCameraControls;
+  final bool cameraBusy;
   final VoidCallback onToggleMute;
   final VoidCallback onToggleSpeaker;
   final VoidCallback onEndCall;
@@ -29,8 +31,9 @@ class CallControlDock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 24),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      // Five controls must also fit narrow Android displays without overflow.
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
       decoration: BoxDecoration(
         color: StellarColors.bgElevated.withOpacity(0.9),
         borderRadius: BorderRadius.circular(32),
@@ -42,22 +45,26 @@ class CallControlDock extends StatelessWidget {
             icon: muted ? Icons.mic_off : Icons.mic,
             active: muted,
             onTap: onToggleMute,
+            tooltip: muted ? 'Unmute microphone' : 'Mute microphone',
           ),
           _DockButton(
             icon: speakerOn ? Icons.volume_up : Icons.volume_down,
             active: speakerOn,
             onTap: onToggleSpeaker,
+            tooltip: speakerOn ? 'Turn speaker off' : 'Turn speaker on',
           ),
           if (showCameraControls) ...[
             _DockButton(
               icon: cameraOff ? Icons.videocam_off : Icons.videocam,
-              active: cameraOff,
-              onTap: onToggleCamera ?? () {},
+              active: !cameraOff,
+              onTap: cameraBusy ? null : onToggleCamera,
+              tooltip: cameraOff ? 'Turn on video' : 'Turn off video',
             ),
-            _DockButton(
+            if (!cameraOff) _DockButton(
               icon: Icons.cameraswitch,
               active: false,
-              onTap: onFlipCamera ?? () {},
+              onTap: cameraBusy ? null : onFlipCamera,
+              tooltip: 'Switch camera',
             ),
           ],
           _DockButton(
@@ -65,6 +72,7 @@ class CallControlDock extends StatelessWidget {
             active: true,
             activeColor: StellarColors.danger,
             onTap: onEndCall,
+            tooltip: 'End call',
           ),
         ],
       ),
@@ -78,25 +86,29 @@ class _DockButton extends StatelessWidget {
     required this.active,
     required this.onTap,
     this.activeColor = StellarColors.accentBlue,
+    this.tooltip,
   });
 
   final IconData icon;
   final bool active;
   final Color activeColor;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onTap,
+      padding: EdgeInsets.zero,
+      icon: Container(
         width: 52,
         height: 52,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: active ? activeColor : Colors.white10,
         ),
-        child: Icon(icon, color: Colors.white),
+        child: Icon(icon, color: onTap == null ? Colors.white38 : Colors.white),
       ),
     );
   }

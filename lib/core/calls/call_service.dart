@@ -12,6 +12,7 @@ import '../network/relay_client.dart';
 import '../../domain/models/call_session.dart';
 import 'call_platform_bridge.dart';
 import 'call_signal_authenticator.dart';
+import 'call_media_state.dart';
 import 'outbound_ice_queue.dart';
 
 enum CallDirection { outgoing, incoming }
@@ -38,6 +39,13 @@ class CallService {
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
   MediaStream? _remoteStream;
+  MediaStream? _syntheticRemoteStream;
+  MediaStream? _cameraCaptureStream;
+  RTCRtpSender? _videoSender;
+  bool _localVideoEnabled = false;
+  int _outboundMediaRevision = 0;
+  int _remoteMediaRevision = 0;
+  bool _videoChangeInProgress = false;
 
   String? _callId;
   String? _chatId;
@@ -60,6 +68,7 @@ class CallService {
   }
 
   void Function(RTCPeerConnectionState state)? onConnectionStateChanged;
+  void Function(bool enabled)? onRemoteVideoChanged;
 
   static const _signalPrefix = 'STELLAR_CALL_V1:';
 
@@ -83,6 +92,7 @@ class CallService {
   String? get callId => _callId;
   String? get chatId => _chatId;
   CallKind? get callKind => _callKind;
+  bool get localVideoEnabled => _localVideoEnabled;
 
   void attachRenderers({
     RTCVideoRenderer? local,
@@ -90,7 +100,8 @@ class CallService {
   }) {
     if (local != null) {
       localRenderer = local;
-      local.srcObject = _localStream;
+      local.srcObject = _cameraCaptureStream ??
+          (_localVideoEnabled ? _localStream : null);
     }
 
     if (remote != null) {
@@ -158,6 +169,10 @@ class CallService {
       _callId ??= callId ?? _generateCallId();
       _chatId ??= chatId;
       _callKind = video ? CallKind.video : CallKind.voice;
+      _localVideoEnabled = video;
+      _outboundMediaRevision = 0;
+      _remoteMediaRevision = 0;
+      _videoSender = null;
 
       print(
         'CALL_START_BEGIN: direction=$direction '
@@ -206,8 +221,23 @@ class CallService {
 
       phase = 'addLocalTracks';
       for (final track in _localStream!.getTracks()) {
-        await _peerConnection!.addTrack(track, _localStream!);
+        final sender = await _peerConnection!.addTrack(track, _localStream!);
+        if (track.kind == 'video') _videoSender = sender;
         if (!_isCurrentGeneration(generation)) return;
+      }
+
+      if (!video) {
+        // Reserve a bidirectional video m-line at call setup. The camera is
+        // NOT opened during a voice call; replaceTrack() can subsequently
+        // attach a camera without changing the signed call identity or SDP.
+        final transceiver = await _peerConnection!.addTransceiver(
+          kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
+          init: RTCRtpTransceiverInit(
+            direction: TransceiverDirection.SendRecv,
+          ),
+        );
+        if (!_isCurrentGeneration(generation)) return;
+        _videoSender = transceiver.sender;
       }
 
       print(
@@ -223,9 +253,12 @@ class CallService {
           return;
         }
 
-        if (event.streams.isNotEmpty) {
+        if (event.track.kind == 'video' && event.streams.isNotEmpty) {
           _remoteStream = event.streams.first;
           remoteRenderer?.srcObject = _remoteStream;
+        } else if (event.track.kind == 'video') {
+          // A pre-negotiated track can arrive without a MediaStream ID.
+          unawaited(_attachStreamlessRemoteVideo(event.track, generation));
         }
       };
 
@@ -337,11 +370,32 @@ class CallService {
     }
   }
 
+  Future<void> _attachStreamlessRemoteVideo(
+    MediaStreamTrack track,
+    int generation,
+  ) async {
+    final existing = _remoteStream;
+    final stream = existing ??
+        await createLocalMediaStream('stellar-remote-${_callId ?? generation}');
+    if (!_isCurrentGeneration(generation)) {
+      if (existing == null) await stream.dispose();
+      return;
+    }
+    if (!stream.getVideoTracks().any((candidate) => candidate.id == track.id)) {
+      await stream.addTrack(track);
+    }
+    if (!_isCurrentGeneration(generation)) return;
+    if (existing == null) _syntheticRemoteStream = stream;
+    _remoteStream = stream;
+    remoteRenderer?.srcObject = stream;
+  }
+
   Future<void> _cleanupAfterStartFailure(int generation) async {
     if (!_isCurrentGeneration(generation)) return;
 
     final failedCallId = _callId;
     final localStream = _localStream;
+    final syntheticRemoteStream = _syntheticRemoteStream;
     final peerConnection = _peerConnection;
 
     // Detach this failed call before awaiting cleanup.
@@ -350,12 +404,18 @@ class CallService {
     _resetOutboundIce();
     _localStream = null;
     _remoteStream = null;
+    _syntheticRemoteStream = null;
     _peerConnection = null;
     _remoteDescriptionSet = false;
     _pendingIceCandidates.clear();
     _callId = null;
     _chatId = null;
     _callKind = null;
+    final cameraCaptureStream = _cameraCaptureStream;
+    _cameraCaptureStream = null;
+    _videoSender = null;
+    _localVideoEnabled = false;
+    _videoChangeInProgress = false;
 
     localRenderer?.srcObject = null;
     remoteRenderer?.srcObject = null;
@@ -366,6 +426,18 @@ class CallService {
       await localStream?.dispose();
     } catch (error) {
       print('CALL_START_CLEANUP_STREAM_FAILED: $error');
+    }
+
+    try {
+      await cameraCaptureStream?.dispose();
+    } catch (error) {
+      print('CALL_START_CLEANUP_CAMERA_FAILED: $error');
+    }
+
+    try {
+      await syntheticRemoteStream?.dispose();
+    } catch (error) {
+      print('CALL_START_CLEANUP_REMOTE_STREAM_FAILED: $error');
     }
 
     try {
@@ -503,6 +575,13 @@ class CallService {
         } else {
           await peerConnection.addCandidate(iceCandidate);
         }
+        break;
+
+      case 'media-state':
+        final mediaState = CallMediaState.parse(signal, _remoteMediaRevision);
+        if (mediaState == null || !stillCurrent()) return;
+        _remoteMediaRevision = mediaState.revision;
+        onRemoteVideoChanged?.call(mediaState.enabled);
         break;
 
       case 'reject':
@@ -752,17 +831,24 @@ class CallService {
 
     final callId = _callId;
     final localStream = _localStream;
+    final cameraCaptureStream = _cameraCaptureStream;
+    final syntheticRemoteStream = _syntheticRemoteStream;
     final peerConnection = _peerConnection;
 
     // Reset Dart state even if a native or WebRTC cleanup operation fails.
     _localStream = null;
     _remoteStream = null;
+    _syntheticRemoteStream = null;
     _peerConnection = null;
     _remoteDescriptionSet = false;
     _pendingIceCandidates.clear();
     _callId = null;
     _chatId = null;
     _callKind = null;
+    _cameraCaptureStream = null;
+    _videoSender = null;
+    _localVideoEnabled = false;
+    _videoChangeInProgress = false;
 
     localRenderer?.srcObject = null;
     remoteRenderer?.srcObject = null;
@@ -771,6 +857,18 @@ class CallService {
       await localStream?.dispose();
     } catch (error) {
       print('CALL_END_STREAM_CLEANUP_FAILED: $error');
+    }
+
+    try {
+      await cameraCaptureStream?.dispose();
+    } catch (error) {
+      print('CALL_END_CAMERA_CLEANUP_FAILED: $error');
+    }
+
+    try {
+      await syntheticRemoteStream?.dispose();
+    } catch (error) {
+      print('CALL_END_REMOTE_STREAM_CLEANUP_FAILED: $error');
     }
 
     try {
@@ -795,10 +893,76 @@ class CallService {
     }
   }
 
-  Future<void> toggleCamera(bool cameraOff) async {
-    for (final track
-        in _localStream?.getVideoTracks() ?? <MediaStreamTrack>[]) {
-      track.enabled = !cameraOff;
+  /// Activate or release the camera without restarting the audio call.
+  /// Both peers negotiate a video transceiver before connecting, even when
+  /// the original call was voice-only. A signed media-state signal tells the
+  /// other UI which stream should be visible.
+  Future<void> setVideoEnabled(String remoteNickname, bool enabled) async {
+    if (_videoChangeInProgress) {
+      throw StateError('Camera transition already in progress');
+    }
+    final sender = _videoSender;
+    final generation = _callGeneration;
+    final callId = _callId;
+    if (sender == null || callId == null || _peerConnection == null) {
+      throw StateError('Call is not initialized for camera switching');
+    }
+    if (enabled == _localVideoEnabled) return;
+
+    _videoChangeInProgress = true;
+    try {
+      if (enabled) {
+        final capture = await navigator.mediaDevices.getUserMedia({
+          'audio': false,
+          'video': {'facingMode': 'user', 'width': 640, 'height': 480},
+        });
+        if (!_isCurrentGeneration(generation) || _callId != callId) {
+          await capture.dispose();
+          return;
+        }
+        try {
+          final track = capture.getVideoTracks().first;
+          await sender.replaceTrack(track);
+          if (!_isCurrentGeneration(generation) || _callId != callId) {
+            await capture.dispose();
+            return;
+          }
+          _cameraCaptureStream = capture;
+          _localVideoEnabled = true;
+          localRenderer?.srcObject = capture;
+        } catch (_) {
+          await capture.dispose();
+          rethrow;
+        }
+      } else {
+        await sender.replaceTrack(null);
+        if (!_isCurrentGeneration(generation) || _callId != callId) return;
+        _localVideoEnabled = false;
+        localRenderer?.srcObject = null;
+
+        final cameraStream = _cameraCaptureStream;
+        _cameraCaptureStream = null;
+        if (cameraStream != null) {
+          await cameraStream.dispose();
+        } else {
+          // Initial video calls own their camera in _localStream. Release it
+          // as well, otherwise Android's camera privacy indicator stays on.
+          for (final track in _localStream?.getVideoTracks() ?? <MediaStreamTrack>[]) {
+            await track.stop();
+            await _localStream?.removeTrack(track);
+          }
+        }
+      }
+
+      if (!_isCurrentGeneration(generation) || _callId != callId) return;
+      final revision = ++_outboundMediaRevision;
+      await _sendSignal(remoteNickname, {
+        'type': 'media-state',
+        'videoEnabled': enabled,
+        'mediaRevision': revision,
+      });
+    } finally {
+      _videoChangeInProgress = false;
     }
   }
 
@@ -807,7 +971,8 @@ class CallService {
   }
 
   Future<void> switchCamera() async {
-    final tracks = _localStream?.getVideoTracks() ?? <MediaStreamTrack>[];
+    final tracks = _cameraCaptureStream?.getVideoTracks() ??
+        _localStream?.getVideoTracks() ?? <MediaStreamTrack>[];
 
     if (tracks.isNotEmpty) {
       await Helper.switchCamera(tracks.first);
