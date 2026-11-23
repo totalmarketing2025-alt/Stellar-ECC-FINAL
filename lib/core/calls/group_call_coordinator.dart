@@ -139,7 +139,7 @@ class GroupCallCoordinator {
       _incomingQueue = _incomingQueue
           .then((_) => _handleSignal(signal))
           .catchError((Object error) {
-        print('GROUP_CALL_SIGNAL_FAILED: $error');
+        print('GROUP_CALL_SIGNAL_FAILED');
       });
     });
   }
@@ -253,7 +253,7 @@ class GroupCallCoordinator {
             group: true,
           );
         } catch (error) {
-          print('GROUP_CALL_INVITE_FAILED: $member $error');
+          print('GROUP_CALL_INVITE_FAILED');
         }
       }
       _invitationTimeout = Timer(const Duration(seconds: 60), () {
@@ -326,7 +326,7 @@ class GroupCallCoordinator {
       try {
         await _send(member, 'group-join');
       } catch (error) {
-        print('GROUP_JOIN_ANNOUNCE_FAILED: $member $error');
+        print('GROUP_JOIN_ANNOUNCE_FAILED');
       }
     }
   }
@@ -730,7 +730,7 @@ class GroupCallCoordinator {
         unawaited(_send(nickname, 'group-ice', {
           'candidate': candidate.toMap(),
         }).catchError((Object error) {
-          print('GROUP_ICE_SEND_FAILED: $nickname $error');
+          print('GROUP_ICE_SEND_FAILED');
         }));
       };
       pc.onConnectionState = (state) {
@@ -863,7 +863,222 @@ class GroupCallCoordinator {
         (response['iceServers'] as List).isEmpty) {
       throw StateError('No TURN credentials for group call');
     }
-    _iceConfiguration = {'iceServers': response['iceServers']};
+    final servers = response['iceServers'] as List;
+    // Do not accept malformed or non-ICE URLs from the credential endpoint.
+    final validated = <Map<String, dynamic>>[];
+    for (final entry in servers) {
+      if (entry is! Map) throw StateError('Invalid ICE configuration');
+      final rawUrls = entry['urls'];
+      final urls = rawUrls is String ? [rawUrls] : rawUrls;
+      if (urls is! List || urls.isEmpty ||
+          urls.any((url) => url is! String ||
+              !RegExp(r'^(stun|stuns|turn|turns):[^\s]+
+  }
+
+  Future<void> _send(String recipient, String type,
+      [Map<String, dynamic> fields = const {}]) async {
+    final room = _room;
+    if (room == null) return;
+    final recipientName = GroupCallProtocol.normalize(recipient);
+    if (!room.members.contains(recipientName) || recipientName == _local) {
+      throw StateError('Unauthorized group call recipient');
+    }
+    final generation = _generation;
+    final identity = await sessionManager.identityStore.getIdentityKeyPair();
+    if (!_isCurrent(generation, room.roomId)) return;
+    final payload = <String, dynamic>{
+      ...fields,
+      'type': type,
+      'roomId': room.roomId,
+      'membersDigest': room.membersDigest,
+      'callId': room.roomId,
+      'chatId': room.chatId,
+      'kind': room.video ? 'video' : 'voice',
+      'sentAt': DateTime.now().millisecondsSinceEpoch,
+      'recipient': recipientName,
+    };
+    final signature = CallSignalAuthenticator.sign(
+      identityKeyPair: identity,
+      recipient: recipientName,
+      payload: payload,
+    );
+    await relay.sendCallSignal(
+      recipient: recipientName,
+      plaintext: Uint8List.fromList(utf8.encode(
+        'STELLAR_CALL_V1:${jsonEncode({
+          ...payload, 'signature': base64Encode(signature),
+        })}',
+      )),
+    );
+  }
+
+  Future<void> toggleMute(bool muted) async {
+    for (final track in _localStream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
+      track.enabled = !muted;
+    }
+  }
+
+  Future<void> setSpeakerphone(bool enabled) => Helper.setSpeakerphoneOn(enabled);
+
+  Future<void> switchCamera() async {
+    final track = (_cameraCaptureStream ?? _localStream)
+        ?.getVideoTracks().firstOrNull;
+    if (track != null) await Helper.switchCamera(track);
+  }
+
+  Future<void> setVideoEnabled(bool enabled) async {
+    final room = _room;
+    if (room == null || !isActive || _changingVideo) return;
+    if (room.localVideo == enabled) return;
+    _changingVideo = true;
+    final generation = _generation;
+    MediaStream? newCapture;
+    try {
+      if (enabled) {
+        newCapture = await navigator.mediaDevices.getUserMedia({
+          'audio': false,
+          'video': _groupVideoConstraints(room.members.length),
+        });
+        if (!_isCurrent(generation, room.roomId)) {
+          await newCapture.dispose();
+          return;
+        }
+      }
+      final newTrack = enabled ? newCapture!.getVideoTracks().first : null;
+      final previousTrack = (_cameraCaptureStream ?? _localStream)
+          ?.getVideoTracks().firstOrNull;
+      final updated = <_MeshPeer>[];
+      try {
+        for (final peer in _peers.values) {
+          await peer.videoSender.replaceTrack(newTrack);
+          updated.add(peer);
+        }
+      } catch (_) {
+        for (final peer in updated) {
+          try { await peer.videoSender.replaceTrack(previousTrack); } catch (_) { /* Recover in next transition. */ }
+        }
+        rethrow;
+      }
+      if (!_isCurrent(generation, room.roomId)) {
+        await newCapture?.dispose();
+        return;
+      }
+
+      final oldCapture = _cameraCaptureStream;
+      _cameraCaptureStream = newCapture;
+      _room = _room!.copyWith(localVideo: enabled);
+      unawaited(_groupForeground('startGroupForeground', room.roomId,
+          video: enabled));
+      _localRenderer?.srcObject = enabled ? (newCapture ?? _localStream) : null;
+      _emit();
+      if (oldCapture != null) {
+        await oldCapture.dispose();
+      } else if (!enabled) {
+        for (final track in _localStream?.getVideoTracks() ?? <MediaStreamTrack>[]) {
+          await track.stop();
+          await _localStream?.removeTrack(track);
+        }
+      }
+      final revision = ++_mediaRevision;
+      for (final remote in _room!.joined) {
+        if (remote == _local) continue;
+        try {
+          await _send(remote, 'group-media', {
+            'videoEnabled': enabled, 'mediaRevision': revision,
+          });
+        } catch (error) {
+          print('GROUP_MEDIA_ANNOUNCE_FAILED');
+        }
+      }
+    } finally {
+      _changingVideo = false;
+    }
+  }
+
+  Future<void> leaveRoom() async {
+    final room = _room;
+    if (room == null) return;
+    if (room.phase == GroupCallPhase.ringing) {
+      await declineInvitation();
+      return;
+    }
+    if (room.phase != GroupCallPhase.ringing) {
+      for (final remote in room.members) {
+        if (remote == _local) continue;
+        try {
+          await _send(remote, 'group-leave')
+              .timeout(const Duration(seconds: 2));
+        } catch (_) { /* Local teardown is unconditional. */ }
+      }
+    }
+    await _closeRoom(room.roomId);
+  }
+
+  Future<void> _closeRoom(String roomId) async {
+    if (_room?.roomId != roomId) return;
+    ++_generation;
+    if (_room?.phase != GroupCallPhase.ringing) {
+      unawaited(_groupForeground('stopGroupForeground', roomId));
+    }
+    unawaited(_nativeInvitation('dismissInvitation', roomId));
+    _invitationTimeout?.cancel();
+    _invitationTimeout = null;
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
+    _room = null;
+    _iceConfiguration = null;
+    _earlyIce.clear();
+    _remoteMediaRevisions.clear();
+    _mediaRevision = 0;
+    final peers = _peers.values.toList();
+    _peers.clear();
+    _creatingPeers.clear();
+    _localRenderer?.srcObject = null;
+    final capture = _cameraCaptureStream;
+    final stream = _localStream;
+    _cameraCaptureStream = null;
+    _localStream = null;
+    _emit();
+    await Future.wait(peers.map(_disposePeer));
+    try { await capture?.dispose(); } catch (_) { /* Best effort. */ }
+    try { await stream?.dispose(); } catch (_) { /* Best effort. */ }
+  }
+
+  Future<void> dispose() async {
+    _disposed = true;
+    _nativeGroupCalls.setMethodCallHandler(null);
+    await _subscription?.cancel();
+    final room = _room;
+    if (room != null) await _closeRoom(room.roomId);
+    await _roomController.close();
+  }
+}
+
+class _MeshPeer {
+  _MeshPeer({
+    required this.pc,
+    required this.renderer,
+    required this.videoSender,
+  });
+  final RTCPeerConnection pc;
+  final RTCVideoRenderer renderer;
+  final RTCRtpSender videoSender;
+  MediaStream? syntheticVideoStream;
+  RTCPeerConnectionState? connectionState;
+  Timer? retryTimer;
+  int retryCount = 0;
+  bool restarting = false;
+  String? lastRemoteOffer;
+  bool offered = false;
+  bool remoteDescriptionSet = false;
+}
+,
+                  caseSensitive: false).hasMatch(url))) {
+        throw StateError('Invalid ICE server URL');
+      }
+      validated.add(Map<String, dynamic>.from(entry));
+    }
+    _iceConfiguration = {'iceServers': validated};
   }
 
   Future<void> _send(String recipient, String type,
@@ -977,7 +1192,7 @@ class GroupCallCoordinator {
             'videoEnabled': enabled, 'mediaRevision': revision,
           });
         } catch (error) {
-          print('GROUP_MEDIA_ANNOUNCE_FAILED: $remote $error');
+          print('GROUP_MEDIA_ANNOUNCE_FAILED');
         }
       }
     } finally {
