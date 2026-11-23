@@ -12,6 +12,25 @@ void main() {
     expect(GuardProtocol.validCode('１２３４５６７８９'), isFalse);
   });
 
+  test('theft is a valid signed Guard reason and a restorable draft', () {
+    expect(GuardProtocol.reasons['theft'], 'Theft / Кражба');
+    const caseUuid = 'c8c642a8-8324-41f5-a5cb-cef69f2f7100';
+    final draft = GuardPendingSubmission.fromJson({
+      'targetCode': '000000017',
+      'reason': 'theft',
+      'details': 'Reported theft requiring independent verification.',
+      'idempotencyKey': caseUuid,
+    });
+    expect(draft.reason, 'theft');
+    final message = GuardProtocol.caseMessage(
+      action: 'submit', nickname: 'alice', deviceId: 1,
+      registrationId: 101, challenge: 'nonce',
+      targetCode: draft.targetCode, reason: draft.reason,
+      details: draft.details, idempotencyKey: draft.idempotencyKey,
+    );
+    expect((jsonDecode(message) as List<dynamic>)[8], 'theft');
+  });
+
   test('own-code proof matches server domain-separated identity JSON', () {
     expect(
       GuardProtocol.identityMessage(
