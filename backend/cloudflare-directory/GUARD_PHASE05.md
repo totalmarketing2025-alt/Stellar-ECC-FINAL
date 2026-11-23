@@ -22,6 +22,13 @@
 
 ## Required configuration — never put secrets in an APK
 
+The one-time `Activate STELLAR Guard Phase 05` GitHub Actions workflow runs
+when its release file first lands on `main`. It uses the existing
+`CLOUDFLARE_API_TOKEN` repository secret to generate **two independent random
+64-character keys** in temporary runner storage and upload the same pair to
+Directory and Relay. No secret is committed to git or shipped to clients.
+Inspect the activation workflow result before considering approval enabled.
+
 - Set `GUARD_REVIEW_SECRET` in **both** Directory and Relay Workers for case
   listing/details. This is already used by the Phase 04 Directory API.
 - Set **the same** fresh random `GUARD_MODERATOR_ACTION_SECRET` (at least 32
@@ -30,6 +37,7 @@
 - Keep `DIRECTORY_URL` configured in the Relay Worker.
 - Put secrets in Cloudflare Worker secret storage, not in `wrangler.jsonc`, git
   or Flutter environment variables. Until configured, approval fails closed.
+- Do not rerun the activation workflow casually: a rerun rotates both keys.
 
 ## Test and launch order
 
