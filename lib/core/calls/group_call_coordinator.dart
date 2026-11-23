@@ -268,13 +268,17 @@ class GroupCallCoordinator {
     }
   }
 
+  int? _decliningGeneration;
+
   Future<void> acceptInvitation() async {
     final room = _room;
     if (room == null || room.phase != GroupCallPhase.ringing) return;
     final generation = _generation;
+    if (_decliningGeneration == generation) return;
     final membershipValid = await _membershipStillMatches(room);
     if (!_isCurrent(generation, room.roomId) ||
-        _room?.phase != GroupCallPhase.ringing) return;
+        _room?.phase != GroupCallPhase.ringing ||
+        _decliningGeneration == generation) return;
     if (hasDirectCall() || !membershipValid) {
       await declineInvitation();
       return;
@@ -282,9 +286,9 @@ class GroupCallCoordinator {
     unawaited(_nativeInvitation('consumeInvitation', room.roomId));
     _invitationTimeout?.cancel();
     _invitationTimeout = null;
-    _room = room.copyWith(
+    _room = _room!.copyWith(
       phase: GroupCallPhase.connecting,
-      joined: {...room.joined, _local},
+      joined: {..._room!.joined, _local},
       joinedAt: DateTime.now(),
     );
     _emit();
@@ -309,11 +313,15 @@ class GroupCallCoordinator {
   Future<void> declineInvitation() async {
     final room = _room;
     if (room == null || room.phase != GroupCallPhase.ringing) return;
+    final generation = _generation;
+    if (_decliningGeneration == generation) return;
+    _decliningGeneration = generation;
     try {
       await _send(room.inviter, 'group-reject')
           .timeout(const Duration(seconds: 3));
     } catch (_) { /* Always dismiss locally. */ }
-    await _closeRoom(room.roomId);
+    if (_isCurrent(generation, room.roomId)) await _closeRoom(room.roomId);
+    if (_decliningGeneration == generation) _decliningGeneration = null;
   }
 
   Future<void> _announceJoin() async {
@@ -529,15 +537,23 @@ class GroupCallCoordinator {
   Future<void> _connectJoinedPeers() async {
     final room = _room;
     if (room == null || !isActive) return;
+    final generation = _generation;
     for (final peer in room.joined) {
-      if (peer == _local || _room?.roomId != room.roomId) continue;
+      if (!_isCurrent(generation, room.roomId)) return;
+      if (peer == _local || !_room!.joined.contains(peer)) continue;
       final connection = await _ensurePeer(peer);
+      if (!_isCurrent(generation, room.roomId) ||
+          !identical(_peers[peer], connection)) return;
       if (GroupCallProtocol.shouldOffer(_local, peer) &&
           !connection.offered && !connection.remoteDescriptionSet) {
         connection.offered = true;
         try {
           final offer = await connection.pc.createOffer();
+          if (!_isCurrent(generation, room.roomId) ||
+              !identical(_peers[peer], connection)) return;
           await connection.pc.setLocalDescription(offer);
+          if (!_isCurrent(generation, room.roomId) ||
+              !identical(_peers[peer], connection)) return;
           await _send(peer, 'group-offer', {
             'sdp': offer.sdp,
             'sdpType': offer.type,
@@ -668,11 +684,12 @@ class GroupCallCoordinator {
   Future<_MeshPeer> _ensurePeer(String nickname) {
     final existing = _peers[nickname];
     if (existing != null) return Future.value(existing);
+    final generation = _generation;
     return _creatingPeers.putIfAbsent(nickname, () async {
       try {
         return await _createPeer(nickname);
       } finally {
-        _creatingPeers.remove(nickname);
+        if (_generation == generation) _creatingPeers.remove(nickname);
       }
     });
   }
