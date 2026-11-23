@@ -171,6 +171,15 @@ class GroupCallCoordinator {
         if (member == _local) continue;
         try {
           await _send(member, 'group-invite');
+          if (!_isCurrent(generation, roomId)) return;
+          // Push is a wake hint only; the signed relay invitation remains
+          // the authority for membership and accepting the call.
+          await relay.sendCallWake(
+            recipient: member,
+            callId: roomId,
+            kind: video ? 'video' : 'voice',
+            group: true,
+          );
         } catch (error) {
           print('GROUP_CALL_INVITE_FAILED: $member $error');
         }
