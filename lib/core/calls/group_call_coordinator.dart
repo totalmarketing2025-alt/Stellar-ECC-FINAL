@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
@@ -41,6 +42,18 @@ class GroupCallCoordinator {
   final _roomController = StreamController<GroupCallRoom?>.broadcast();
   Stream<GroupCallRoom?> get roomStream => _roomController.stream;
   GroupCallRoom? get activeRoom => _room;
+
+  static const _nativeGroupCalls = MethodChannel('ecc.stellar.app/group_calls');
+
+  Future<void> _nativeInvitation(String method, String roomId) async {
+    try {
+      await _nativeGroupCalls.invokeMethod<bool>(method, {'roomId': roomId});
+    } on MissingPluginException {
+      // Foreground Flutter calls remain available on other platforms.
+    } on PlatformException {
+      // Native registry is advisory; signed Flutter state is authoritative.
+    }
+  }
 
   GroupCallRoom? _room;
   final Map<String, _MeshPeer> _peers = {};
@@ -199,13 +212,17 @@ class GroupCallCoordinator {
   Future<void> acceptInvitation() async {
     final room = _room;
     if (room == null || room.phase != GroupCallPhase.ringing) return;
-    if (hasDirectCall() || !await _membershipStillMatches(room)) {
+    final generation = _generation;
+    final membershipValid = await _membershipStillMatches(room);
+    if (!_isCurrent(generation, room.roomId) ||
+        _room?.phase != GroupCallPhase.ringing) return;
+    if (hasDirectCall() || !membershipValid) {
       await declineInvitation();
       return;
     }
+    unawaited(_nativeInvitation('consumeInvitation', room.roomId));
     _invitationTimeout?.cancel();
     _invitationTimeout = null;
-    final generation = _generation;
     _room = room.copyWith(
       phase: GroupCallPhase.connecting,
       joined: {...room.joined, _local},
@@ -312,6 +329,7 @@ class GroupCallCoordinator {
       _room = room;
       final generation = ++_generation;
       _emit();
+      unawaited(_nativeInvitation('registerVerifiedInvitation', roomId));
       _invitationTimeout = Timer(const Duration(seconds: 45), () {
         if (_isCurrent(generation, roomId) &&
             _room?.phase == GroupCallPhase.ringing) {
@@ -780,6 +798,7 @@ class GroupCallCoordinator {
   Future<void> _closeRoom(String roomId) async {
     if (_room?.roomId != roomId) return;
     ++_generation;
+    unawaited(_nativeInvitation('dismissInvitation', roomId));
     _invitationTimeout?.cancel();
     _invitationTimeout = null;
     _presenceTimer?.cancel();
