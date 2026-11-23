@@ -621,17 +621,26 @@ class GroupCallCoordinator {
   Future<void> _receiveOffer(String remote, Map<String, dynamic> payload) async {
     // The lexical higher side is always the answerer. Never allow glare.
     if (GroupCallProtocol.shouldOffer(_local, remote)) return;
+    final room = _room;
+    if (room == null) return;
+    final generation = _generation;
     final peer = await _ensurePeer(remote);
+    bool current() => _isCurrent(generation, room.roomId) && identical(_peers[remote], peer);
+    if (!current()) return;
     final sdp = payload['sdp'] as String;
     if (peer.lastRemoteOffer == sdp) return;
     await peer.pc.setRemoteDescription(
       RTCSessionDescription(payload['sdp'] as String, 'offer'),
     );
+    if (!current()) return;
     peer.lastRemoteOffer = sdp;
     peer.remoteDescriptionSet = true;
     await _flushEarlyIce(remote, peer);
+    if (!current()) return;
     final answer = await peer.pc.createAnswer();
+    if (!current()) return;
     await peer.pc.setLocalDescription(answer);
+    if (!current()) return;
     await _send(remote, 'group-answer', {
       'sdp': answer.sdp,
       'sdpType': answer.type,
@@ -640,11 +649,16 @@ class GroupCallCoordinator {
 
   Future<void> _receiveAnswer(String remote, Map<String, dynamic> payload) async {
     if (!GroupCallProtocol.shouldOffer(_local, remote)) return;
+    final room = _room;
+    if (room == null) return;
+    final generation = _generation;
     final peer = _peers[remote] ?? await _creatingPeers[remote];
+    if (!_isCurrent(generation, room.roomId) || !identical(_peers[remote], peer)) return;
     if (peer == null || peer.remoteDescriptionSet || !peer.offered) return;
     await peer.pc.setRemoteDescription(
       RTCSessionDescription(payload['sdp'] as String, 'answer'),
     );
+    if (!_isCurrent(generation, room.roomId) || !identical(_peers[remote], peer)) return;
     peer.remoteDescriptionSet = true;
     await _flushEarlyIce(remote, peer);
   }
@@ -959,7 +973,6 @@ class GroupCallCoordinator {
           'video': _groupVideoConstraints(room.members.length),
         });
         if (!_isCurrent(generation, room.roomId)) {
-          await newCapture.dispose();
           return;
         }
       }
@@ -968,7 +981,8 @@ class GroupCallCoordinator {
           ?.getVideoTracks().firstOrNull;
       final updated = <_MeshPeer>[];
       try {
-        for (final peer in _peers.values) {
+        for (final peer in _peers.values.toList()) {
+          if (!_isCurrent(generation, room.roomId)) break;
           await peer.videoSender.replaceTrack(newTrack);
           updated.add(peer);
         }
@@ -979,7 +993,6 @@ class GroupCallCoordinator {
         rethrow;
       }
       if (!_isCurrent(generation, room.roomId)) {
-        await newCapture?.dispose();
         return;
       }
 
@@ -998,8 +1011,10 @@ class GroupCallCoordinator {
           await _localStream?.removeTrack(track);
         }
       }
+      if (!_isCurrent(generation, room.roomId)) return;
       final revision = ++_mediaRevision;
-      for (final remote in _room!.joined) {
+      for (final remote in _room!.joined.toList()) {
+        if (!_isCurrent(generation, room.roomId)) return;
         if (remote == _local) continue;
         try {
           await _send(remote, 'group-media', {
@@ -1010,6 +1025,9 @@ class GroupCallCoordinator {
         }
       }
     } finally {
+      if (newCapture != null && !identical(_cameraCaptureStream, newCapture)) {
+        try { await newCapture.dispose(); } catch (_) { /* Best effort. */ }
+      }
       _changingVideo = false;
     }
   }
