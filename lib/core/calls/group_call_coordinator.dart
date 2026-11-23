@@ -252,7 +252,7 @@ class GroupCallCoordinator {
             kind: video ? 'video' : 'voice',
             group: true,
           );
-        } catch (error) {
+        } catch (_) {
           print('GROUP_CALL_INVITE_FAILED');
         }
       }
@@ -333,7 +333,7 @@ class GroupCallCoordinator {
       if (member == _local) continue;
       try {
         await _send(member, 'group-join');
-      } catch (error) {
+      } catch (_) {
         print('GROUP_JOIN_ANNOUNCE_FAILED');
       }
     }
@@ -1005,7 +1005,7 @@ class GroupCallCoordinator {
           await _send(remote, 'group-media', {
             'videoEnabled': enabled, 'mediaRevision': revision,
           });
-        } catch (error) {
+        } catch (_) {
           print('GROUP_MEDIA_ANNOUNCE_FAILED');
         }
       }
@@ -1212,7 +1212,7 @@ class _MeshPeer {
           await _send(remote, 'group-media', {
             'videoEnabled': enabled, 'mediaRevision': revision,
           });
-        } catch (error) {
+        } catch (_) {
           print('GROUP_MEDIA_ANNOUNCE_FAILED');
         }
       }
