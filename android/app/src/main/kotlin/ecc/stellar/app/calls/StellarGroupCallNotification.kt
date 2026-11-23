@@ -16,6 +16,7 @@ internal object StellarGroupCallNotification {
     private const val ID = 3102
 
     fun show(context: Context, roomId: String) {
+        val token = StellarGroupCallManager.actionToken(roomId) ?: return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26) {
             manager.createNotificationChannel(
@@ -30,6 +31,7 @@ internal object StellarGroupCallNotification {
                 data = Uri.parse("stellar-group-action://invitation/$roomId/$action")
                 putExtra("stellar.group.roomId", roomId)
                 putExtra("stellar.group.action", action)
+                putExtra("stellar.group.token", token)
                 addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
             return PendingIntent.getActivity(context, 0, intent,
