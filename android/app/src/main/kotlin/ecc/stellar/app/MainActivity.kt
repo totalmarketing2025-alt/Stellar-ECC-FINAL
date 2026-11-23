@@ -133,6 +133,36 @@ class MainActivity : FlutterFragmentActivity() {
             val roomId = call.argument<String>("roomId").orEmpty()
             val manager = ecc.stellar.app.calls.StellarGroupCallManager
             when (call.method) {
+                "startGroupForeground", "stopGroupForeground" -> {
+                    if (!Regex("[0-9a-f]{32}").matches(roomId)) {
+                        result.error("INVALID_GROUP_ROOM", "Invalid room ID", null)
+                    } else {
+                        val starting = call.method == "startGroupForeground"
+                        val serviceIntent = Intent(
+                            this@MainActivity,
+                            ecc.stellar.app.calls.StellarGroupCallForegroundService::class.java
+                        ).apply {
+                            action = if (starting)
+                                ecc.stellar.app.calls.StellarGroupCallForegroundService.START
+                            else ecc.stellar.app.calls.StellarGroupCallForegroundService.STOP
+                            putExtra(ecc.stellar.app.calls.StellarGroupCallForegroundService.ROOM, roomId)
+                            putExtra(ecc.stellar.app.calls.StellarGroupCallForegroundService.VIDEO,
+                                call.argument<Boolean>("video") == true)
+                        }
+                        try {
+                            if (starting && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(serviceIntent)
+                            } else {
+                                startService(serviceIntent)
+                            }
+                            // A successful dispatch is not confirmation of service startup.
+                            result.success(true)
+                        } catch (_: Exception) {
+                            result.error("GROUP_FOREGROUND_DISPATCH_FAILED",
+                                "Unable to dispatch group foreground service", null)
+                        }
+                    }
+                }
                 "takeGroupActions" -> {
                     val actions = pendingGroupActions.values.toList()
                     pendingGroupActions.clear()
