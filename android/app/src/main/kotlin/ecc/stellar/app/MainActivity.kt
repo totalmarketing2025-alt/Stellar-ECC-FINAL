@@ -45,6 +45,9 @@ class MainActivity : FlutterFragmentActivity() {
         private const val PREF_FULL_SCREEN_SETTINGS_OPENED = "full_screen_settings_opened_v1"
     }
 
+    private var groupChannel: MethodChannel? = null
+    private val pendingGroupActions = linkedMapOf<String, Map<String, String>>()
+
     private var callChannel: MethodChannel? = null
     private lateinit var wantedModeEventMonitor: WantedModeEventMonitor
     private lateinit var wantedModeChallengeStore: WantedModeChallengeStore
@@ -126,10 +129,15 @@ class MainActivity : FlutterFragmentActivity() {
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "ecc.stellar.app/group_calls"
-        ).setMethodCallHandler { call, result ->
+        ).also { groupChannel = it }.setMethodCallHandler { call, result ->
             val roomId = call.argument<String>("roomId").orEmpty()
             val manager = ecc.stellar.app.calls.StellarGroupCallManager
             when (call.method) {
+                "takeGroupActions" -> {
+                    val actions = pendingGroupActions.values.toList()
+                    pendingGroupActions.clear()
+                    result.success(actions)
+                }
                 "registerVerifiedInvitation" -> {
                     val registered = manager.registerVerifiedInvitation(roomId)
                     if (registered) {
@@ -753,6 +761,23 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun deliverIntent(intent: Intent?) {
+        val groupRoom = intent?.getStringExtra("stellar.group.roomId")
+        val groupAction = intent?.getStringExtra("stellar.group.action")
+        if (groupRoom != null || groupAction != null) {
+            if (groupRoom != null && Regex("[0-9a-f]{32}").matches(groupRoom) &&
+                (groupAction == "join" || groupAction == "decline") &&
+                intent?.dataString == "stellar-group-action://invitation/$groupRoom/$groupAction") {
+                if (pendingGroupActions.size < 4) {
+                    pendingGroupActions.putIfAbsent(groupRoom, mapOf(
+                        "roomId" to groupRoom, "action" to groupAction
+                    ))
+                    groupChannel?.invokeMethod("groupActionsAvailable", null)
+                }
+            }
+            intent?.removeExtra("stellar.group.roomId")
+            intent?.removeExtra("stellar.group.action")
+            return
+        }
         if (intent?.action == OPEN_WANTED_SECURITY_ACTION) {
             val challengeId = intent.getStringExtra(
                 WantedModeForegroundService.EXTRA_CHALLENGE_ID
