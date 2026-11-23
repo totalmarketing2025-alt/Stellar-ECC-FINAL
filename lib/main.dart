@@ -191,7 +191,27 @@ Future<void> main() async {
           .isAccountRevoked(nickname)
           .timeout(const Duration(seconds: 12));
       if (revoked) {
-        await container.read(wantedModeControllerProvider).wipeAndLock();
+        // Persist a native wipe marker *before* removing keys or files.
+        // Interrupted cleanup is retried on next launch, then the native
+        // Activity restart returns to the welcome screen.
+        bool? armed;
+        try {
+          armed = await _wantedWipeChannel.invokeMethod<bool>(
+            'requestVerifiedGuardWipe',
+          );
+        } on MissingPluginException {
+          // iOS/older platforms have no native marker yet.
+        }
+        if (armed == true) {
+          await performWantedModeLocalWipe();
+          return;
+        }
+        if (armed == false) {
+          throw StateError('Guard wipe marker not persisted');
+        }
+        if (armed == null) {
+          await container.read(wantedModeControllerProvider).wipeAndLock();
+        }
       } else {
       final wipePendingBeforeDirectorySync =
           await _wantedWipeChannel.invokeMethod<bool>(

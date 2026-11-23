@@ -215,6 +215,22 @@ class MainActivity : FlutterFragmentActivity() {
                     )
                 }
 
+                // Flutter calls this only after Directory has verified a
+                // revoked Guard identity with its old Signal key. Persist
+                // the marker before the first destructive filesystem write;
+                // the existing startup path retries interrupted wipes.
+                "requestVerifiedGuardWipe" -> {
+                    if (!WantedModeWipeState.request(applicationContext)) {
+                        result.error(
+                            "GUARD_WIPE_MARKER_FAILED",
+                            "Unable to persist verified Guard wipe request.",
+                            null
+                        )
+                    } else {
+                        result.success(true)
+                    }
+                }
+
                 "setWipeEnabled" -> {
                     val enabled = call.argument<Boolean>("enabled") == true
                     result.success(

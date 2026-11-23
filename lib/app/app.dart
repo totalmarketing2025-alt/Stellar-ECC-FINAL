@@ -85,10 +85,21 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
           .timeout(const Duration(seconds: 15));
       if (!revoked || !mounted ||
           ref.read(localNicknameProvider) != nickname) return;
-      // Only a verified server revocation triggers destructive cleanup. The
-      // ordinary Wanted Mode preference is irrelevant to this admin action.
-      await ref.read(wantedModeControllerProvider).wipeAndLock();
-      if (mounted) ref.read(appRouterProvider).go('/onboarding/welcome');
+      // Persist the native pending marker before any destructive action. A
+      // restart after a partial wipe will resume cleanup before opening DB.
+      try {
+        final armed = await _wantedModeMonitorChannel.invokeMethod<bool>(
+          'requestVerifiedGuardWipe',
+        );
+        if (armed != true) throw StateError('Guard wipe marker not persisted');
+        ref.read(isUnlockedProvider.notifier).state = false;
+        // MainActivity signals main() to perform the full wipe, then restarts
+        // the Activity on the welcome page. Do not wipe twice here.
+      } on MissingPluginException {
+        // Fallback for platforms where the Android marker is unavailable.
+        await ref.read(wantedModeControllerProvider).wipeAndLock();
+        if (mounted) ref.read(appRouterProvider).go('/onboarding/welcome');
+      }
     } catch (_) {
       // Offline devices retry on resume and at the periodic interval. A
       // network failure must never delete someone's local identity.

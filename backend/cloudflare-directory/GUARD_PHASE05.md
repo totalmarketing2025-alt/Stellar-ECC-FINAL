@@ -16,6 +16,9 @@
    if Directory confirms revocation, the client wipes local messages, keys and
    identity and returns to the welcome screen. Offline devices retry on resume
    and every two minutes while the application is running.
+   On Android, the verification first persists a native pending-wipe marker;
+   the existing startup handler retries interrupted cleanup and restarts the
+   Activity only once the cleanup is complete.
 
 ## Required configuration — never put secrets in an APK
 
