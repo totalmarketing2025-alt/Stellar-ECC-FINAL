@@ -58,10 +58,11 @@ class GroupCallCoordinator {
   Future<void> _groupForeground(String method, String roomId,
       {bool video = false}) async {
     try {
-      await _nativeGroupCalls.invokeMethod<bool>(method, {
+      final accepted = await _nativeGroupCalls.invokeMethod<bool>(method, {
         'roomId': roomId,
         'video': video,
       });
+      if (accepted != true) print('GROUP_FOREGROUND_REQUEST_REJECTED');
     } on MissingPluginException {
       // Native foreground service is Android-only.
     } on PlatformException catch (error) {
@@ -99,6 +100,7 @@ class GroupCallCoordinator {
 
   bool _drainingNativeActions = false;
   bool _nativeDrainRequested = false;
+  final Map<String, MapEntry<String, DateTime>> _deferredNativeActions = {};
 
   Future<void> _drainNativeActions() async {
     _nativeDrainRequested = true;
@@ -113,6 +115,17 @@ class GroupCallCoordinator {
         for (final action in actions ?? const []) {
           if (_disposed || action is! Map) continue;
           final room = _room;
+          final id = action['roomId'];
+          final kind = action['action'];
+          if (room == null && id is String && RegExp(r'^[a-f0-9]{32}$').hasMatch(id) &&
+              (kind == 'join' || kind == 'decline')) {
+            final now = DateTime.now();
+            _deferredNativeActions.removeWhere((_, entry) => entry.value.isBefore(now));
+            if (_deferredNativeActions.length < 4) {
+              _deferredNativeActions.putIfAbsent(id, () => MapEntry(kind as String, now.add(const Duration(seconds: 45))));
+            }
+            continue;
+          }
           if (room == null || room.phase != GroupCallPhase.ringing ||
               action['roomId'] != room.roomId) continue;
           if (action['action'] == 'join') {
@@ -466,6 +479,15 @@ class GroupCallCoordinator {
           unawaited(declineInvitation());
         }
       });
+      final deferred = _deferredNativeActions.remove(roomId);
+      if (deferred != null && deferred.value.isAfter(DateTime.now()) &&
+          _isCurrent(generation, roomId)) {
+        if (deferred.key == 'join') {
+          await acceptInvitation();
+        } else {
+          await declineInvitation();
+        }
+      }
       return;
     }
 
