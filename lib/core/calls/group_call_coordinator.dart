@@ -798,13 +798,22 @@ class GroupCallCoordinator {
     try { await peer.renderer.dispose(); } catch (_) { /* Best effort. */ }
   }
 
+  // Mesh sends a separate encoded stream to each remote participant.
+  // Keep capture modest on mobile, especially in four-member rooms.
+  Map<String, dynamic> _groupVideoConstraints(int memberCount) => {
+    'facingMode': 'user',
+    'width': memberCount >= 4 ? 480 : 640,
+    'height': memberCount >= 4 ? 360 : 480,
+    'frameRate': memberCount >= 4 ? 15 : 24,
+  };
+
   Future<void> _prepareMedia(bool video) async {
     final generation = _generation;
     final roomId = _room!.roomId;
     final stream = await navigator.mediaDevices.getUserMedia({
       'audio': true,
       'video': video
-          ? {'facingMode': 'user', 'width': 640, 'height': 480}
+          ? _groupVideoConstraints(_room!.members.length)
           : false,
     });
     if (!_isCurrent(generation, roomId)) {
@@ -900,7 +909,7 @@ class GroupCallCoordinator {
       if (enabled) {
         newCapture = await navigator.mediaDevices.getUserMedia({
           'audio': false,
-          'video': {'facingMode': 'user', 'width': 640, 'height': 480},
+          'video': _groupVideoConstraints(room.members.length),
         });
         if (!_isCurrent(generation, room.roomId)) {
           await newCapture.dispose();
