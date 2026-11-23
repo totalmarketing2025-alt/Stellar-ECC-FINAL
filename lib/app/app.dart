@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' show cos;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/theme/stellar_theme.dart';
 import 'router.dart';
 import '../presentation/state/relay_listener.dart';
+import '../presentation/state/incoming_message_pulse.dart';
 import '../presentation/state/app_providers.dart';
 import '../presentation/state/security_providers.dart';
 import '../core/calls/call_coordinator.dart';
@@ -335,6 +337,7 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
             child ?? const SizedBox.shrink(),
             if (wantedModeEnabled)
               const _WantedModePurpleBottomGlow(),
+            const _StellarIncomingEdgeGlow(),
           ],
         );
       },
@@ -407,4 +410,86 @@ class _WantedModePurpleBottomGlowState
       ),
     );
   }
+}
+
+
+/// Two soft purple edge pulses for newly persisted incoming messages.
+/// This foreground effect deliberately does not wake or unlock the device.
+class _StellarIncomingEdgeGlow extends StatefulWidget {
+  const _StellarIncomingEdgeGlow();
+
+  @override
+  State<_StellarIncomingEdgeGlow> createState() =>
+      _StellarIncomingEdgeGlowState();
+}
+
+class _StellarIncomingEdgeGlowState extends State<_StellarIncomingEdgeGlow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2200),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    stellarIncomingMessagePulse.addListener(_onIncomingMessage);
+  }
+
+  void _onIncomingMessage() {
+    if (mounted) _pulse.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    stellarIncomingMessagePulse.removeListener(_onIncomingMessage);
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: _pulse,
+          builder: (context, _) {
+            if (!_pulse.isAnimating) return const SizedBox.shrink();
+            final phase = _pulse.value * 4 * 3.141592653589793;
+            final strength = (0.5 - 0.5 * mathCos(phase)) *
+                (1.0 - _pulse.value);
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _edge(strength, true),
+                _edge(strength, false),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _edge(double strength, bool left) {
+    return Container(
+      width: 15,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: left ? Alignment.centerLeft : Alignment.centerRight,
+          end: left ? Alignment.centerRight : Alignment.centerLeft,
+          colors: [
+            const Color(0xFF8B5CF6).withOpacity(0.52 * strength),
+            const Color(0xFF8B5CF6).withOpacity(0.18 * strength),
+            Colors.transparent,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+double mathCos(double radians) {
+  // Dart's math library provides the cosine used for a smooth two-pulse fade.
+  return cos(radians);
 }
