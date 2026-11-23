@@ -796,7 +796,8 @@ class MainActivity : FlutterFragmentActivity() {
         if (groupRoom != null || groupAction != null) {
             if (groupRoom != null && Regex("[0-9a-f]{32}").matches(groupRoom) &&
                 (groupAction == "join" || groupAction == "decline") &&
-                intent?.dataString == "stellar-group-action://invitation/$groupRoom/$groupAction") {
+                intent?.dataString == "stellar-group-action://invitation/$groupRoom/$groupAction" &&
+                ecc.stellar.app.calls.StellarGroupCallManager.isPending(groupRoom)) {
                 if (pendingGroupActions.size < 4) {
                     pendingGroupActions.putIfAbsent(groupRoom, mapOf(
                         "roomId" to groupRoom, "action" to groupAction
