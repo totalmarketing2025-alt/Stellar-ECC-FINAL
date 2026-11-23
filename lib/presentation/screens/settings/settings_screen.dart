@@ -90,12 +90,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         _edgePendingEnable = true;
         final opened = await _edgeLightingChannel.invokeMethod<bool>(
           'openPermissionSettings');
-        if (opened != true) _edgePendingEnable = false;
+        if (opened != true) {
+          _edgePendingEnable = false;
+          await _refreshEdgeLighting();
+        }
+        // Keep the pending choice until lifecycle resume after the user
+        // returns from Android special-access settings.
       } else {
         await _edgeLightingChannel.invokeMethod<bool>(
           'setEnabled', {'enabled': desired});
+        await _refreshEdgeLighting();
       }
-      await _refreshEdgeLighting();
     } on PlatformException {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
