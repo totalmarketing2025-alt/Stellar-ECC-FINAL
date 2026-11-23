@@ -684,6 +684,7 @@ class GroupCallCoordinator {
 
       pc.onTrack = (event) {
         if (!_isCurrent(generation, room.roomId) ||
+            !identical(_peers[nickname], peer) ||
             event.track.kind != 'video') return;
         if (event.streams.isNotEmpty) {
           renderer.srcObject = event.streams.first;
@@ -692,7 +693,8 @@ class GroupCallCoordinator {
         }
       };
       pc.onIceCandidate = (candidate) {
-        if (!_isCurrent(generation, room.roomId)) return;
+        if (!_isCurrent(generation, room.roomId) ||
+            !identical(_peers[nickname], peer)) return;
         unawaited(_send(nickname, 'group-ice', {
           'candidate': candidate.toMap(),
         }).catchError((Object error) {
@@ -769,12 +771,16 @@ class GroupCallCoordinator {
     _earlyIce.remove(nickname);
     _remoteMediaRevisions.remove(nickname);
     if (peer == null) return;
+    await _disposePeer(peer);
+  }
+
+  Future<void> _disposePeer(_MeshPeer peer) async {
     peer.retryTimer?.cancel();
     peer.retryTimer = null;
     peer.renderer.srcObject = null;
     try { await peer.pc.close(); } catch (_) { /* Best effort. */ }
     try { await peer.syntheticVideoStream?.dispose(); } catch (_) { /* Best effort. */ }
-    await peer.renderer.dispose();
+    try { await peer.renderer.dispose(); } catch (_) { /* Best effort. */ }
   }
 
   Future<void> _prepareMedia(bool video) async {
@@ -968,21 +974,20 @@ class GroupCallCoordinator {
     _presenceTimer?.cancel();
     _presenceTimer = null;
     _room = null;
-    _emit();
     _iceConfiguration = null;
     _earlyIce.clear();
     _remoteMediaRevisions.clear();
     _mediaRevision = 0;
-    final names = _peers.keys.toList();
-    for (final name in names) {
-      await _removePeer(name);
-    }
+    final peers = _peers.values.toList();
+    _peers.clear();
     _creatingPeers.clear();
     _localRenderer?.srcObject = null;
     final capture = _cameraCaptureStream;
     final stream = _localStream;
     _cameraCaptureStream = null;
     _localStream = null;
+    _emit();
+    await Future.wait(peers.map(_disposePeer));
     try { await capture?.dispose(); } catch (_) { /* Best effort. */ }
     try { await stream?.dispose(); } catch (_) { /* Best effort. */ }
   }
