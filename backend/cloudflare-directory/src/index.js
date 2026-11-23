@@ -25,7 +25,7 @@ const GUARD_CASE_CHALLENGE_WINDOW_MAX = 20;
 const GUARD_CASE_SUBMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const GUARD_CASE_SUBMIT_WINDOW_MAX = 3;
 const GUARD_CASE_REASONS = new Set([
-  "harassment", "threats", "scam", "impersonation", "other",
+  "harassment", "threats", "scam", "theft", "impersonation", "other",
 ]);
 const GUARD_CASE_ACTIONS = new Set(["submit", "status", "cancel"]);
 const GUARD_CASE_ID_PATTERN =
