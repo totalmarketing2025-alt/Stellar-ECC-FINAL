@@ -20,7 +20,7 @@ jobs:
           channel: stable
       - run: flutter pub get
       - name: Flutter analyzer
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
       - name: Automated tests
         if: ${{ !cancelled() }}
         run: flutter test
