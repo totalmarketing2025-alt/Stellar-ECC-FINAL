@@ -192,7 +192,7 @@ function createHarness() {
   const RelayRoom = loadRelayRoom();
   const room = Object.create(RelayRoom.prototype);
   room.ctx = {
-    storage: { sql },
+    storage: { sql, async get() { return undefined; } },
     getWebSockets: () => [],
   };
 

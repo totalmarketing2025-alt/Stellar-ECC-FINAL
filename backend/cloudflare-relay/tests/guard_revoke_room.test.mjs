@@ -53,5 +53,11 @@ test('relay revocation is internal-only and leaves other clients connected', asy
     assert.match(query[0], /^DELETE FROM relay_/);
     assert.deepEqual(query.slice(1), ['bob', 'bob']);
   }
+  await assert.rejects(
+    () => Room.prototype.queueEnvelope.call(
+      { ctx: { storage: { async get() { return true; } } } },
+      'bob', 'alice', new Uint8Array(6)),
+    /Recipient account revoked/,
+  );
   assert.equal((await send('m'.repeat(40))).status, 200);
 });

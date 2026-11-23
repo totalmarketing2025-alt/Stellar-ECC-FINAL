@@ -686,6 +686,9 @@ export class RelayRoom {
   }
 
   async queueEnvelope(recipient, sender, message) {
+    if (await this.ctx.storage.get(`relay-revoked:${recipient}`)) {
+      throw new Error("Recipient account revoked");
+    }
     const bytes =
       typeof message === "string"
         ? new TextEncoder().encode(message)
@@ -773,6 +776,9 @@ export class RelayRoom {
   }
 
   async queueEnvelopeWithReceipt(recipient, sender, message, receiptId) {
+    if (await this.ctx.storage.get(`relay-revoked:${recipient}`)) {
+      throw new Error("Recipient account revoked");
+    }
     const bytes =
       typeof message === "string"
         ? new TextEncoder().encode(message)
