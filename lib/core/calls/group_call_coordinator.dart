@@ -506,14 +506,43 @@ class GroupCallCoordinator {
     }
   }
 
+  Future<void> _restartPeerIce(String remote, _MeshPeer peer) async {
+    final room = _room;
+    final generation = _generation;
+    if (room == null || !isActive || !room.joined.contains(remote) ||
+        !identical(_peers[remote], peer) || peer.restarting ||
+        !peer.remoteDescriptionSet ||
+        !GroupCallProtocol.shouldOffer(_local, remote)) return;
+    peer.restarting = true;
+    try {
+      final offer = await peer.pc.createOffer({'iceRestart': true});
+      if (!_isCurrent(generation, room.roomId) ||
+          !identical(_peers[remote], peer)) return;
+      await peer.pc.setLocalDescription(offer);
+      if (!_isCurrent(generation, room.roomId) ||
+          !identical(_peers[remote], peer)) return;
+      peer.remoteDescriptionSet = false;
+      await _send(remote, 'group-offer', {
+        'sdp': offer.sdp,
+        'sdpType': offer.type,
+      });
+    } catch (_) {
+      print('GROUP_ICE_RESTART_FAILED');
+    } finally {
+      peer.restarting = false;
+    }
+  }
+
   Future<void> _receiveOffer(String remote, Map<String, dynamic> payload) async {
     // The lexical higher side is always the answerer. Never allow glare.
     if (GroupCallProtocol.shouldOffer(_local, remote)) return;
     final peer = await _ensurePeer(remote);
-    if (peer.remoteDescriptionSet) return;
+    final sdp = payload['sdp'] as String;
+    if (peer.lastRemoteOffer == sdp) return;
     await peer.pc.setRemoteDescription(
       RTCSessionDescription(payload['sdp'] as String, 'offer'),
     );
+    peer.lastRemoteOffer = sdp;
     peer.remoteDescriptionSet = true;
     await _flushEarlyIce(remote, peer);
     final answer = await peer.pc.createAnswer();
@@ -654,6 +683,10 @@ class GroupCallCoordinator {
           phase: hasConnected ? GroupCallPhase.connected : GroupCallPhase.connecting,
         );
         _emit();
+        if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+            state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+          unawaited(_restartPeerIce(nickname, peer));
+        }
       };
       return peer;
     } catch (_) {
@@ -924,6 +957,8 @@ class _MeshPeer {
   final RTCRtpSender videoSender;
   MediaStream? syntheticVideoStream;
   RTCPeerConnectionState? connectionState;
+  bool restarting = false;
+  String? lastRemoteOffer;
   bool offered = false;
   bool remoteDescriptionSet = false;
 }
