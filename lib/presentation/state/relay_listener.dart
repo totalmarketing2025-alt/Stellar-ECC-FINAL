@@ -13,6 +13,7 @@ import '../../domain/models/call_session.dart';
 import '../../core/calls/call_signal_authenticator.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 import 'app_providers.dart';
+import 'incoming_message_pulse.dart';
 
 enum _CallSignalRouteResult {
   accepted,
@@ -157,6 +158,7 @@ class RelayListener {
             if (message != null) {
               ref.invalidate(chatListProvider);
               ref.invalidate(chatMessagesProvider(message.chatId));
+              notifyStellarIncomingMessage();
             }
           } else {
             // Signal-decrypted envelopes are normal chat messages.
@@ -170,6 +172,7 @@ class RelayListener {
             if (message != null) {
               ref.invalidate(chatListProvider);
               ref.invalidate(chatMessagesProvider(message.chatId));
+              notifyStellarIncomingMessage();
             }
           }
 
