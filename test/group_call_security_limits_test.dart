@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/core/calls/group_call_protocol.dart';
+import 'package:stellar_ecc/core/calls/group_call_protocol.dart';
 
 void main() {
   final room = List.filled(32, 'a').join();
