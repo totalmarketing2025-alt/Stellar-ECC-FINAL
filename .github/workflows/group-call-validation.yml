@@ -19,6 +19,12 @@ jobs:
           flutter-version: '3.24.0'
           channel: stable
       - run: flutter pub get
-      - run: flutter analyze
-      - run: flutter test
-      - run: flutter build apk --debug
+      - name: Flutter analyzer
+        run: flutter analyze
+      - name: Automated tests
+        if: ${{ !cancelled() }}
+        run: flutter test
+      - name: Android debug compilation
+        if: ${{ !cancelled() }}
+        run: flutter build apk --debug
+
