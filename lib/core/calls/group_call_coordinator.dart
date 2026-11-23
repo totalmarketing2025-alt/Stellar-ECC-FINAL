@@ -319,7 +319,9 @@ class GroupCallCoordinator {
   Future<void> _announceJoin() async {
     final room = _room;
     if (room == null || !isActive) return;
+    final generation = _generation;
     for (final member in room.members) {
+      if (!_isCurrent(generation, room.roomId) || !isActive) return;
       if (member == _local) continue;
       try {
         await _send(member, 'group-join');
@@ -634,7 +636,11 @@ class GroupCallCoordinator {
     final peer = _peers[remote];
     if (peer == null || !peer.remoteDescriptionSet) {
       final queue = _earlyIce.putIfAbsent(remote, () => []);
-      if (queue.length < 128) queue.add(candidate);
+      final duplicate = queue.any((item) =>
+          item.candidate == candidate.candidate &&
+          item.sdpMid == candidate.sdpMid &&
+          item.sdpMLineIndex == candidate.sdpMLineIndex);
+      if (!duplicate && queue.length < 128) queue.add(candidate);
       return;
     }
     await peer.pc.addCandidate(candidate);
@@ -643,7 +649,12 @@ class GroupCallCoordinator {
   Future<void> _flushEarlyIce(String remote, _MeshPeer peer) async {
     final queue = _earlyIce.remove(remote) ?? <RTCIceCandidate>[];
     for (final candidate in queue) {
-      await peer.pc.addCandidate(candidate);
+      if (!identical(_peers[remote], peer)) return;
+      try {
+        await peer.pc.addCandidate(candidate);
+      } catch (_) {
+        // A stale candidate must not block the remaining candidates.
+      }
     }
   }
 
