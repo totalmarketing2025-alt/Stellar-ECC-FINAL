@@ -67,6 +67,12 @@
             android:exported="false"
             android:foregroundServiceType="phoneCall" />
 
+        <service
+            android:name=".calls.StellarGroupCallForegroundService"
+            android:exported="false"
+            android:stopWithTask="true"
+            android:foregroundServiceType="microphone|camera" />
+
         <!-- Silent/high-priority FCM wake pings only — no content in payload. -->
 
 
