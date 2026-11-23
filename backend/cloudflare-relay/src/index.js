@@ -5075,6 +5075,47 @@ export default {
       });
     }
 
+    // Authenticated Directory-to-Relay automation. The secret never reaches
+    // ECC clients or the Moderator desktop application.
+    const isTheftReady = url.pathname === "/v1/internal/guard-theft-ready";
+    const isTheftCleanup = url.pathname === "/v1/internal/guard-theft-cleanup";
+    if (isTheftReady || isTheftCleanup) {
+      if (request.method !== (isTheftReady ? "GET" : "POST")) {
+        return Response.json({ error: "Method Not Allowed" }, { status: 405 });
+      }
+      const secret = env.GUARD_MODERATOR_ACTION_SECRET;
+      if (typeof secret !== "string" || secret.length < 32 ||
+          secret === env.GUARD_REVIEW_SECRET ||
+          secret === env.RELAY_SHARED_SECRET ||
+          request.headers.get("Authorization") !== `Bearer ${secret}`) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      if (!env.RELAY) {
+        return Response.json({ error: "Relay unavailable" }, { status: 503 });
+      }
+      if (isTheftReady) return Response.json({ ready: true });
+      let body;
+      try { body = await request.json(); } catch (_) {
+        return Response.json({ error: "Invalid JSON" }, { status: 400 });
+      }
+      if (!validRelayPeer(body?.nickname) ||
+          typeof body?.caseId !== "string" ||
+          !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(body.caseId)) {
+        return Response.json({ error: "Invalid Guard cleanup" }, { status: 400 });
+      }
+      const room = env.RELAY.get(env.RELAY.idFromName("global"));
+      return room.fetch(new Request(
+        "https://relay.internal/v1/internal/guard-revoke", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${secret}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ nickname: body.nickname }),
+        },
+      ));
+    }
+
     const isModerationAttachment =
       url.pathname.startsWith("/v1/messages/") &&
       url.pathname.endsWith("/attachment");
