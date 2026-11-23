@@ -169,7 +169,10 @@ void main() {
     await tester.enterText(find.byKey(const Key('guard_target_code')), '000000018');
     await tester.enterText(find.byKey(const Key('guard_details')),
         'A documented allegation of theft.');
+    await tester.pumpAndSettle();
+    expect(tester.state<FormFieldState<String>>(dropdown).value, 'theft');
     final submit = find.byKey(const Key('guard_submit'));
+    expect(tester.widget<FilledButton>(submit).onPressed, isNotNull);
     await tester.ensureVisible(submit);
     await tester.tap(submit);
     await tester.pumpAndSettle();
