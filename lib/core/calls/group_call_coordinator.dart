@@ -329,22 +329,35 @@ class GroupCallCoordinator {
     }
   }
 
+  int? _presenceInFlightGeneration;
+
   void _startPresence(String roomId) {
     _presenceTimer?.cancel();
     _presenceTimer = Timer.periodic(const Duration(seconds: 12), (_) {
       if (_room?.roomId != roomId || !isActive) return;
-      unawaited(_refreshPresence(roomId));
+      final generation = _generation;
+      if (_presenceInFlightGeneration == generation) return;
+      _presenceInFlightGeneration = generation;
+      unawaited(_refreshPresence(roomId).catchError((Object _) {
+        // A transient signaling failure is retried on the next tick.
+      }).whenComplete(() {
+        if (_presenceInFlightGeneration == generation) {
+          _presenceInFlightGeneration = null;
+        }
+      }));
     });
   }
 
   Future<void> _refreshPresence(String roomId) async {
     final room = _room;
     if (room == null || room.roomId != roomId) return;
-    if (!await _membershipStillMatches(room)) {
+    final generation = _generation;
+    final matches = await _membershipStillMatches(room);
+    if (!_isCurrent(generation, roomId) || !isActive) return;
+    if (!matches) {
       await leaveRoom(); // Membership changes revoke the old room snapshot.
       return;
     }
-    final generation = _generation;
     await _announceJoin(); // Also heals out-of-order or dropped join signals.
     if (!_isCurrent(generation, roomId) || !isActive) return;
     for (final remote in _room!.joined.toList()) {
@@ -368,6 +381,7 @@ class GroupCallCoordinator {
     if (!_isCurrent(generation, roomId)) return;
     if (_room?.inviter == _local) {
       for (final peer in room.members) {
+        if (!_isCurrent(generation, roomId)) return;
         if (peer == _local ||
             _room?.connectionStates[peer] != GroupMemberCallState.invited) {
           continue;
@@ -705,6 +719,7 @@ class GroupCallCoordinator {
         if (!_isCurrent(generation, room.roomId) ||
             !identical(_peers[nickname], peer) ||
             !_room!.joined.contains(nickname)) return;
+        if (peer.connectionState == state) return;
         peer.connectionState = state;
         final states = {..._room!.connectionStates};
         switch (state) {
