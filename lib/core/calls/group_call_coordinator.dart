@@ -80,6 +80,8 @@ class GroupCallCoordinator {
   Map<String, dynamic>? _iceConfiguration;
   StreamSubscription<CallSignal>? _subscription;
   Future<void> _incomingQueue = Future<void>.value();
+  int _queuedSignals = 0;
+  static const _maxQueuedSignals = 256;
   Timer? _invitationTimeout;
   Timer? _presenceTimer;
   bool _changingVideo = false;
@@ -135,12 +137,14 @@ class GroupCallCoordinator {
     });
     unawaited(_drainNativeActions());
     _subscription ??= signalRouter.incoming.listen((signal) {
-      if (!signal.type.startsWith('group-')) return;
+      if (_disposed || !signal.type.startsWith('group-') ||
+          _queuedSignals >= _maxQueuedSignals) return;
+      _queuedSignals++;
       _incomingQueue = _incomingQueue
           .then((_) => _handleSignal(signal))
           .catchError((Object error) {
         print('GROUP_CALL_SIGNAL_FAILED');
-      });
+      }).whenComplete(() { _queuedSignals--; });
     });
   }
 
@@ -551,12 +555,14 @@ class GroupCallCoordinator {
           final offer = await connection.pc.createOffer();
           if (!_isCurrent(generation, room.roomId) ||
               !identical(_peers[peer], connection)) return;
+          final negotiation = ++connection.negotiation;
           await connection.pc.setLocalDescription(offer);
           if (!_isCurrent(generation, room.roomId) ||
               !identical(_peers[peer], connection)) return;
           await _send(peer, 'group-offer', {
             'sdp': offer.sdp,
             'sdpType': offer.type,
+            'negotiationId': negotiation,
           });
         } catch (_) {
           connection.offered = false;
@@ -603,6 +609,7 @@ class GroupCallCoordinator {
       final offer = await peer.pc.createOffer({'iceRestart': true});
       if (!_isCurrent(generation, room.roomId) ||
           !identical(_peers[remote], peer)) return;
+      final negotiation = ++peer.negotiation;
       await peer.pc.setLocalDescription(offer);
       if (!_isCurrent(generation, room.roomId) ||
           !identical(_peers[remote], peer)) return;
@@ -610,6 +617,7 @@ class GroupCallCoordinator {
       await _send(remote, 'group-offer', {
         'sdp': offer.sdp,
         'sdpType': offer.type,
+        'negotiationId': negotiation,
       });
     } catch (_) {
       print('GROUP_ICE_RESTART_FAILED');
@@ -627,13 +635,12 @@ class GroupCallCoordinator {
     final peer = await _ensurePeer(remote);
     bool current() => _isCurrent(generation, room.roomId) && identical(_peers[remote], peer);
     if (!current()) return;
-    final sdp = payload['sdp'] as String;
-    if (peer.lastRemoteOffer == sdp) return;
+    final negotiation = payload['negotiationId'];
+    if (negotiation is! int || negotiation <= peer.remoteNegotiation) return;
     await peer.pc.setRemoteDescription(
       RTCSessionDescription(payload['sdp'] as String, 'offer'),
     );
     if (!current()) return;
-    peer.lastRemoteOffer = sdp;
     peer.remoteDescriptionSet = true;
     await _flushEarlyIce(remote, peer);
     if (!current()) return;
@@ -644,7 +651,9 @@ class GroupCallCoordinator {
     await _send(remote, 'group-answer', {
       'sdp': answer.sdp,
       'sdpType': answer.type,
+      'negotiationId': negotiation,
     });
+    if (current()) peer.remoteNegotiation = negotiation;
   }
 
   Future<void> _receiveAnswer(String remote, Map<String, dynamic> payload) async {
@@ -654,7 +663,8 @@ class GroupCallCoordinator {
     final generation = _generation;
     final peer = _peers[remote] ?? await _creatingPeers[remote];
     if (!_isCurrent(generation, room.roomId) || !identical(_peers[remote], peer)) return;
-    if (peer == null || peer.remoteDescriptionSet || !peer.offered) return;
+    if (peer == null || peer.remoteDescriptionSet || !peer.offered ||
+        payload['negotiationId'] != peer.negotiation) return;
     await peer.pc.setRemoteDescription(
       RTCSessionDescription(payload['sdp'] as String, 'answer'),
     );
@@ -1107,7 +1117,8 @@ class _MeshPeer {
   Timer? retryTimer;
   int retryCount = 0;
   bool restarting = false;
-  String? lastRemoteOffer;
+  int negotiation = 0;
+  int remoteNegotiation = 0;
   bool offered = false;
   bool remoteDescriptionSet = false;
 }
