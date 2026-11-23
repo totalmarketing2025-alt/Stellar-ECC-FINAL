@@ -481,3 +481,18 @@ test("submission limit and strict validation prevent bulk or malformed cases", a
   assert.ok(exhausted.body.retryAfterSeconds > 0);
   assert.equal((await storage.get("guard-case-submit-limit:alice")).count, 3);
 });
+
+test("signed theft reports are accepted as pending; a report alone never revokes a profile", async () => {
+  const { directory, storage, alice } = await setup();
+  const targetCode = (await storage.get("user:bob")).guardCode;
+  const submitted = await action(directory, "alice", alice, "submit", submission(targetCode, {
+    reason: "theft",
+    details: "An allegation of theft requiring independent verification.",
+  }));
+  assert.equal(submitted.status, 200);
+  assert.equal(submitted.body.status, "pending_review");
+  const saved = await storage.get(`guard-case:${submitted.body.caseId}`);
+  assert.equal(saved.reason, "theft");
+  assert.equal(saved.status, "pending_review");
+  assert.ok(await storage.get("user:bob"), "unverified report must not delete another user");
+});
