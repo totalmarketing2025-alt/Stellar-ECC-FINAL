@@ -405,9 +405,12 @@ class GroupCallCoordinator {
 
     if (signal.type == 'group-invite') {
       if (_room != null || hasDirectCall()) return;
+      final invitationGeneration = _generation;
       final members = await _membersFor(signal.session.chatId).catchError(
         (Object _) => <String>[],
       );
+      if (_disposed || _generation != invitationGeneration ||
+          _room != null || hasDirectCall()) return;
       if (!members.contains(remote) ||
           GroupCallProtocol.membershipDigest(members) !=
               signal.payload['membersDigest']) return;
@@ -447,11 +450,13 @@ class GroupCallCoordinator {
         room.video != (signal.payload['kind'] == 'video') ||
         room.membersDigest != signal.payload['membersDigest'] ||
         !room.members.contains(remote)) return;
-    if (!await _membershipStillMatches(room)) {
+    final generation = _generation;
+    final matches = await _membershipStillMatches(room);
+    if (!_isCurrent(generation, roomId)) return;
+    if (!matches) {
       await leaveRoom();
       return;
     }
-    if (_room?.roomId != roomId) return;
 
     switch (signal.type) {
       case 'group-join':
@@ -463,7 +468,9 @@ class GroupCallCoordinator {
             // A late joiner knows only the inviter. Announce ourselves
             // immediately so the remaining mesh edges form without waiting
             // for the next periodic presence tick.
+            if (!_isCurrent(generation, roomId)) return;
             await _send(remote, 'group-join');
+            if (!_isCurrent(generation, roomId)) return;
             // A camera toggle may predate this participant's arrival.
             await _send(remote, 'group-media', {
               'videoEnabled': _room!.localVideo,
@@ -482,19 +489,19 @@ class GroupCallCoordinator {
         await _removePeer(remote);
         break;
       case 'group-offer':
-        if (!isActive) return;
-        _setJoined(remote);
+        if (!isActive || !_room!.joined.contains(remote)) return;
         await _receiveOffer(remote, signal.payload);
         break;
       case 'group-answer':
-        if (!isActive) return;
+        if (!isActive || !_room!.joined.contains(remote)) return;
         await _receiveAnswer(remote, signal.payload);
         break;
       case 'group-ice':
-        if (!isActive) return;
+        if (!isActive || !_room!.joined.contains(remote)) return;
         await _receiveIce(remote, signal.payload);
         break;
       case 'group-media':
+        if (!isActive || !_room!.joined.contains(remote)) return;
         final parsed = CallMediaState.parse(
           signal.payload, _remoteMediaRevisions[remote] ?? 0,
         );
