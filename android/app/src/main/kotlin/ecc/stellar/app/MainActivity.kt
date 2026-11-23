@@ -797,7 +797,8 @@ class MainActivity : FlutterFragmentActivity() {
             if (groupRoom != null && Regex("[0-9a-f]{32}").matches(groupRoom) &&
                 (groupAction == "join" || groupAction == "decline") &&
                 intent?.dataString == "stellar-group-action://invitation/$groupRoom/$groupAction" &&
-                ecc.stellar.app.calls.StellarGroupCallManager.isPending(groupRoom)) {
+                ecc.stellar.app.calls.StellarGroupCallManager.consumeActionToken(
+                    groupRoom, intent?.getStringExtra("stellar.group.token"))) {
                 if (pendingGroupActions.size < 4) {
                     pendingGroupActions.putIfAbsent(groupRoom, mapOf(
                         "roomId" to groupRoom, "action" to groupAction
@@ -807,6 +808,7 @@ class MainActivity : FlutterFragmentActivity() {
             }
             intent?.removeExtra("stellar.group.roomId")
             intent?.removeExtra("stellar.group.action")
+            intent?.removeExtra("stellar.group.token")
             return
         }
         if (intent?.action == OPEN_WANTED_SECURITY_ACTION) {
