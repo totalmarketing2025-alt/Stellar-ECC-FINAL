@@ -20,7 +20,10 @@ class StellarEccApp extends ConsumerStatefulWidget {
   ConsumerState<StellarEccApp> createState() => _StellarEccAppState();
 }
 
-class _StellarEccAppState extends ConsumerState<StellarEccApp> {
+class _StellarEccAppState extends ConsumerState<StellarEccApp>
+    with WidgetsBindingObserver {
+  Timer? _guardAccountTimer;
+  bool _guardAccountCheckInProgress = false;
   StreamSubscription<CallPlatformAction>? _callActionSubscription;
   CallPlatformAction? _pendingNativeCallAction;
   bool _pendingNativeActionScheduled = false;
@@ -35,6 +38,10 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _guardAccountTimer = Timer.periodic(const Duration(minutes: 2), (_) {
+      unawaited(_checkGuardAccountRevocation());
+    });
 
     _wantedModeNavigationChannel.setMethodCallHandler((call) async {
       if (call.method == 'openSecurity') {
@@ -45,6 +52,7 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         unawaited(_consumePendingWantedSecurityNavigation());
+        unawaited(_checkGuardAccountRevocation());
       }
     });
 
@@ -57,6 +65,47 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
       }
       _dispatchNativeCallAction(action);
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_checkGuardAccountRevocation());
+    }
+  }
+
+  Future<void> _checkGuardAccountRevocation() async {
+    if (!mounted || _guardAccountCheckInProgress) return;
+    final nickname = ref.read(localNicknameProvider);
+    if (nickname == null || nickname.isEmpty) return;
+    _guardAccountCheckInProgress = true;
+    try {
+      final revoked = await ref.read(guardCaseServiceProvider)
+          .isAccountRevoked(nickname)
+          .timeout(const Duration(seconds: 15));
+      if (!revoked || !mounted ||
+          ref.read(localNicknameProvider) != nickname) return;
+      // Persist the native pending marker before any destructive action. A
+      // restart after a partial wipe will resume cleanup before opening DB.
+      try {
+        final armed = await _wantedModeMonitorChannel.invokeMethod<bool>(
+          'requestVerifiedGuardWipe',
+        );
+        if (armed != true) throw StateError('Guard wipe marker not persisted');
+        ref.read(isUnlockedProvider.notifier).state = false;
+        // MainActivity signals main() to perform the full wipe, then restarts
+        // the Activity on the welcome page. Do not wipe twice here.
+      } on MissingPluginException {
+        // Fallback for platforms where the Android marker is unavailable.
+        await ref.read(wantedModeControllerProvider).wipeAndLock();
+        if (mounted) ref.read(appRouterProvider).go('/onboarding/welcome');
+      }
+    } catch (_) {
+      // Offline devices retry on resume and at the periodic interval. A
+      // network failure must never delete someone's local identity.
+    } finally {
+      _guardAccountCheckInProgress = false;
+    }
   }
 
   Future<void> _consumePendingWantedSecurityNavigation() async {
@@ -238,6 +287,8 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _guardAccountTimer?.cancel();
     _callActionSubscription?.cancel();
     _callSessionSubscription?.cancel();
     super.dispose();

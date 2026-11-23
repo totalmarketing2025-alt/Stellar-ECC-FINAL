@@ -104,6 +104,31 @@ class GuardCaseService {
     );
   }
 
+  /// A device is wiped only after its own Signal identity proves a server
+  /// revocation. Network errors and unknown identities must never trigger it.
+  Future<bool> isAccountRevoked(String account) async {
+    final nickname = _nickname(account);
+    final identity = await _identity();
+    final challenge = await directoryClient.getGuardAccountChallenge(
+      nickname: nickname,
+      deviceId: _deviceId,
+      registrationId: identity.registrationId,
+    );
+    final signature = await identity.sign(GuardProtocol.accountMessage(
+      nickname: nickname,
+      deviceId: _deviceId,
+      registrationId: identity.registrationId,
+      challenge: challenge,
+    ));
+    return directoryClient.getGuardAccountRevocation(
+      nickname: nickname,
+      deviceId: _deviceId,
+      registrationId: identity.registrationId,
+      challenge: challenge,
+      signature: signature,
+    );
+  }
+
   Future<GuardPendingSubmission?> loadPending(String account) async {
     final nickname = _nickname(account);
     final bytes = await keyStore.readSecret(_pendingStorageKey(nickname));

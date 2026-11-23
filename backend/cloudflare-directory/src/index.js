@@ -33,6 +33,31 @@ const GUARD_CASE_ID_PATTERN =
 const GUARD_AUDIT_GENESIS_HASH = "0".repeat(64);
 const GUARD_AUDIT_MAX_EVENTS = 128;
 const GUARD_REVIEW_MAX_PAGE = 50;
+const GUARD_ACCOUNT_CHALLENGE_TTL_MS = 2 * 60 * 1000;
+
+function guardAccountAuthMessage(body) {
+  return JSON.stringify([
+    "stellar-guard-account-v1", body.nickname, body.deviceId,
+    body.registrationId, body.challenge,
+  ]);
+}
+
+function guardRevocationKey(nickname) {
+  return `guard-revoked:${nickname}`;
+}
+
+function guardAccountChallengeKey(nickname, deviceId, registrationId) {
+  return `guard-account-challenge:${nickname}:${deviceId}:${registrationId}`;
+}
+
+function guardModeratorSecretValid(env, request) {
+  const secret = env.GUARD_MODERATOR_ACTION_SECRET;
+  return typeof secret === "string" && secret.length >= 32 &&
+    secret !== env.GUARD_REVIEW_SECRET &&
+    secret !== env.RELAY_SHARED_SECRET &&
+    secret !== env.GUARD_MIGRATION_SECRET &&
+    request.headers.get("Authorization") === `Bearer ${secret}`;
+}
 
 function validGuardCode(value) {
   return typeof value === "string" && /^[0-9]{9}$/.test(value);
@@ -907,6 +932,162 @@ export class DirectoryStore {
   async fetch(request) {
     const url = new URL(request.url);
 
+    // A revoked identity can still prove ownership with its former Signal
+    // key. A missing user record alone is never a reason to wipe a device.
+    if (request.method === "POST" &&
+        url.pathname === "/v1/guard/account/challenge") {
+      let body;
+      try { body = await request.json(); } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+      const nickname = normalizeNickname(body?.nickname);
+      const { deviceId, registrationId } = body || {};
+      if (!validNickname(nickname) || !Number.isInteger(deviceId) ||
+          deviceId < 1 || deviceId > 0x7fffffff ||
+          !Number.isInteger(registrationId) || registrationId < 1 ||
+          registrationId > 0x7fffffff) {
+        return json({ error: "Invalid account check" }, 400);
+      }
+      const user = await this.ctx.storage.get(`user:${nickname}`);
+      const revoked = await this.ctx.storage.get(guardRevocationKey(nickname));
+      if (!guardDeviceMatches(user, deviceId, registrationId) &&
+          !(revoked?.deviceId === deviceId &&
+            revoked?.registrationId === registrationId)) {
+        return json({ error: "Account identity unavailable" }, 404);
+      }
+      const challenge = createPushChallenge();
+      const expiresAt = Date.now() + GUARD_ACCOUNT_CHALLENGE_TTL_MS;
+      await this.ctx.storage.put(
+        guardAccountChallengeKey(nickname, deviceId, registrationId),
+        { challenge, expiresAt },
+      );
+      return json({ challenge, expiresAt });
+    }
+
+    if (request.method === "POST" &&
+        url.pathname === "/v1/guard/account/status") {
+      let body;
+      try { body = await request.json(); } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+      const nickname = normalizeNickname(body?.nickname);
+      const { deviceId, registrationId, challenge, signature } = body || {};
+      if (!validNickname(nickname) || !Number.isInteger(deviceId) ||
+          deviceId < 1 || deviceId > 0x7fffffff ||
+          !Number.isInteger(registrationId) || registrationId < 1 ||
+          registrationId > 0x7fffffff ||
+          typeof challenge !== "string" || challenge.length > 128 ||
+          !validSignalSignature(signature)) {
+        return json({ error: "Invalid account proof" }, 400);
+      }
+      const key = guardAccountChallengeKey(nickname, deviceId, registrationId);
+      const stored = await this.ctx.storage.get(key);
+      if (!stored || stored.challenge !== challenge ||
+          stored.expiresAt <= Date.now()) {
+        return json({ error: "Invalid or expired account proof" }, 401);
+      }
+      const user = await this.ctx.storage.get(`user:${nickname}`);
+      const revoked = await this.ctx.storage.get(guardRevocationKey(nickname));
+      const matchingUser = guardDeviceMatches(user, deviceId, registrationId);
+      const matchingRevocation = revoked?.deviceId === deviceId &&
+        revoked?.registrationId === registrationId;
+      const identityKey = matchingRevocation ? revoked.identityKey :
+        matchingUser ? user.bundle.identityKey : null;
+      const verified = identityKey && await verifySignalIdentitySignature({
+        identityKey,
+        message: guardAccountAuthMessage({
+          nickname, deviceId, registrationId, challenge,
+        }),
+        signature,
+      });
+      await this.ctx.storage.delete(key);
+      if (!verified) return json({ error: "Invalid account proof" }, 401);
+      return json({ revoked: Boolean(matchingRevocation),
+        status: matchingRevocation ? "revoked" : "active" });
+    }
+
+    const guardDecisionMatch = url.pathname.match(
+      /^\/v1\/internal\/guard-cases\/([a-f0-9-]{36})\/decision$/i,
+    );
+    if (request.method === "POST" && guardDecisionMatch) {
+      if (!guardModeratorSecretValid(this.env, request)) {
+        return json({ error: "Unauthorized" }, 401);
+      }
+      const caseId = guardDecisionMatch[1].toLowerCase();
+      if (!GUARD_CASE_ID_PATTERN.test(caseId)) {
+        return json({ error: "Invalid case ID" }, 400);
+      }
+      let body;
+      try { body = await request.json(); } catch (_) {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+      const decision = body?.decision;
+      const note = body?.note;
+      if (!["approve", "reject"].includes(decision) ||
+          typeof note !== "string" || note.trim().length < 5 ||
+          note.length > 500) {
+        return json({ error: "Decision and reason are required" }, 400);
+      }
+      const result = await this.ctx.storage.transaction(async (txn) => {
+        const record = await txn.get(`guard-case:${caseId}`);
+        if (!record) return { error: "Case not found", httpStatus: 404 };
+        if ((await verifyGuardAudit(txn, record)).state === "corrupt") {
+          return { error: "Guard audit integrity violation", httpStatus: 409 };
+        }
+        if (record.status !== "pending_review") {
+          // Safe retry if the Directory committed but Relay cleanup failed.
+          if (record.status === (decision === "approve" ? "approved" : "rejected") &&
+              record.reviewNote === note.trim()) {
+            return { caseId, status: record.status,
+              updatedAt: record.updatedAt,
+              profileDeleted: decision === "approve",
+              ...(decision === "approve" ?
+                { targetNickname: record.targetNickname } : {}),
+            };
+          }
+          return { error: "Case already decided", httpStatus: 409 };
+        }
+        const now = Date.now();
+        if (decision === "approve") {
+          // No speculative deletion: this exact original 9-digit code must
+          // still point to this live identity. Unknown codes are unapprovable.
+          const nickname = record.targetNickname;
+          const target = nickname && await txn.get(`user:${nickname}`);
+          const indexed = await txn.get(guardCodeIndexKey(record.targetCode));
+          if (!target || target.guardCode !== record.targetCode ||
+              indexed !== nickname || !target.bundle?.identityKey ||
+              await txn.get(guardRevocationKey(nickname))) {
+            return { error: "Target identity no longer matches", httpStatus: 409 };
+          }
+          await txn.put(guardRevocationKey(nickname), {
+            identityKey: target.bundle.identityKey,
+            deviceId: target.bundle.deviceId,
+            registrationId: target.bundle.registrationId,
+            caseId, revokedAt: now,
+          });
+          await txn.delete(`user:${nickname}`);
+          await txn.delete(profilePhotoStorageKey(nickname));
+          // Retain the old code reservation to prevent an old Guard report
+          // from resolving to another account after deletion.
+        }
+        record.status = decision === "approve" ? "approved" : "rejected";
+        record.updatedAt = now;
+        record.reviewNote = note.trim();
+        await appendGuardAudit(txn, record,
+          decision === "approve" ? "case_approved_account_revoked" : "case_rejected",
+          "moderator-admin", "pending_review", now);
+        await txn.put(`guard-case:${caseId}`, record);
+        await txn.delete(`guard-case-active:${record.requester}:${record.targetCode}`);
+        return { caseId, status: record.status, updatedAt: now,
+          profileDeleted: decision === "approve",
+          ...(decision === "approve" ?
+            { targetNickname: record.targetNickname } : {}),
+        };
+      });
+      if (result.error) return json({ error: result.error }, result.httpStatus);
+      return json(result);
+    }
+
     if (request.method === "GET" && url.pathname === "/v1/nickname") {
       const nickname = normalizeNickname(
         url.searchParams.get("nickname"),
@@ -920,9 +1101,10 @@ export class DirectoryStore {
       }
 
       const user = await this.ctx.storage.get(`user:${nickname}`);
+      const revoked = await this.ctx.storage.get(guardRevocationKey(nickname));
 
       return json({
-        available: !user,
+        available: !user && !revoked,
         nickname,
       });
     }
@@ -942,9 +1124,10 @@ export class DirectoryStore {
       }
 
       const user = await this.ctx.storage.get(`user:${nickname}`);
+      const revoked = await this.ctx.storage.get(guardRevocationKey(nickname));
 
       return json({
-        available: !user,
+        available: !user && !revoked,
         nickname,
       });
     }
@@ -2610,6 +2793,11 @@ export class DirectoryStore {
           return { registered: false };
         }
 
+        // Never resurrect a moderator-revoked identity by startup retry.
+        if (await txn.get(guardRevocationKey(nickname))) {
+          return { registered: false, revoked: true };
+        }
+
         await ensureGuardCode(txn, nickname, {
           nickname,
           bundle: body.bundle,
@@ -2619,8 +2807,8 @@ export class DirectoryStore {
 
       if (!result.registered) {
         return json({
-          error: "Nickname already registered",
-        }, 409);
+          error: result.revoked ? "Account revoked" : "Nickname already registered",
+        }, result.revoked ? 410 : 409);
       }
 
       // GUARD codes are deliberately absent from registration responses.

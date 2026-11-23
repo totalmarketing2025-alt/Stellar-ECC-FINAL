@@ -183,6 +183,103 @@ function submission(targetCode, overrides = {}) {
   };
 }
 
+async function decide(directory, caseId, decision, note = "Reviewed evidence in moderation queue", secret = "m".repeat(40)) {
+  const response = await directory.fetch(new Request(
+    `https://directory.test/v1/internal/guard-cases/${caseId}/decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ decision, note }),
+    },
+  ));
+  return { status: response.status, body: await response.json() };
+}
+
+async function accountStatus(directory, nickname, signer) {
+  const issued = await post(directory, "/v1/guard/account/challenge", {
+    nickname, deviceId: 1, registrationId: 101,
+  });
+  assert.equal(issued.status, 200);
+  const challenge = issued.body.challenge;
+  return post(directory, "/v1/guard/account/status", {
+    nickname, deviceId: 1, registrationId: 101, challenge,
+    signature: await signer.sign(JSON.stringify([
+      "stellar-guard-account-v1", nickname, 1, 101, challenge,
+    ])),
+  });
+}
+
+test("moderator approval deletes the exact target profile and its photo, preserves signed revocation", async () => {
+  const { directory, storage, alice, bob } = await setup();
+  directory.env.GUARD_MODERATOR_ACTION_SECRET = "m".repeat(40);
+  directory.env.GUARD_REVIEW_SECRET = "r".repeat(40);
+  const code = (await storage.get("user:bob")).guardCode;
+  const result = await action(directory, "alice", alice, "submit", submission(code));
+  const caseId = result.body.caseId;
+  await storage.put("profile-photo:bob", { photo: "a" });
+  assert.deepEqual((await accountStatus(directory, "bob", bob)).body,
+    { revoked: false, status: "active" });
+
+  assert.equal((await decide(directory, caseId, "approve", "Verified evidence", "bad")).status, 401);
+  assert.ok(await storage.get("user:bob"));
+  const approval = await decide(directory, caseId, "approve");
+  assert.equal(approval.status, 200);
+  assert.equal(approval.body.profileDeleted, true);
+  assert.equal(await storage.get("user:bob"), undefined);
+  assert.equal(await storage.get("profile-photo:bob"), undefined);
+  assert.equal(await storage.get(`guard-code:${code}`), "bob");
+  assert.equal((await storage.get("user:alice")).nickname, "alice");
+  assert.deepEqual((await accountStatus(directory, "bob", bob)).body,
+    { revoked: true, status: "revoked" });
+  assert.equal((await post(directory, "/v1/register", {
+    nickname: "bob", bundle: bundle(bob.encoded),
+  })).status, 410);
+  // Same signed moderator action may safely retry Relay cleanup.
+  assert.equal((await decide(directory, caseId, "approve")).status, 200);
+  assert.equal((await decide(directory, caseId, "approve", "Different note")).status, 409);
+  const stored = await storage.get(`guard-case:${caseId}`);
+  assert.equal(stored.status, "approved");
+  assert.equal(stored.auditSequence, 2);
+});
+
+test("rejection keeps target, unknown-code approval fails, cancelled cases stay closed", async () => {
+  const { directory, storage, alice, bob } = await setup();
+  directory.env.GUARD_MODERATOR_ACTION_SECRET = "m".repeat(40);
+  const code = (await storage.get("user:bob")).guardCode;
+  const report = await action(directory, "alice", alice, "submit", submission(code));
+  assert.equal((await decide(directory, report.body.caseId, "reject")).status, 200);
+  assert.ok(await storage.get("user:bob"));
+  assert.equal((await decide(directory, report.body.caseId, "approve")).status, 409);
+  const unknown = await action(directory, "alice", alice, "submit", submission("999999999"));
+  assert.equal((await decide(directory, unknown.body.caseId, "approve")).status, 409);
+  assert.ok(await storage.get("user:bob"));
+  const cancelled = await action(directory, "alice", alice, "cancel", {
+    caseId: unknown.body.caseId,
+  });
+  assert.equal(cancelled.body.status, "cancelled");
+  assert.equal((await decide(directory, unknown.body.caseId, "approve")).status, 409);
+});
+
+test("revocation status cannot be forged or replayed", async () => {
+  const { directory, storage, alice, bob } = await setup();
+  directory.env.GUARD_MODERATOR_ACTION_SECRET = "m".repeat(40);
+  const code = (await storage.get("user:bob")).guardCode;
+  const report = await action(directory, "alice", alice, "submit", submission(code));
+  assert.equal((await decide(directory, report.body.caseId, "approve")).status, 200);
+  const issued = await post(directory, "/v1/guard/account/challenge", {
+    nickname: "bob", deviceId: 1, registrationId: 101,
+  });
+  const proof = { nickname: "bob", deviceId: 1, registrationId: 101,
+    challenge: issued.body.challenge, signature: await alice.sign(JSON.stringify([
+      "stellar-guard-account-v1", "bob", 1, 101, issued.body.challenge,
+    ])) };
+  assert.equal((await post(directory, "/v1/guard/account/status", proof)).status, 401);
+  assert.equal((await post(directory, "/v1/guard/account/status", {
+    ...proof, signature: await bob.sign(JSON.stringify([
+      "stellar-guard-account-v1", "bob", 1, 101, proof.challenge,
+    ])),
+  })).status, 401);
+});
+
 test("authenticated submission persists a pending case, without approving or deleting", async () => {
   const { directory, storage, alice, bob } = await setup();
   const bobCode = (await storage.get("user:bob")).guardCode;

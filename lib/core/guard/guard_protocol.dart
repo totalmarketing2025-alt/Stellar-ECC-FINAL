@@ -37,6 +37,19 @@ class GuardProtocol {
     challenge,
   ]);
 
+  static String accountMessage({
+    required String nickname,
+    required int deviceId,
+    required int registrationId,
+    required String challenge,
+  }) => jsonEncode([
+    'stellar-guard-account-v1',
+    nickname.trim().toLowerCase(),
+    deviceId,
+    registrationId,
+    challenge,
+  ]);
+
   static String caseMessage({
     required String action,
     required String nickname,

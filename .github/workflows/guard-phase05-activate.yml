@@ -1,0 +1,83 @@
+name: Activate STELLAR Guard Phase 05
+
+# This workflow is deliberately one-time on the release containing this file.
+# Subsequent application pushes do not rotate the moderation secrets.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/guard-phase05-activate.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: stellar-ecc-final-cloudflare-deploy
+  cancel-in-progress: false
+
+jobs:
+  provision-guard-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check Cloudflare deployment credential
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo '::error::CLOUDFLARE_API_TOKEN is required for Guard activation.'
+            exit 1
+          fi
+
+      - name: Provision independent shared Guard secrets in both Workers
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          secret_file="$(mktemp)"
+          trap 'rm -f "$secret_file"' EXIT
+          chmod 600 "$secret_file"
+
+          # Generate exactly once per activation attempt; both Workers must
+          # receive identical pairs. The values never enter logs or git.
+          node - "$secret_file" <<'NODE'
+          const fs = require('node:fs');
+          const { randomBytes } = require('node:crypto');
+          fs.writeFileSync(process.argv[2], JSON.stringify({
+            GUARD_REVIEW_SECRET: randomBytes(48).toString('base64url'),
+            GUARD_MODERATOR_ACTION_SECRET: randomBytes(48).toString('base64url'),
+          }), { mode: 0o600 });
+          NODE
+
+          # Conflicting concurrent Worker updates may return Cloudflare 11024.
+          # Do not regenerate keys between retries or across the two Workers.
+          for config in backend/cloudflare-directory/wrangler.jsonc backend/cloudflare-relay/wrangler.jsonc; do
+            success=0
+            for attempt in 1 2 3 4 5; do
+              if npx wrangler@4.129.0 secret bulk "$secret_file" --config "$config"; then
+                success=1
+                break
+              fi
+              if [[ "$attempt" -lt 5 ]]; then
+                sleep "$((attempt * 10))"
+              fi
+            done
+            if [[ "$success" != '1' ]]; then
+              echo '::error::Guard secrets were not installed in both Workers; approval remains fail-closed.'
+              exit 1
+            fi
+          done
+
+      - name: Verify both production Worker health endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 4 --retry-delay 5 \
+            'https://stellar-ecc-directory.totalmarketing2025.workers.dev/health' >/dev/null
+          curl --fail --silent --show-error --retry 4 --retry-delay 5 \
+            'https://stellar-ecc-final.totalmarketing2025.workers.dev/health' >/dev/null

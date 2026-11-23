@@ -202,6 +202,9 @@ function createHarness({ failReceiptInsert = false } = {}) {
   const storage = {
     sql,
 
+    // Durable Objects always expose key-value reads as well as SQLite.
+    async get() { return undefined; },
+
     transactionSync(callback) {
       const oldReceipts = new Map(
         [...receipts].map(([key, value]) => [key, { ...value }]),

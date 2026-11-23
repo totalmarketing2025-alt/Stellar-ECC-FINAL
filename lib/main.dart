@@ -17,6 +17,7 @@ import 'core/storage/providers.dart';
 import 'core/storage/expiry_sweeper.dart';
 import 'core/network/push_handler.dart';
 import 'presentation/state/app_providers.dart';
+import 'presentation/state/security_providers.dart';
 
 
 
@@ -183,6 +184,35 @@ Future<void> main() async {
         : String.fromCharCodes(nicknameBytes).trim();
 
     if (nickname != null && nickname.isNotEmpty) {
+      // A removed account must never be silently registered again. Only the
+      // signed response for this exact Signal identity can authorize a wipe.
+      final revoked = await container
+          .read(guardCaseServiceProvider)
+          .isAccountRevoked(nickname)
+          .timeout(const Duration(seconds: 12));
+      if (revoked) {
+        // Persist a native wipe marker *before* removing keys or files.
+        // Interrupted cleanup is retried on next launch, then the native
+        // Activity restart returns to the welcome screen.
+        bool? armed;
+        try {
+          armed = await _wantedWipeChannel.invokeMethod<bool>(
+            'requestVerifiedGuardWipe',
+          );
+        } on MissingPluginException {
+          // iOS/older platforms have no native marker yet.
+        }
+        if (armed == true) {
+          await performWantedModeLocalWipe();
+          return;
+        }
+        if (armed == false) {
+          throw StateError('Guard wipe marker not persisted');
+        }
+        if (armed == null) {
+          await container.read(wantedModeControllerProvider).wipeAndLock();
+        }
+      } else {
       final wipePendingBeforeDirectorySync =
           await _wantedWipeChannel.invokeMethod<bool>(
                 'hasPendingLocalWipe',
@@ -218,22 +248,10 @@ Future<void> main() async {
               );
             } catch (e) {
               final text = e.toString();
-              if (text.contains('404') || text.contains('User not found')) {
-                final wipePendingBeforeRegister =
-                    await _wantedWipeChannel.invokeMethod<bool>(
-                          'hasPendingLocalWipe',
-                        ) ??
-                        false;
-
-                if (!wipePendingBeforeRegister) {
-                  await directoryClient.register(
-                    nickname: nickname,
-                    preKeyBundle: bundle,
-                  );
-                }
-              } else {
-                rethrow;
-              }
+              // No startup auto-registration. The onboarding flow alone may
+              // create a new account after identity verification.
+              developer.log('Directory bundle update skipped: $text',
+                  name: 'stellar_ecc.directory');
             }
 
             developer.log(
@@ -242,6 +260,7 @@ Future<void> main() async {
             );
           }
         }
+      }
       }
     }
   } catch (e, st) {
