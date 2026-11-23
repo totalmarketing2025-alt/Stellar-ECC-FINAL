@@ -23,6 +23,16 @@ internal object StellarGroupCallManager {
     }
 
     @Synchronized
+    fun isPending(roomId: String): Boolean {
+        val expires = pending[roomId] ?: return false
+        if (expires <= SystemClock.elapsedRealtime()) {
+            pending.remove(roomId)
+            return false
+        }
+        return true
+    }
+
+    @Synchronized
     fun consumeInvitation(roomId: String): Boolean {
         val expires = pending.remove(roomId) ?: return false
         return expires > SystemClock.elapsedRealtime()
