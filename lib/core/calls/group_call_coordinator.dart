@@ -860,9 +860,11 @@ class GroupCallCoordinator {
     final identity = await sessionManager.identityStore.getIdentityKeyPair();
     final registrationId =
         await sessionManager.identityStore.getLocalRegistrationId();
+    if (!_isCurrent(generation, roomId)) return;
     final challenge = await directory.getTurnChallenge(
       nickname: _local, deviceId: 1, registrationId: registrationId,
     );
+    if (!_isCurrent(generation, roomId)) return;
     final message = DirectoryClient.buildTurnAuthMessage(
       nickname: _local, deviceId: 1,
       registrationId: registrationId, challenge: challenge,
@@ -1015,12 +1017,14 @@ class GroupCallCoordinator {
   Future<void> leaveRoom() async {
     final room = _room;
     if (room == null) return;
+    final generation = _generation;
     if (room.phase == GroupCallPhase.ringing) {
       await declineInvitation();
       return;
     }
     if (room.phase != GroupCallPhase.ringing) {
       for (final remote in room.members) {
+        if (!_isCurrent(generation, room.roomId)) return;
         if (remote == _local) continue;
         try {
           await _send(remote, 'group-leave')
@@ -1028,7 +1032,7 @@ class GroupCallCoordinator {
         } catch (_) { /* Local teardown is unconditional. */ }
       }
     }
-    await _closeRoom(room.roomId);
+    if (_isCurrent(generation, room.roomId)) await _closeRoom(room.roomId);
   }
 
   Future<void> _closeRoom(String roomId) async {
