@@ -41,3 +41,4 @@ jobs:
           channel: stable
       - run: flutter pub get
       - run: flutter build apk --debug
+      - run: cd android && ./gradlew :app:testDebugUnitTest --tests 'ecc.stellar.app.StellarEdgeLightingPolicyTest' --no-daemon
