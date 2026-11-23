@@ -344,7 +344,28 @@ class GroupCallCoordinator {
       await leaveRoom(); // Membership changes revoke the old room snapshot.
       return;
     }
+    final generation = _generation;
     await _announceJoin(); // Also heals out-of-order or dropped join signals.
+    if (!_isCurrent(generation, roomId) || !isActive) return;
+    for (final remote in _room!.joined.toList()) {
+      if (remote == _local || !_isCurrent(generation, roomId)) continue;
+      final peer = _peers[remote];
+      if (peer == null) {
+        try {
+          await _connectJoinedPeers();
+        } catch (_) {
+          // Presence will retry missing mesh edges on the next tick.
+        }
+        break;
+      }
+      if (peer.connectionState ==
+              RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
+          peer.connectionState ==
+              RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        _schedulePeerRecovery(remote, peer);
+      }
+    }
+    if (!_isCurrent(generation, roomId)) return;
     if (_room?.inviter == _local) {
       for (final peer in room.members) {
         if (peer == _local ||
@@ -536,7 +557,7 @@ class GroupCallCoordinator {
     final generation = _generation;
     if (room == null || !isActive || !room.joined.contains(remote) ||
         !identical(_peers[remote], peer) || peer.restarting ||
-        !peer.remoteDescriptionSet ||
+        !peer.offered ||
         !GroupCallProtocol.shouldOffer(_local, remote)) return;
     peer.restarting = true;
     try {
