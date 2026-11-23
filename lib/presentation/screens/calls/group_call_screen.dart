@@ -6,6 +6,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/calls/group_call_coordinator.dart';
+import '../../../core/calls/group_call_protocol.dart';
 import '../../../core/theme/stellar_theme.dart';
 import '../../../domain/models/group_call_room.dart';
 import '../../state/app_providers.dart';
@@ -158,12 +159,17 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
   Widget build(BuildContext context) {
     final room = _room;
     final nickname = ref.watch(localNicknameProvider) ?? 'You';
-    final peers = room?.members.where((name) => name != nickname.toLowerCase())
+    final peers = room?.members.where((name) => name != GroupCallProtocol.normalize(nickname))
         .toList() ?? <String>[];
+    final showingVideo = room == null
+        ? widget.video
+        : room.isIncoming
+            ? room.video
+            : room.localVideo || room.remoteVideo.values.any((enabled) => enabled);
     return Scaffold(
       backgroundColor: StellarColors.bgPrimary,
       appBar: AppBar(
-        title: Text(room?.video == true ? 'Group video call' : 'Group voice call'),
+        title: Text(showingVideo ? 'Group video call' : 'Group voice call'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           tooltip: 'Leave group call',
