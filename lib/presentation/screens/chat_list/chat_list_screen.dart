@@ -84,7 +84,30 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          const Positioned.fill(
+            child: Image(
+              image: AssetImage('assets/images/chat_background.png'),
+              fit: BoxFit.cover,
+            ),
+          ),
+          const Positioned.fill(
+            child: ColoredBox(color: Color(0xA6000000)),
+          ),
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0x30241248), Colors.transparent, Color(0x24100A28)],
+                ),
+              ),
+            ),
+          ),
+          Column(
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
@@ -128,6 +151,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                 );
               },
             ),
+          ),
+        ],
           ),
         ],
       ),
