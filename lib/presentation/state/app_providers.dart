@@ -131,7 +131,7 @@ final callServiceProvider = Provider<CallService>((ref) {
   return service;
 });
 
-final callCoordinatorProvider = Provider<CallCoordinator>((ref) {
+final Provider<CallCoordinator> callCoordinatorProvider = Provider<CallCoordinator>((ref) {
   final coordinator = CallCoordinator(
     signalRouter: ref.watch(callSignalRouterProvider),
     callService: ref.watch(callServiceProvider),
@@ -202,7 +202,7 @@ final callCoordinatorProvider = Provider<CallCoordinator>((ref) {
   return coordinator;
 });
 
-final groupCallCoordinatorProvider = Provider<GroupCallCoordinator>((ref) {
+final Provider<GroupCallCoordinator> groupCallCoordinatorProvider = Provider<GroupCallCoordinator>((ref) {
   final nickname = ref.watch(localNicknameProvider);
   if (nickname == null || nickname.isEmpty) {
     throw StateError('A local nickname is required for group calls');
