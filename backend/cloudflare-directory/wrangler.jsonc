@@ -3,6 +3,10 @@
   "name": "stellar-ecc-directory",
   "main": "src/index.js",
   "compatibility_date": "2026-09-06",
+  "vars": { "GUARD_THEFT_AUTO_APPROVAL": "true" },
+  "services": [
+    { "binding": "GUARD_RELAY", "service": "stellar-ecc-final" }
+  ],
   "durable_objects": {
     "bindings": [
       {
