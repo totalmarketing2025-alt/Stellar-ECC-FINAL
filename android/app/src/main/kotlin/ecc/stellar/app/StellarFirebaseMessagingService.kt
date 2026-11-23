@@ -35,6 +35,18 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
         Log.i("StellarFCM", "FCM-11 push received: type=" +
             (data["type"] ?: "message") + ", wake=" + (data["wake"] ?: "0"))
 
+        if (data["type"] == "group-call") {
+            val wake = StellarGroupCallWake.parse(data)
+            if (wake == null) {
+                Log.w("StellarFCM", "Invalid or expired group wake ignored")
+                return
+            }
+            // Wake metadata is not an authenticated invitation. Never start
+            // Telecom or capture media from this push. Reuse authenticated sync.
+            scheduleBackgroundMessageSync()
+            return
+        }
+
         if (data["type"] == "call") {
             handleIncomingCall(data)
             return
