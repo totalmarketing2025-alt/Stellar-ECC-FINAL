@@ -42,3 +42,9 @@ jobs:
       - run: flutter pub get
       - run: flutter build apk --debug
       - run: cd android && ./gradlew :app:testDebugUnitTest --tests 'ecc.stellar.app.StellarEdgeLightingPolicyTest' --no-daemon
+      - name: Upload call-switch test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-call-switch-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 7
