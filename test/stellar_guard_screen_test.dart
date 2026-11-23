@@ -26,6 +26,7 @@ class _FakeGuardService extends GuardCaseService {
   int cancellations = 0;
   String? latestAccount;
   String? latestTargetCode;
+  String? latestReason;
   GuardPendingSubmission? pending;
   final cases = <GuardCaseReceipt>[];
 
@@ -49,9 +50,10 @@ class _FakeGuardService extends GuardCaseService {
     submissions++;
     latestAccount = account;
     latestTargetCode = targetCode;
+    latestReason = reason;
     final caseReceipt = GuardCaseReceipt(
       caseId: _caseId,
-      status: 'pending_review',
+      status: reason == 'theft' ? 'approved' : 'pending_review',
       createdAt: 100,
       updatedAt: 100,
       targetCode: targetCode,
@@ -152,6 +154,32 @@ void main() {
         find.byKey(const Key('guard_details'))).controller!.text,
         'A previous report whose response was interrupted.');
     expect(find.text('Scam / fraud'), findsOneWidget);
+  });
+
+  testWidgets('theft reason warns about immediate account revocation', (tester) async {
+    final fake = _FakeGuardService();
+    await _mount(tester, fake);
+    final dropdown = find.byType(DropdownButtonFormField<String>);
+    await tester.ensureVisible(dropdown);
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Theft / Кражба').last);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('guard_target_code')), '000000018');
+    await tester.enterText(find.byKey(const Key('guard_details')),
+        'A documented allegation of theft.');
+    final submit = find.byKey(const Key('guard_submit'));
+    await tester.ensureVisible(submit);
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('permanently revokes'), findsOneWidget);
+    expect(fake.submissions, 0);
+    await tester.tap(find.text('Submit theft report'));
+    await tester.pumpAndSettle();
+    expect(fake.latestReason, 'theft');
+    expect(fake.submissions, 1);
+    expect(find.text('Status: approved'), findsOneWidget);
   });
 
   testWidgets('valid report requires confirmation and stays pending review',
