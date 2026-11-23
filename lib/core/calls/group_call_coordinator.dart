@@ -326,15 +326,21 @@ class GroupCallCoordinator {
 
     switch (signal.type) {
       case 'group-join':
+        final isNewParticipant = !_room!.joined.contains(remote);
         _setJoined(remote);
         if (isActive) {
           await _connectJoinedPeers();
-          // Send our current camera state to late joiners even if the last
-          // camera toggle happened before this peer accepted the invitation.
-          await _send(remote, 'group-media', {
-            'videoEnabled': _room!.localVideo,
-            'mediaRevision': ++_mediaRevision,
-          });
+          if (isNewParticipant) {
+            // A late joiner knows only the inviter. Announce ourselves
+            // immediately so the remaining mesh edges form without waiting
+            // for the next periodic presence tick.
+            await _send(remote, 'group-join');
+            // A camera toggle may predate this participant's arrival.
+            await _send(remote, 'group-media', {
+              'videoEnabled': _room!.localVideo,
+              'mediaRevision': ++_mediaRevision,
+            });
+          }
         }
         break;
       case 'group-reject':
