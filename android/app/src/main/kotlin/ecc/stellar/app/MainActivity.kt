@@ -130,12 +130,21 @@ class MainActivity : FlutterFragmentActivity() {
             val roomId = call.argument<String>("roomId").orEmpty()
             val manager = ecc.stellar.app.calls.StellarGroupCallManager
             when (call.method) {
-                "registerVerifiedInvitation" ->
-                    result.success(manager.registerVerifiedInvitation(roomId))
-                "consumeInvitation" ->
-                    result.success(manager.consumeInvitation(roomId))
+                "registerVerifiedInvitation" -> {
+                    val registered = manager.registerVerifiedInvitation(roomId)
+                    if (registered) {
+                        ecc.stellar.app.calls.StellarGroupCallNotification.show(applicationContext, roomId)
+                    }
+                    result.success(registered)
+                }
+                "consumeInvitation" -> {
+                    val consumed = manager.consumeInvitation(roomId)
+                    ecc.stellar.app.calls.StellarGroupCallNotification.cancel(applicationContext, roomId)
+                    result.success(consumed)
+                }
                 "dismissInvitation" -> {
                     manager.dismiss(roomId)
+                    ecc.stellar.app.calls.StellarGroupCallNotification.cancel(applicationContext, roomId)
                     result.success(true)
                 }
                 else -> result.notImplemented()
