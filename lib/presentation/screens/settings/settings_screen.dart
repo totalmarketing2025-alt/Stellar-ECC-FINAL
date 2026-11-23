@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
@@ -21,9 +23,94 @@ class SettingsScreen extends ConsumerStatefulWidget {
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+class _SettingsScreenState extends ConsumerState<SettingsScreen>
+    with WidgetsBindingObserver {
   int _defaultTtl = TtlPreset.oneHour;
   String _notificationPreviewLevel = 'name-only';
+  static const _edgeLightingChannel =
+      MethodChannel('ecc.stellar.app/edge_lighting');
+  bool _edgeSupported = false;
+  bool _edgePermissionGranted = false;
+  bool _edgeEnabled = false;
+  bool _edgeLoading = false;
+  bool _edgePendingEnable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_refreshEdgeLighting());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshEdgeLighting());
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  Future<void> _refreshEdgeLighting() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final state = await _edgeLightingChannel
+          .invokeMapMethod<String, dynamic>('getState');
+      if (!mounted) return;
+      final supported = state?['supported'] == true;
+      final granted = state?['permissionGranted'] == true;
+      var enabled = state?['enabled'] == true;
+      if (_edgePendingEnable && granted && supported) {
+        enabled = await _edgeLightingChannel.invokeMethod<bool>(
+              'setEnabled', {'enabled': true}) == true;
+      }
+      if (!mounted) return;
+      setState(() {
+        _edgeSupported = supported;
+        _edgePermissionGranted = granted;
+        _edgeEnabled = enabled && granted;
+        _edgePendingEnable = false;
+      });
+    } on PlatformException {
+      if (mounted) setState(() => _edgePendingEnable = false);
+    } on MissingPluginException {
+      if (mounted) setState(() => _edgeSupported = false);
+    }
+  }
+
+  Future<void> _toggleEdgeLighting(bool desired) async {
+    if (_edgeLoading || !_edgeSupported) return;
+    setState(() => _edgeLoading = true);
+    try {
+      if (desired && !_edgePermissionGranted) {
+        _edgePendingEnable = true;
+        final opened = await _edgeLightingChannel.invokeMethod<bool>(
+          'openPermissionSettings');
+        if (opened != true) {
+          _edgePendingEnable = false;
+          await _refreshEdgeLighting();
+        }
+        // Keep the pending choice until lifecycle resume after the user
+        // returns from Android special-access settings.
+      } else {
+        await _edgeLightingChannel.invokeMethod<bool>(
+          'setEnabled', {'enabled': desired});
+        await _refreshEdgeLighting();
+      }
+    } on PlatformException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Android could not open edge lighting settings.'),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _edgeLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -202,6 +289,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
 
           _SectionHeader('Notifications'),
+          if (Platform.isAndroid)
+            SwitchListTile(
+              activeColor: StellarColors.accentPurple,
+              secondary: const Icon(Icons.auto_awesome,
+                  color: StellarColors.accentPurple),
+              title: const Text('Purple edge lighting'),
+              subtitle: Text(!_edgeSupported
+                  ? 'Requires Android 8 or later'
+                  : !_edgePermissionGranted
+                      ? 'Optional: grant Display over other apps to flash '
+                        'the edges for background/locked-screen messages'
+                      : 'Two gentle purple pulses; lock-screen display '
+                        'depends on Android and device settings'),
+              value: _edgeEnabled,
+              onChanged: _edgeSupported && !_edgeLoading
+                  ? _toggleEdgeLighting : null,
+            ),
           ListTile(
             leading: const Icon(
               Icons.campaign_outlined,
