@@ -55,6 +55,20 @@ class GroupCallCoordinator {
     }
   }
 
+  Future<void> _groupForeground(String method, String roomId,
+      {bool video = false}) async {
+    try {
+      await _nativeGroupCalls.invokeMethod<bool>(method, {
+        'roomId': roomId,
+        'video': video,
+      });
+    } on MissingPluginException {
+      // Native foreground service is Android-only.
+    } on PlatformException catch (error) {
+      print('GROUP_FOREGROUND_FAILED: ${error.code}');
+    }
+  }
+
   GroupCallRoom? _room;
   final Map<String, _MeshPeer> _peers = {};
   final Map<String, Future<_MeshPeer>> _creatingPeers = {};
@@ -219,6 +233,11 @@ class GroupCallCoordinator {
     try {
       await _prepareMedia(video);
       if (!_isCurrent(generation, roomId)) return;
+      await _groupForeground('startGroupForeground', roomId, video: video);
+      if (!_isCurrent(generation, roomId)) {
+        await _groupForeground('stopGroupForeground', roomId);
+        return;
+      }
       _startPresence(roomId);
       for (final member in members) {
         if (member == _local) continue;
@@ -272,6 +291,12 @@ class GroupCallCoordinator {
     try {
       await _prepareMedia(room.video);
       if (!_isCurrent(generation, room.roomId)) return;
+      await _groupForeground('startGroupForeground', room.roomId,
+          video: room.video);
+      if (!_isCurrent(generation, room.roomId)) {
+        await _groupForeground('stopGroupForeground', room.roomId);
+        return;
+      }
       _startPresence(room.roomId);
       await _announceJoin();
       await _connectJoinedPeers();
@@ -790,6 +815,8 @@ class GroupCallCoordinator {
       final oldCapture = _cameraCaptureStream;
       _cameraCaptureStream = newCapture;
       _room = _room!.copyWith(localVideo: enabled);
+      unawaited(_groupForeground('startGroupForeground', room.roomId,
+          video: enabled));
       _localRenderer?.srcObject = enabled ? (newCapture ?? _localStream) : null;
       _emit();
       if (oldCapture != null) {
@@ -838,6 +865,9 @@ class GroupCallCoordinator {
   Future<void> _closeRoom(String roomId) async {
     if (_room?.roomId != roomId) return;
     ++_generation;
+    if (_room?.phase != GroupCallPhase.ringing) {
+      unawaited(_groupForeground('stopGroupForeground', roomId));
+    }
     unawaited(_nativeInvitation('dismissInvitation', roomId));
     _invitationTimeout?.cancel();
     _invitationTimeout = null;
