@@ -506,6 +506,31 @@ class GroupCallCoordinator {
     }
   }
 
+  void _schedulePeerRecovery(String remote, _MeshPeer peer) {
+    final room = _room;
+    final generation = _generation;
+    if (room == null || !isActive || !room.joined.contains(remote) ||
+        !identical(_peers[remote], peer) || peer.retryTimer != null ||
+        peer.retryCount >= 5 ||
+        !GroupCallProtocol.shouldOffer(_local, remote)) return;
+    final delay = Duration(seconds: 2 << peer.retryCount);
+    peer.retryTimer = Timer(delay, () async {
+      peer.retryTimer = null;
+      if (!_isCurrent(generation, room.roomId) ||
+          !identical(_peers[remote], peer) ||
+          !_room!.joined.contains(remote) ||
+          peer.connectionState ==
+              RTCPeerConnectionState.RTCPeerConnectionStateConnected) return;
+      peer.retryCount++;
+      await _restartPeerIce(remote, peer);
+      if (_isCurrent(generation, room.roomId) &&
+          peer.connectionState !=
+              RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        _schedulePeerRecovery(remote, peer);
+      }
+    });
+  }
+
   Future<void> _restartPeerIce(String remote, _MeshPeer peer) async {
     final room = _room;
     final generation = _generation;
@@ -661,6 +686,9 @@ class GroupCallCoordinator {
         final states = {..._room!.connectionStates};
         switch (state) {
           case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
+            peer.retryTimer?.cancel();
+            peer.retryTimer = null;
+            peer.retryCount = 0;
             states[nickname] = GroupMemberCallState.connected;
             _invitationTimeout?.cancel();
             _invitationTimeout = null;
@@ -685,7 +713,7 @@ class GroupCallCoordinator {
         _emit();
         if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
             state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
-          unawaited(_restartPeerIce(nickname, peer));
+          _schedulePeerRecovery(nickname, peer);
         }
       };
       return peer;
@@ -720,6 +748,8 @@ class GroupCallCoordinator {
     _earlyIce.remove(nickname);
     _remoteMediaRevisions.remove(nickname);
     if (peer == null) return;
+    peer.retryTimer?.cancel();
+    peer.retryTimer = null;
     peer.renderer.srcObject = null;
     try { await peer.pc.close(); } catch (_) { /* Best effort. */ }
     try { await peer.syntheticVideoStream?.dispose(); } catch (_) { /* Best effort. */ }
@@ -957,6 +987,8 @@ class _MeshPeer {
   final RTCRtpSender videoSender;
   MediaStream? syntheticVideoStream;
   RTCPeerConnectionState? connectionState;
+  Timer? retryTimer;
+  int retryCount = 0;
   bool restarting = false;
   String? lastRemoteOffer;
   bool offered = false;
