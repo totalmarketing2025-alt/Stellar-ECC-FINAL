@@ -25,6 +25,7 @@ jobs:
           channel: stable
       - run: flutter pub get
       - run: flutter test test/guard_phase05_contract_test.dart
+      - run: flutter test test/stellar_guard_protocol_test.dart test/stellar_guard_service_test.dart test/stellar_guard_screen_test.dart
 
   android-compile:
     runs-on: ubuntu-latest

@@ -8,7 +8,7 @@ import '../../../core/network/directory_client.dart';
 import '../../../core/theme/stellar_theme.dart';
 import '../../state/app_providers.dart';
 
-/// Model A: reports stay pending until independently reviewed by a moderator.
+/// Guard case submission. Signed theft reports may trigger immediate revocation.
 class StellarGuardScreen extends ConsumerStatefulWidget {
   const StellarGuardScreen({super.key});
 
@@ -147,17 +147,23 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
     final account = _account;
     if (account == null || _submitting || _busyCase != null ||
         !_form.currentState!.validate()) return;
+    final autoTheft = _reason == 'theft';
     final confirmed = await _confirm(
-      'Submit Guard report?',
-      'This creates a request for moderator review. It does NOT remove '
-          'or disable any user account.',
-      'Submit for review',
+      autoTheft ? 'Submit theft report and revoke account?' : 'Submit Guard report?',
+      autoTheft
+          ? 'If the nine-digit code matches a live user, submitting this '
+              'signed theft report permanently revokes that account '
+              'immediately, without moderator review. This cannot be undone '
+              'from the app.'
+          : 'This creates a request for moderator review. It does NOT remove '
+              'or disable any user account.',
+      autoTheft ? 'Submit theft report' : 'Submit for review',
     );
     if (!confirmed || !mounted || _account != account) return;
 
     setState(() => _submitting = true);
     try {
-      await _service.submit(
+      final receipt = await _service.submit(
         account: account,
         targetCode: _target.text,
         reason: _reason,
@@ -172,7 +178,11 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
         _details.clear();
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Guard report saved for moderator review.')),
+        SnackBar(content: Text(autoTheft
+            ? (receipt.status == 'approved'
+                ? 'Theft report approved automatically; matched account revoked.'
+                : 'Theft report recorded; no matching account was revoked.')
+            : 'Guard report saved for moderator review.')),
       );
     } catch (error) {
       try {

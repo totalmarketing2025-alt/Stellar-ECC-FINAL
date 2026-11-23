@@ -31,8 +31,9 @@ class GuardPendingSubmissionConflict implements Exception {
 }
 
 /// Keeps the private signing key on-device and persists case IDs only in the
-/// platform-backed encrypted secret store. Nothing here can approve or delete
-/// an account: Guard submissions always remain pending moderator review.
+/// platform-backed encrypted secret store. Decisions run on the server:
+/// signed theft submissions can immediately revoke matching accounts; other
+/// Guard reasons require moderator review.
 class GuardCaseService {
   GuardCaseService({
     required this.directoryClient,

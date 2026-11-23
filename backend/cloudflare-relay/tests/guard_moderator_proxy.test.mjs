@@ -98,3 +98,46 @@ test('Guard decision binds a case, action and reason, never forwards admin token
     authorization: `Bearer ${'m'.repeat(40)}`, body: { nickname: 'bob' },
   }]);
 });
+
+test('theft automation endpoint authenticates Directory and forwards cleanup to Relay', async () => {
+  const factory = new Function('crypto', 'TextEncoder', 'setTimeout', 'fetch',
+    'btoa', 'atob', 'console', `${source}\nreturn worker;`);
+  const worker = factory(webcrypto, TextEncoder, setTimeout, async () => {
+    throw new Error('Unexpected outbound network call');
+  }, btoa, atob, { log() {}, error() {}, warn() {} });
+  const calls = [];
+  const env = {
+    GUARD_MODERATOR_ACTION_SECRET: 'm'.repeat(40),
+    GUARD_REVIEW_SECRET: 'r'.repeat(40),
+    RELAY_SHARED_SECRET: 's'.repeat(40),
+    RELAY: {
+      idFromName(name) { return name; },
+      get() { return { async fetch(req) {
+        calls.push({
+          authorization: req.headers.get('Authorization'),
+          path: new URL(req.url).pathname,
+          body: await req.json(),
+        });
+        return Response.json({ ok: true });
+      } }; },
+    },
+  };
+  const ready = '/v1/internal/guard-theft-ready';
+  const cleanup = '/v1/internal/guard-theft-cleanup';
+  const body = { caseId, nickname: 'bob' };
+  assert.equal((await worker.fetch(request(ready, 'bad'), env)).status, 401);
+  assert.equal((await worker.fetch(request(ready, 'm'.repeat(40)), env)).status, 200);
+  assert.equal((await worker.fetch(request(cleanup, 'bad', { method: 'POST', body }), env)).status, 401);
+  assert.equal((await worker.fetch(request(cleanup, 'm'.repeat(40), {
+    method: 'POST', body: { ...body, nickname: '../alice' },
+  }), env)).status, 400);
+  const result = await worker.fetch(request(cleanup, 'm'.repeat(40), {
+    method: 'POST', body,
+  }), env);
+  assert.equal(result.status, 200);
+  assert.deepEqual(calls, [{
+    authorization: `Bearer ${'m'.repeat(40)}`,
+    path: '/v1/internal/guard-revoke',
+    body: { nickname: 'bob' },
+  }]);
+});

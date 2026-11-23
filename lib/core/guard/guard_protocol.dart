@@ -9,6 +9,7 @@ class GuardProtocol {
     'harassment': 'Harassment',
     'threats': 'Threats',
     'scam': 'Scam / fraud',
+    'theft': 'Theft / Кражба',
     'impersonation': 'Impersonation',
     'other': 'Other',
   };
