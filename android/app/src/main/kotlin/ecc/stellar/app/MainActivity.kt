@@ -24,6 +24,7 @@ class MainActivity : FlutterFragmentActivity() {
         private const val CHANNEL = "ecc.stellar.app/calls"
         private const val WANTED_MODE_CHANNEL = "ecc.stellar.app/wanted_mode_monitor"
         private const val WANTED_NAVIGATION_CHANNEL = "ecc.stellar.app/wanted_mode_navigation"
+        private const val EDGE_CHANNEL = "ecc.stellar.app/edge_lighting"
         private const val OPEN_WANTED_SECURITY_ACTION = "ecc.stellar.app.OPEN_WANTED_SECURITY"
         private const val WANTED_NAV_PREFS = "stellar_wanted_navigation"
         private const val PREF_PENDING_SECURITY_NAVIGATION = "pending_security_navigation"
@@ -198,6 +199,43 @@ class MainActivity : FlutterFragmentActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             WANTED_NAVIGATION_CHANNEL
         )
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            EDGE_CHANNEL
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getState" -> result.success(
+                    StellarEdgeLighting.state(applicationContext)
+                )
+                "setEnabled" -> {
+                    val desired = call.argument<Boolean>("enabled") == true
+                    result.success(
+                        StellarEdgeLighting.setEnabled(applicationContext, desired)
+                    )
+                }
+                "openPermissionSettings" -> {
+                    if (!StellarEdgeLighting.supported()) {
+                        result.success(false)
+                    } else {
+                        try {
+                            startActivity(Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:$packageName")
+                            ))
+                            result.success(true)
+                        } catch (error: Throwable) {
+                            result.error(
+                                "EDGE_PERMISSION_SETTINGS_UNAVAILABLE",
+                                "Cannot open Android overlay permission settings",
+                                null
+                            )
+                        }
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
 
         wantedModeChannel.setMethodCallHandler { call, result ->
             when (call.method) {
@@ -400,11 +438,13 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        StellarEdgeLighting.setAppForeground(true)
         wantedWipePollHandler.removeCallbacks(wantedWipePoll)
         wantedWipePollHandler.post(wantedWipePoll)
     }
 
     override fun onPause() {
+        StellarEdgeLighting.setAppForeground(false)
         wantedWipePollHandler.removeCallbacks(wantedWipePoll)
         wantedWipeSignalSent = false
         super.onPause()
