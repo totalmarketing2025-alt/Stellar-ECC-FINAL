@@ -123,6 +123,24 @@ class MainActivity : FlutterFragmentActivity() {
         flutterEngine: FlutterEngine
     ) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "ecc.stellar.app/group_calls"
+        ).setMethodCallHandler { call, result ->
+            val roomId = call.argument<String>("roomId").orEmpty()
+            val manager = ecc.stellar.app.calls.StellarGroupCallManager
+            when (call.method) {
+                "registerVerifiedInvitation" ->
+                    result.success(manager.registerVerifiedInvitation(roomId))
+                "consumeInvitation" ->
+                    result.success(manager.consumeInvitation(roomId))
+                "dismissInvitation" -> {
+                    manager.dismiss(roomId)
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
         callActionHandlerReady = false
 
         callChannel = MethodChannel(
