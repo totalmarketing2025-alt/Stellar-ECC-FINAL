@@ -501,6 +501,117 @@ class ModerationClient {
     return Uint8List.fromList(bytes);
   }
 
+  Future<List<Map<String, dynamic>>> fetchStories({
+    required String nickname,
+  }) async {
+    await _ensureAuthenticated(nickname);
+    final request = await _client.getUrl(Uri.parse('$baseUrl/v1/stories'));
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_sessionToken');
+    final response = await request.close().timeout(const Duration(seconds: 20));
+    final body = await utf8.decoder.bind(response).join();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ModerationException(body.isEmpty ? 'Stories request failed' : body, response.statusCode);
+    }
+    final decoded = jsonDecode(body);
+    if (decoded is! Map<String, dynamic> || decoded['stories'] is! List) {
+      throw const FormatException('Invalid Stories response');
+    }
+    return (decoded['stories'] as List).map((item) {
+      if (item is! Map) throw const FormatException('Invalid Story item');
+      return Map<String, dynamic>.from(item);
+    }).toList();
+  }
+
+  Future<void> createStory({
+    required String nickname,
+    required Map<String, dynamic> metadata,
+    required Uint8List encryptedMedia,
+  }) async {
+    await _ensureAuthenticated(nickname);
+    final request = await _client.postUrl(Uri.parse('$baseUrl/v1/stories'));
+    request.headers.contentType = ContentType.json;
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_sessionToken');
+    request.write(jsonEncode(metadata));
+    final response = await request.close().timeout(const Duration(seconds: 20));
+    final body = await utf8.decoder.bind(response).join();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ModerationException(body.isEmpty ? 'Story creation failed' : body, response.statusCode);
+    }
+    final storyId = metadata['storyId'];
+    final upload = await _client.postUrl(Uri.parse(
+      '$baseUrl/v1/stories/${Uri.encodeComponent(storyId as String)}/media',
+    ));
+    upload.headers.contentType = ContentType.binary;
+    upload.headers.contentLength = encryptedMedia.length;
+    upload.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_sessionToken');
+    upload.add(encryptedMedia);
+    final uploadResponse = await upload.close().timeout(const Duration(seconds: 45));
+    final uploadBody = await utf8.decoder.bind(uploadResponse).join();
+    if (uploadResponse.statusCode < 200 || uploadResponse.statusCode >= 300) {
+      try { await deleteStory(nickname: nickname, storyId: storyId); } catch (_) {}
+      throw ModerationException(uploadBody.isEmpty ? 'Story media upload failed' : uploadBody, uploadResponse.statusCode);
+    }
+  }
+
+  Future<Uint8List> fetchStoryMedia({
+    required String nickname,
+    required String storyId,
+  }) async {
+    await _ensureAuthenticated(nickname);
+    final request = await _client.getUrl(Uri.parse(
+      '$baseUrl/v1/stories/${Uri.encodeComponent(storyId)}/media',
+    ));
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_sessionToken');
+    final response = await request.close().timeout(const Duration(seconds: 30));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final body = await utf8.decoder.bind(response).join();
+      throw ModerationException(body.isEmpty ? 'Story media download failed' : body, response.statusCode);
+    }
+    final builder = BytesBuilder(copy: false);
+    await for (final chunk in response) {
+      builder.add(chunk);
+      if (builder.length > 26 * 1024 * 1024) {
+        throw const FormatException('Story media exceeds the download limit');
+      }
+    }
+    return builder.takeBytes();
+  }
+
+  Future<void> reactToStory({
+    required String nickname,
+    required String storyId,
+    required String emoji,
+  }) async {
+    await _ensureAuthenticated(nickname);
+    final request = await _client.postUrl(Uri.parse(
+      '$baseUrl/v1/stories/${Uri.encodeComponent(storyId)}/reactions',
+    ));
+    request.headers.contentType = ContentType.json;
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_sessionToken');
+    request.write(jsonEncode({'emoji': emoji}));
+    final response = await request.close().timeout(const Duration(seconds: 15));
+    final body = await utf8.decoder.bind(response).join();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ModerationException(body.isEmpty ? 'Story reaction failed' : body, response.statusCode);
+    }
+  }
+
+  Future<void> deleteStory({
+    required String nickname,
+    required String storyId,
+  }) async {
+    await _ensureAuthenticated(nickname);
+    final request = await _client.deleteUrl(Uri.parse(
+      '$baseUrl/v1/stories/${Uri.encodeComponent(storyId)}',
+    ));
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_sessionToken');
+    final response = await request.close().timeout(const Duration(seconds: 15));
+    final body = await utf8.decoder.bind(response).join();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ModerationException(body.isEmpty ? 'Story deletion failed' : body, response.statusCode);
+    }
+  }
+
   Future<void> setWantedMode({
     required bool enabled,
     required String nickname,

@@ -21,6 +21,10 @@ jobs:
         with:
           node-version: 20
 
+      - name: Test relay and moderation APIs
+        working-directory: backend/cloudflare-relay
+        run: npm test
+
       - name: Check Cloudflare Relay health
         run: |
           curl -fsS https://stellar-ecc-final.totalmarketing2025.workers.dev/health

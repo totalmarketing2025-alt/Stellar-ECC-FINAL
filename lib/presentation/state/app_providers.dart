@@ -15,6 +15,7 @@ import '../../core/media/media_attachment_service.dart';
 import '../../core/profile/profile_photo_service.dart';
 import '../../core/profile/profile_photo_sync_service.dart';
 import '../../core/moderation/moderation_client.dart';
+import '../../core/stories/stories_service.dart';
 import '../../core/moderation/moderation_admin_client.dart';
 import '../../core/calls/call_signal_router.dart';
 import '../../core/calls/call_coordinator.dart';
@@ -73,6 +74,15 @@ final moderationClientProvider = Provider<ModerationClient>((ref) {
   ref.onDispose(client.dispose);
 
   return client;
+});
+
+final storiesServiceProvider = Provider<StoriesService>((ref) {
+  return StoriesService(
+    moderationClient: ref.watch(moderationClientProvider),
+    sessionManager: ref.watch(sessionManagerProvider),
+    directoryClient: ref.watch(directoryClientProvider),
+    keyStore: ref.watch(platformKeyStoreProvider),
+  );
 });
 
 final directoryClientProvider = Provider<DirectoryClient>((ref) {

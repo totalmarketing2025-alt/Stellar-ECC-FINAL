@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { webcrypto } from "node:crypto";
 
-const sourceUrl = new URL("../src/index-upload-review.js", import.meta.url);
+const sourceUrl = new URL("../src/index.js", import.meta.url);
 const originalSource = await readFile(sourceUrl, "utf8");
 
 function loadRelayRoom() {
@@ -18,6 +18,7 @@ function loadRelayRoom() {
     "crypto",
     "console",
     "TextEncoder",
+    "TextDecoder",
     "setTimeout",
     "fetch",
     "btoa",
@@ -29,6 +30,7 @@ function loadRelayRoom() {
     webcrypto,
     { log() {}, warn() {}, error() {} },
     TextEncoder,
+    TextDecoder,
     setTimeout,
     fetch,
     btoa,

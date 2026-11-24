@@ -94,6 +94,31 @@ function stringToBase64Url(value) {
   return base64UrlEncode(new TextEncoder().encode(value));
 }
 
+async function readJsonWithLimit(request, maxBytes) {
+  const reader = request.body?.getReader();
+  if (!reader) throw new Error("INVALID_JSON");
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        try { await reader.cancel(); } catch (_) {}
+        throw new Error("BODY_TOO_LARGE");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    try { reader.releaseLock(); } catch (_) {}
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
 function pemToArrayBuffer(pem) {
   const normalizedPem = pem.replace(/\\n/g, "\n");
 
@@ -2383,6 +2408,41 @@ export class ModerationRoom {
       )
     `);
 
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS stellar_stories (
+        story_id TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        video_extension TEXT NOT NULL,
+        duration_ms INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        media_size INTEGER NOT NULL,
+        media_uploaded INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS stellar_story_audience (
+        story_id TEXT NOT NULL,
+        nickname TEXT NOT NULL,
+        wrapped_key TEXT NOT NULL,
+        PRIMARY KEY (story_id, nickname),
+        FOREIGN KEY (story_id) REFERENCES stellar_stories(story_id)
+          ON DELETE CASCADE
+      )
+    `);
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS stellar_story_reactions (
+        story_id TEXT NOT NULL,
+        nickname TEXT NOT NULL,
+        emoji TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (story_id, nickname),
+        FOREIGN KEY (story_id) REFERENCES stellar_stories(story_id)
+          ON DELETE CASCADE
+      )
+    `);
+
     try {
       this.ctx.storage.sql.exec(
         `ALTER TABLE moderation_messages
@@ -3105,8 +3165,261 @@ export class ModerationRoom {
     });
   }
 
+  async createStory(request) {
+    const session = await this.authenticateModerationSession(request);
+    if (!session) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
+    let body;
+    try { body = await readJsonWithLimit(request, 512 * 1024); } catch (error) {
+      return Response.json(
+        { error: error?.message === "BODY_TOO_LARGE" ? "Story metadata is too large" : "Invalid JSON" },
+        { status: error?.message === "BODY_TOO_LARGE" ? 413 : 400 },
+      );
+    }
+    const storyId = typeof body?.storyId === "string" ? body.storyId : "";
+    const mediaType = body?.mediaType;
+    const durationMs = body?.durationMs;
+    const videoExtension = body?.videoExtension;
+    const mediaSize = body?.mediaSize;
+    const audience = body?.audience;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(storyId) ||
+        !["image", "video"].includes(mediaType) ||
+        !Number.isSafeInteger(durationMs) || durationMs < 0 ||
+        (mediaType === "image" && durationMs !== 0) ||
+        (mediaType === "video" && (durationMs < 1 || durationMs > 15000)) ||
+        (mediaType === "image" && videoExtension !== "") ||
+        (mediaType === "video" && !["mp4", "mov", "m4v", "3gp", "webm"].includes(videoExtension)) ||
+        !Number.isSafeInteger(mediaSize) || mediaSize < 1 || mediaSize > 25 * 1024 * 1024 ||
+        !Array.isArray(audience) || audience.length < 1 || audience.length > 100) {
+      return Response.json({ error: "Invalid story metadata" }, { status: 400 });
+    }
+    const owner = String(session.nickname || "").trim().toLowerCase();
+    if (!/^[a-z0-9_.-]{1,64}$/.test(owner)) {
+      return Response.json({ error: "Invalid session nickname" }, { status: 400 });
+    }
+    const normalizedAudience = new Map();
+    for (const item of audience) {
+      const nickname = typeof item?.nickname === "string"
+        ? item.nickname.trim().toLowerCase() : "";
+      const wrappedKey = typeof item?.wrappedKey === "string"
+        ? item.wrappedKey : "";
+      if (!/^[a-z0-9_.-]{1,64}$/.test(nickname) || nickname === owner ||
+          wrappedKey.length < 24 || wrappedKey.length > 4096 ||
+          normalizedAudience.has(nickname)) {
+        return Response.json({ error: "Invalid story audience" }, { status: 400 });
+      }
+      let keyEnvelope;
+      try { keyEnvelope = JSON.parse(wrappedKey); } catch (_) {
+        return Response.json({ error: "Invalid story key envelope" }, { status: 400 });
+      }
+      if (![2, 3].includes(keyEnvelope?.type) ||
+          typeof keyEnvelope?.ciphertext !== "string" ||
+          !/^[A-Za-z0-9+/]+={0,2}$/.test(keyEnvelope.ciphertext)) {
+        return Response.json({ error: "Invalid story key envelope" }, { status: 400 });
+      }
+      normalizedAudience.set(nickname, wrappedKey);
+    }
+    const now = Date.now();
+    const activeCount = this.ctx.storage.sql.exec(
+      `SELECT COUNT(*) AS count FROM stellar_stories WHERE owner = ? AND expires_at > ?`,
+      owner, now,
+    ).one()?.count ?? 0;
+    if (Number(activeCount) >= 20) {
+      return Response.json({ error: "Only 20 active Stories are allowed" }, { status: 429 });
+    }
+    this.ctx.storage.sql.exec(
+      `INSERT INTO stellar_stories
+       (story_id, owner, media_type, video_extension, duration_ms, created_at, expires_at, media_size)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      storyId, owner, mediaType, videoExtension, durationMs, now, now + 24 * 60 * 60 * 1000, mediaSize,
+    );
+    for (const [nickname, wrappedKey] of normalizedAudience) {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO stellar_story_audience (story_id, nickname, wrapped_key)
+         VALUES (?, ?, ?)`, storyId, nickname, wrappedKey,
+      );
+    }
+    await this.scheduleNextAlarm();
+    return Response.json({ ok: true, storyId, createdAt: now, expiresAt: now + 86400000 }, { status: 201 });
+  }
+
+  async uploadStoryMedia(request, storyId) {
+    const session = await this.authenticateModerationSession(request);
+    if (!session) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    const owner = String(session.nickname || "").trim().toLowerCase();
+    const row = this.ctx.storage.sql.exec(
+      `SELECT media_size FROM stellar_stories WHERE story_id = ? AND owner = ? AND expires_at > ?`,
+      storyId, owner, Date.now(),
+    ).one();
+    if (!row) return Response.json({ error: "Story not found" }, { status: 404 });
+    const contentLength = request.headers.get("Content-Length");
+    const length = contentLength == null ? null : Number(contentLength);
+    if (length != null && (!Number.isSafeInteger(length) || length !== row.media_size)) {
+      return Response.json({ error: "Story media size mismatch" }, { status: 400 });
+    }
+    if (!request.body) return Response.json({ error: "Story media is required" }, { status: 400 });
+    const reader = request.body.getReader();
+    const chunks = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > 25 * 1024 * 1024 || total > row.media_size) {
+          await reader.cancel();
+          return Response.json({ error: "Story media is too large" }, { status: 413 });
+        }
+        chunks.push(value);
+      }
+    } catch (_) {
+      return Response.json({ error: "Unable to read Story media" }, { status: 400 });
+    } finally {
+      try { reader.releaseLock(); } catch (_) {}
+    }
+    if (total !== row.media_size) {
+      return Response.json({ error: "Story media size mismatch" }, { status: 400 });
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    await this.env.MODERATION_ATTACHMENTS.put(`stories/${storyId}/media`, bytes, {
+      httpMetadata: { contentType: "application/octet-stream" },
+    });
+    this.ctx.storage.sql.exec(
+      `UPDATE stellar_stories SET media_uploaded = 1 WHERE story_id = ? AND owner = ?`,
+      storyId, owner,
+    );
+    return Response.json({ ok: true }, { status: 201 });
+  }
+
+  async listStories(request) {
+    const session = await this.authenticateModerationSession(request);
+    if (!session) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    const nickname = String(session.nickname || "").trim().toLowerCase();
+    const rows = this.ctx.storage.sql.exec(
+      `SELECT s.story_id, s.owner, s.media_type, s.video_extension, s.duration_ms, s.created_at,
+              s.expires_at, s.media_size, a.wrapped_key
+         FROM stellar_stories s
+         LEFT JOIN stellar_story_audience a
+           ON a.story_id = s.story_id AND a.nickname = ?
+        WHERE s.expires_at > ? AND s.media_uploaded = 1
+          AND (s.owner = ? OR a.nickname = ?)
+        ORDER BY s.created_at DESC LIMIT 1000`,
+      nickname, Date.now(), nickname, nickname,
+    ).toArray();
+    const stories = rows.map((row) => {
+      const item = { ...row };
+      if (item.owner === nickname) {
+        item.reaction_counts = this.ctx.storage.sql.exec(
+          `SELECT emoji, COUNT(*) AS count FROM stellar_story_reactions
+            WHERE story_id = ? GROUP BY emoji`, item.story_id,
+        ).toArray();
+      } else {
+        item.reaction_counts = [];
+      }
+      return item;
+    });
+    return Response.json({ stories }, { headers: { "Cache-Control": "no-store" } });
+  }
+
+  async getStoryMedia(request, storyId) {
+    const session = await this.authenticateModerationSession(request);
+    if (!session) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    const nickname = String(session.nickname || "").trim().toLowerCase();
+    const row = this.ctx.storage.sql.exec(
+      `SELECT owner FROM stellar_stories WHERE story_id = ? AND expires_at > ? AND media_uploaded = 1`,
+      storyId, Date.now(),
+    ).one();
+    if (!row) return Response.json({ error: "Story not found" }, { status: 404 });
+    const allowed = row.owner === nickname || this.ctx.storage.sql.exec(
+      `SELECT story_id FROM stellar_story_audience WHERE story_id = ? AND nickname = ?`,
+      storyId, nickname,
+    ).one();
+    if (!allowed) return Response.json({ error: "Forbidden" }, { status: 403 });
+    const object = await this.env.MODERATION_ATTACHMENTS.get(`stories/${storyId}/media`);
+    if (!object) return Response.json({ error: "Story media not found" }, { status: 404 });
+    return new Response(object.body, { headers: {
+      "Content-Type": "application/octet-stream", "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    } });
+  }
+
+  async reactToStory(request, storyId) {
+    const session = await this.authenticateModerationSession(request);
+    if (!session) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    const nickname = String(session.nickname || "").trim().toLowerCase();
+    const story = this.ctx.storage.sql.exec(
+      `SELECT owner FROM stellar_stories WHERE story_id = ? AND expires_at > ? AND media_uploaded = 1`,
+      storyId, Date.now(),
+    ).one();
+    if (!story) return Response.json({ error: "Story not found" }, { status: 404 });
+    const allowed = story.owner === nickname || this.ctx.storage.sql.exec(
+      `SELECT story_id FROM stellar_story_audience WHERE story_id = ? AND nickname = ?`,
+      storyId, nickname,
+    ).one();
+    if (!allowed) return Response.json({ error: "Forbidden" }, { status: 403 });
+    let body;
+    try { body = await readJsonWithLimit(request, 1024); } catch (error) {
+      return Response.json(
+        { error: error?.message === "BODY_TOO_LARGE" ? "Reaction body is too large" : "Invalid JSON" },
+        { status: error?.message === "BODY_TOO_LARGE" ? 413 : 400 },
+      );
+    }
+    const emoji = body?.emoji;
+    const reactions = new Set(["❤️", "😂", "😮", "😢", "👏", "🔥"]);
+    if (typeof emoji !== "string" || !reactions.has(emoji)) {
+      return Response.json({ error: "Unsupported reaction" }, { status: 400 });
+    }
+    if (story.owner === nickname) return Response.json({ error: "Cannot react to own story" }, { status: 400 });
+    this.ctx.storage.sql.exec(
+      `INSERT INTO stellar_story_reactions (story_id, nickname, emoji, updated_at)
+       VALUES (?, ?, ?, ?) ON CONFLICT(story_id, nickname)
+       DO UPDATE SET emoji = excluded.emoji, updated_at = excluded.updated_at`,
+      storyId, nickname, emoji, Date.now(),
+    );
+    return Response.json({ ok: true });
+  }
+
+  async deleteStory(request, storyId) {
+    const session = await this.authenticateModerationSession(request);
+    if (!session) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    const owner = String(session.nickname || "").trim().toLowerCase();
+    const result = this.ctx.storage.sql.exec(
+      `SELECT story_id FROM stellar_stories WHERE story_id = ? AND owner = ?`, storyId, owner,
+    ).one();
+    if (!result) return Response.json({ error: "Story not found" }, { status: 404 });
+    this.ctx.storage.sql.exec(`DELETE FROM stellar_story_audience WHERE story_id = ?`, storyId);
+    this.ctx.storage.sql.exec(`DELETE FROM stellar_story_reactions WHERE story_id = ?`, storyId);
+    this.ctx.storage.sql.exec(`DELETE FROM stellar_stories WHERE story_id = ?`, storyId);
+    this.ctx.waitUntil(this.env.MODERATION_ATTACHMENTS.delete(`stories/${storyId}/media`).catch(() => {}));
+    return Response.json({ ok: true });
+  }
+
   async fetch(request) {
     const url = new URL(request.url);
+
+    if (url.pathname === "/v1/stories") {
+      if (request.method === "POST") return this.createStory(request);
+      if (request.method === "GET") return this.listStories(request);
+      return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, POST" } });
+    }
+    const storyMediaMatch = url.pathname.match(/^\/v1\/stories\/([0-9a-f-]{36})\/media$/i);
+    if (storyMediaMatch) {
+      if (request.method === "POST") return this.uploadStoryMedia(request, storyMediaMatch[1]);
+      if (request.method === "GET") return this.getStoryMedia(request, storyMediaMatch[1]);
+      return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, POST" } });
+    }
+    const storyReactionMatch = url.pathname.match(/^\/v1\/stories\/([0-9a-f-]{36})\/reactions$/i);
+    if (storyReactionMatch) {
+      if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+      return this.reactToStory(request, storyReactionMatch[1]);
+    }
+    const storyDeleteMatch = url.pathname.match(/^\/v1\/stories\/([0-9a-f-]{36})$/i);
+    if (storyDeleteMatch) {
+      if (request.method !== "DELETE") return new Response("Method Not Allowed", { status: 405, headers: { Allow: "DELETE" } });
+      return this.deleteStory(request, storyDeleteMatch[1]);
+    }
 
     if (url.pathname === "/v1/moderation/wanted-mode") {
       if (request.method !== "POST") {
@@ -5006,9 +5319,12 @@ export class ModerationRoom {
   async scheduleNextAlarm() {
     const next = this.ctx.storage.sql
       .exec(
-        `SELECT MIN(expires_at) AS next_expires_at
-         FROM moderation_messages
-         WHERE expires_at > ?`,
+        `SELECT MIN(expires_at) AS next_expires_at FROM (
+           SELECT expires_at FROM moderation_messages WHERE expires_at > ?
+           UNION ALL
+           SELECT expires_at FROM stellar_stories WHERE expires_at > ?
+         )`,
+        Date.now(),
         Date.now(),
       )
       .one();
@@ -5061,6 +5377,24 @@ export class ModerationRoom {
        WHERE expires_at <= ?`,
       now,
     );
+
+    const expiredStories = this.ctx.storage.sql.exec(
+      `SELECT story_id FROM stellar_stories WHERE expires_at <= ?`, now,
+    ).toArray();
+    for (const row of expiredStories) {
+      if (typeof row.story_id === "string") {
+        await this.env.MODERATION_ATTACHMENTS.delete(`stories/${row.story_id}/media`).catch(() => {});
+      }
+    }
+    this.ctx.storage.sql.exec(
+      `DELETE FROM stellar_story_audience WHERE story_id IN
+       (SELECT story_id FROM stellar_stories WHERE expires_at <= ?)`, now,
+    );
+    this.ctx.storage.sql.exec(
+      `DELETE FROM stellar_story_reactions WHERE story_id IN
+       (SELECT story_id FROM stellar_stories WHERE expires_at <= ?)`, now,
+    );
+    this.ctx.storage.sql.exec(`DELETE FROM stellar_stories WHERE expires_at <= ?`, now);
 
     await this.scheduleNextAlarm();
   }
@@ -5195,6 +5529,12 @@ export default {
       ) &&
       url.pathname.endsWith("/attachment");
 
+    const isStoryCollection = url.pathname === "/v1/stories";
+    const isStoryMedia = /^\/v1\/stories\/[0-9a-f-]{36}\/media$/i.test(url.pathname);
+    const isStoryReactions = /^\/v1\/stories\/[0-9a-f-]{36}\/reactions$/i.test(url.pathname);
+    const isStoryItem = /^\/v1\/stories\/[0-9a-f-]{36}$/i.test(url.pathname);
+    const isStoryRoute = isStoryCollection || isStoryMedia || isStoryReactions || isStoryItem;
+
     if (
       url.pathname === "/v1/messages" ||
       url.pathname === "/v1/moderation/auth/challenge" ||
@@ -5221,7 +5561,8 @@ export default {
       isModerationGroupRegistration ||
       isModerationAdminGroups ||
       isModerationAdminGroupMessages ||
-      isModerationAdminAttachment
+      isModerationAdminAttachment ||
+      isStoryRoute
     ) {
       const isAdminDashboardGet =
         isModerationAdminDashboard &&
@@ -5266,6 +5607,11 @@ export default {
         isModerationAdminAttachment &&
         request.method === "GET";
 
+      const isStoryGet = (isStoryCollection || isStoryMedia) && request.method === "GET";
+      const isStoryPost = (isStoryCollection || isStoryMedia || isStoryReactions) &&
+        request.method === "POST";
+      const isStoryDelete = isStoryItem && request.method === "DELETE";
+
       if (
         !isAdminDashboardGet &&
         !isAdminBroadcastsGet &&
@@ -5278,12 +5624,18 @@ export default {
         !isAdminMessagesGet &&
         !isAdminGroupsGet &&
         !isAdminAttachmentGet &&
+        !isStoryGet &&
+        !isStoryPost &&
+        !isStoryDelete &&
         request.method !== "POST"
       ) {
         return new Response("Method Not Allowed", {
           status: 405,
           headers: {
-            Allow: isModerationAdminBroadcasts
+            Allow: isStoryRoute
+              ? (isStoryCollection || isStoryMedia ? "GET, POST" :
+                  isStoryReactions ? "POST" : "DELETE")
+              : isModerationAdminBroadcasts
               ? "GET, POST"
               : (
                   isModerationAdminDashboard ||
@@ -5296,7 +5648,8 @@ export default {
                   isModerationAdminMessages ||
                   isModerationAdminGroups ||
                   isModerationAdminGroupMessages ||
-                  isModerationAdminAttachment
+                  isModerationAdminAttachment ||
+                  isStoryRoute
                 )
                 ? "GET"
                 : "POST",

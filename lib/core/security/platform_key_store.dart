@@ -152,12 +152,34 @@ class PlatformKeyStore {
   Future<void> writeSecret(String key, Uint8List value) =>
       _storage.write(key: key, value: base64Encode(value));
 
+  Future<void> writeSecretText(String key, String value) =>
+      _storage.write(key: key, value: value);
+
   Future<Uint8List?> readSecret(String key) async {
     final raw = await _storage.read(key: key);
     return raw == null ? null : base64Decode(raw);
   }
 
   Future<void> deleteSecret(String key) => _storage.delete(key: key);
+
+  /// Remove only application-owned ephemeral secrets whose paired expiry
+  /// marker has elapsed. Used for Story media keys; unrelated keys are kept.
+  Future<void> deleteExpiredSecrets({
+    required String keyPrefix,
+    required String expiryPrefix,
+    required int nowMs,
+  }) async {
+    final entries = await _storage.readAll();
+    for (final entry in entries.entries) {
+      if (!entry.key.startsWith(expiryPrefix)) continue;
+      final expiry = int.tryParse(entry.value);
+      if (expiry == null || expiry <= nowMs) {
+        final id = entry.key.substring(expiryPrefix.length);
+        await _storage.delete(key: entry.key);
+        await _storage.delete(key: '$keyPrefix$id');
+      }
+    }
+  }
 
   /// Full wipe — used by the "Reset Identity" flow and account deletion.
 

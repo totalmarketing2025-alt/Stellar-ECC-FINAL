@@ -17,6 +17,7 @@ import '../../state/app_providers.dart';
 import '../../state/security_providers.dart';
 import '../../widgets/stellar_avatar.dart';
 import '../../widgets/expiry_ring.dart';
+import '../stories/stories_bar.dart';
 
 class ChatListScreen extends ConsumerStatefulWidget {
   const ChatListScreen({super.key});
@@ -124,6 +125,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
               onChanged: (_) => setState(() {}),
             ),
           ),
+          const StoriesBar(),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: SingleChildScrollView(
