@@ -456,13 +456,13 @@ class CallService {
     print('CALL_START_CLEANUP_BEGIN: callId=$failedCallId');
 
     try {
-      if (!preserveMedia) await localStream?.dispose();
+      await localStream?.dispose();
     } catch (error) {
       print('CALL_START_CLEANUP_STREAM_FAILED: $error');
     }
 
     try {
-      if (!preserveMedia) await cameraCaptureStream?.dispose();
+      await cameraCaptureStream?.dispose();
     } catch (error) {
       print('CALL_START_CLEANUP_CAMERA_FAILED: $error');
     }
@@ -910,13 +910,13 @@ class CallService {
     remoteRenderer?.srcObject = null;
 
     try {
-      await localStream?.dispose();
+      if (!preserveMedia) await localStream?.dispose();
     } catch (error) {
       print('CALL_END_STREAM_CLEANUP_FAILED: $error');
     }
 
     try {
-      await cameraCaptureStream?.dispose();
+      if (!preserveMedia) await cameraCaptureStream?.dispose();
     } catch (error) {
       print('CALL_END_CAMERA_CLEANUP_FAILED: $error');
     }
