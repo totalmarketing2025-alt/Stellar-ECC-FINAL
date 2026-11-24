@@ -27,5 +27,6 @@ void main() {
     expect(find.text('Alex is typing'), findsOneWidget);
     expect(dots, findsNWidgets(4));
     expect(tester.getTopLeft(find.byType(TypingIndicator)).dx, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 }
