@@ -266,15 +266,25 @@ class GroupCallCoordinator {
     if (_room != null) {
       throw StateError('Another call is already active');
     }
-    final directPeer = hasDirectCall()
+    var directPeer = hasDirectCall()
         ? GroupCallProtocol.normalize(activeDirectPeer() ?? '')
         : '';
     if (hasDirectCall() && directPeer.isEmpty) {
       throw StateError('The active call cannot be upgraded');
     }
     final members = await _membersFor(chatId);
-    if (_room != null || (hasDirectCall() && !members.contains(directPeer))) {
-      throw StateError('Active call peer must be included in the group');
+    if (_room != null) {
+      throw StateError('Another call started while opening group');
+    }
+    if (hasDirectCall()) {
+      final currentPeer =
+          GroupCallProtocol.normalize(activeDirectPeer() ?? '');
+      if (currentPeer.isEmpty || !members.contains(currentPeer)) {
+        throw StateError('Active call peer must be included in the group');
+      }
+      directPeer = currentPeer;
+    } else {
+      directPeer = '';
     }
 
     final roomId = _newRoomId();
