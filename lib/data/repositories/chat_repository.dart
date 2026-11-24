@@ -1953,6 +1953,7 @@ class ChatRepository {
           'messageId': messageId,
           'revision': revision,
           'text': text,
+          'sentAt': DateTime.now().millisecondsSinceEpoch ~/ 1000,
         })}',
       ),
     );
