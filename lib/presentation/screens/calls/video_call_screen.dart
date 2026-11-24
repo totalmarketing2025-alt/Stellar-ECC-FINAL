@@ -225,7 +225,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
       case CallState.failed:
         return l10n.callFailed;
       case null:
-        return stellarText(context, 'Connecting…');
+        return l10n.connecting;
     }
   }
 
