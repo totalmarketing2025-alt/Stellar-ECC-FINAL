@@ -94,6 +94,27 @@ class CallService {
   CallKind? get callKind => _callKind;
   bool get localVideoEnabled => _localVideoEnabled;
 
+  Future<CallGroupMedia?> prepareGroupUpgradeMedia({
+    required String remoteNickname,
+    required bool video,
+  }) async {
+    if (_peerConnection == null || _localStream == null ||
+        _callId == null || _callId!.isEmpty) {
+      return null;
+    }
+    if (_localVideoEnabled != video) {
+      await setVideoEnabled(remoteNickname, video);
+    }
+    final audio = _localStream;
+    if (audio == null || audio.getAudioTracks().isEmpty) return null;
+    return CallGroupMedia(
+      audioStream: audio,
+      videoStream: video
+          ? (_cameraCaptureStream ?? audio)
+          : null,
+    );
+  }
+
   void attachRenderers({
     RTCVideoRenderer? local,
     RTCVideoRenderer? remote,
@@ -435,13 +456,13 @@ class CallService {
     print('CALL_START_CLEANUP_BEGIN: callId=$failedCallId');
 
     try {
-      await localStream?.dispose();
+      if (!preserveMedia) await localStream?.dispose();
     } catch (error) {
       print('CALL_START_CLEANUP_STREAM_FAILED: $error');
     }
 
     try {
-      await cameraCaptureStream?.dispose();
+      if (!preserveMedia) await cameraCaptureStream?.dispose();
     } catch (error) {
       print('CALL_START_CLEANUP_CAMERA_FAILED: $error');
     }
@@ -832,7 +853,30 @@ class CallService {
     await end();
   }
 
-  Future<void> end({String? expectedCallId}) async {
+  Future<void> endForGroupUpgrade({
+    required String remoteNickname,
+    required String groupRoomId,
+  }) async {
+    final callId = _callId;
+    if (callId == null || callId.isEmpty || remoteNickname.isEmpty) {
+      await end(preserveMedia: true);
+      return;
+    }
+    try {
+      await _sendSignal(remoteNickname, {
+        'type': 'group-upgrade-complete',
+        'groupRoomId': groupRoomId,
+      }).timeout(const Duration(seconds: 3));
+    } catch (error) {
+      print('CALL_GROUP_UPGRADE_SIGNAL_FAILED: $error');
+    }
+    await end(expectedCallId: callId, preserveMedia: true);
+  }
+
+  Future<void> end({
+    String? expectedCallId,
+    bool preserveMedia = false,
+  }) async {
   // Prevent stale cleanup from ending a replacement call.
   if (expectedCallId != null && _callId != expectedCallId) {
     return;
