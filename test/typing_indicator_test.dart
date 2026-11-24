@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../lib/presentation/widgets/typing_indicator.dart';
+import '../lib/core/theme/stellar_theme.dart';
 
 void main() {
   testWidgets('typing indicator is left aligned and shows four animated dots',
@@ -20,7 +21,7 @@ void main() {
       }
       final decoration = widget.decoration as BoxDecoration;
       return decoration.shape == BoxShape.circle &&
-          decoration.color == const Color(0xFF9B6DFF);
+          decoration.color == StellarColors.accentPurple;
     });
 
     expect(find.text('Alex is typing'), findsOneWidget);
