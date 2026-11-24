@@ -70,7 +70,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _refreshTimer?.cancel();
     _typingStopTimer?.cancel();
     _typingHeartbeatTimer?.cancel();
-    if (_typingActive) unawaited(ref.read(chatRepositoryProvider).sendTypingState(widget.chatId, false));
+    if (_typingActive) _sendTypingSignal(false);
     _searchController.dispose();
     _composerController.dispose();
     _scrollController.dispose();
@@ -282,8 +282,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             onEdit: () => _editMessage(message),
                             onDeleteForEveryone: () => _deleteForEveryone(message),
                             onTogglePin: () async {
-                              await ref.read(chatRepositoryProvider).setMessagePinned(message.messageId, !message.isPinned);
-                              ref.invalidate(chatMessagesProvider(widget.chatId));
+                              try {
+                                await ref.read(chatRepositoryProvider).setMessagePinned(
+                                      message.messageId,
+                                      !message.isPinned,
+                                    );
+                                ref.invalidate(chatMessagesProvider(widget.chatId));
+                              } catch (error) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('$error')),
+                                  );
+                                }
+                              }
                             },
                             onDelete: () async {
                               await ref
@@ -674,17 +685,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  void _sendTypingSignal(bool isTyping) {
+    unawaited(
+      ref
+          .read(chatRepositoryProvider)
+          .sendTypingState(widget.chatId, isTyping)
+          .catchError((Object _) {}),
+    );
+  }
+
   void _handleComposerChanged(String value) {
     _typingStopTimer?.cancel();
     if (value.trim().isEmpty) {
-      if (_typingActive) unawaited(ref.read(chatRepositoryProvider).sendTypingState(widget.chatId, false));
+      if (_typingActive) _sendTypingSignal(false);
       _typingActive = false;
       _typingHeartbeatTimer?.cancel();
       return;
     }
     if (!_typingActive) {
       _typingActive = true;
-      unawaited(ref.read(chatRepositoryProvider).sendTypingState(widget.chatId, true));
+      _sendTypingSignal(true);
       _typingHeartbeatTimer = Timer.periodic(const Duration(seconds: 3), (_) {
         if (_typingActive) unawaited(ref.read(chatRepositoryProvider).sendTypingState(widget.chatId, true));
       });
@@ -693,7 +713,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (!_typingActive) return;
       _typingActive = false;
       _typingHeartbeatTimer?.cancel();
-      unawaited(ref.read(chatRepositoryProvider).sendTypingState(widget.chatId, false));
+      _sendTypingSignal(false);
     });
   }
 
