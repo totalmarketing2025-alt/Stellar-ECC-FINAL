@@ -209,7 +209,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     data: (messages) {
                       final query = _searchController.text.trim().toLowerCase();
                       final visibleMessages = query.isEmpty
-                          ? messages.where((m) => !m.isDeleted).toList()
+                          ? messages
                           : messages.where((m) => !m.isDeleted && m.bodyPlaintext.toLowerCase().contains(query)).toList();
                       if (visibleMessages.isEmpty) {
                         return const Center(
