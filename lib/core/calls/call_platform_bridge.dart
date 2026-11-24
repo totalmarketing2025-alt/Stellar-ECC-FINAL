@@ -188,6 +188,42 @@ class CallPlatformBridge {
     }
   }
 
+  Future<bool> startOutgoingCallForeground({
+    required String callId,
+    required String remoteNickname,
+    required String kind,
+  }) async {
+    if (callId.isEmpty || remoteNickname.trim().isEmpty) return false;
+    try {
+      final result = await _channel.invokeMethod<bool>(
+        'startOutgoingCallForeground',
+        <String, dynamic>{
+          'callId': callId,
+          'remoteNickname': remoteNickname,
+          'kind': kind,
+        },
+      );
+      return result == true;
+    } catch (error) {
+      print('CALL_FOREGROUND_START_FAILED: $error');
+      return false;
+    }
+  }
+
+  Future<bool> stopOutgoingCallForeground(String callId) async {
+    if (callId.isEmpty) return false;
+    try {
+      final result = await _channel.invokeMethod<bool>(
+        'stopOutgoingCallForeground',
+        <String, dynamic>{'callId': callId},
+      );
+      return result == true;
+    } catch (error) {
+      print('CALL_FOREGROUND_STOP_FAILED: $error');
+      return false;
+    }
+  }
+
   Future<void> stopCallRingtone(String callId) async {
     if (callId.isEmpty) return;
     try {

@@ -6,6 +6,7 @@ import '../../../core/guard/guard_case_service.dart';
 import '../../../core/guard/guard_protocol.dart';
 import '../../../core/network/directory_client.dart';
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 import '../../state/app_providers.dart';
 
 /// Guard case submission. Signed theft reports may trigger immediate revocation.
@@ -121,7 +122,7 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
         content: Text(message),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Back')),
+              child: Text(stellarText(context, "Back"))),
           FilledButton(onPressed: () => Navigator.pop(ctx, true),
               child: Text(action)),
         ],
@@ -207,7 +208,7 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
       final confirmed = await _confirm(
         'Cancel Guard report?',
         'This cancels the pending report. The target account is unchanged.',
-        'Cancel report',
+        stellarText(context, "Cancel report"),
       );
       if (!confirmed || !mounted || _account != account) return;
     }
@@ -234,7 +235,7 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('My 9-digit Guard code',
+          Text(stellarText(context, "My 9-digit Guard code"),
               style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           const Text('Your Guard code identifies your account. It is NOT '
@@ -247,14 +248,14 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
             TextButton.icon(
               onPressed: () => Clipboard.setData(ClipboardData(text: _myCode!)),
               icon: const Icon(Icons.copy_outlined),
-              label: const Text('Copy code'),
+              label: Text(stellarText(context, "Copy code")),
             ),
           ] else OutlinedButton(
             onPressed: ready && !_loadingCode ? _revealCode : null,
             child: _loadingCode
                 ? const SizedBox(width: 18, height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text('Reveal my code'),
+                : Text(stellarText(context, "Reveal my code")),
           ),
         ],
       ),
@@ -270,7 +271,7 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Report another user',
+            Text(stellarText(context, "Report another user"),
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             TextFormField(
@@ -279,8 +280,8 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
               keyboardType: TextInputType.number,
               maxLength: 9,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(
-                labelText: 'Target user code', hintText: '9 digits',
+              decoration: InputDecoration(
+                labelText: stellarText(context, "Target user code"), hintText: stellarText(context, "9 digits"),
                 counterText: '', border: OutlineInputBorder(),
               ),
               validator: (value) => GuardProtocol.validCode(value ?? '')
@@ -294,7 +295,7 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
               key: ValueKey('guard_reason_$_reason'),
               value: _reason,
               isExpanded: true,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Reason', border: OutlineInputBorder(),
               ),
               items: GuardProtocol.reasons.entries.map((entry) =>
@@ -311,9 +312,9 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
               maxLength: 2000,
               minLines: 3,
               maxLines: 6,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Describe the issue',
-                hintText: 'What happened?', border: OutlineInputBorder(),
+                hintText: stellarText(context, "What happened?"), border: OutlineInputBorder(),
               ),
               validator: (value) => GuardProtocol.validDetails((value ?? '').trim())
                   ? null : 'Write 10–2000 characters',
@@ -329,7 +330,7 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
                   _reason = _pending!.reason;
                   _details.text = _pending!.details;
                 }),
-                child: const Text('Restore previous report'),
+                child: Text(stellarText(context, "Restore previous report")),
               ),
             ],
             const SizedBox(height: 8),
@@ -344,11 +345,11 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
                 child: _submitting
                     ? const SizedBox(width: 18, height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Submit for moderator review'),
+                    : Text(stellarText(context, "Submit for moderator review")),
               ),
             ),
             const SizedBox(height: 8),
-            const Text('A report never automatically removes an account.',
+            Text(stellarText(context, "A report never automatically removes an account."),
                 style: TextStyle(color: StellarColors.textSecondary)),
           ],
         ),
@@ -356,20 +357,20 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
     ),
   );
 
-  Widget _historyCard() => Card(
+  Widget _historyCard(BuildContext context) => Card(
     color: StellarColors.bgElevated,
     child: Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('My Guard reports',
+          Text(stellarText(context, "My Guard reports"),
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           if (_loading) const LinearProgressIndicator()
           else if (_cases.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(top: 8),
-              child: Text('No reports saved on this device.',
+              child: Text(stellarText(context, "No reports saved on this device."),
                   style: TextStyle(color: StellarColors.textSecondary)),
             )
           else for (final item in _cases) ...[
@@ -387,13 +388,13 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
                 OutlinedButton(
                   onPressed: _busyCase != null || _submitting
                       ? null : () => _caseAction(item, cancel: false),
-                  child: const Text('Refresh status'),
+                  child: Text(stellarText(context, "Refresh status")),
                 ),
                 if (item.status == 'pending_review')
                   TextButton(
                     onPressed: _busyCase != null || _submitting
                         ? null : () => _caseAction(item, cancel: true),
-                    child: const Text('Cancel report'),
+                    child: Text(stellarText(context, "Cancel report")),
                   ),
               ],
             ),
@@ -423,14 +424,14 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
     final ready = account != null && account.trim().isNotEmpty;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Stellar GUARD')),
+      appBar: AppBar(title: Text(stellarText(context, "Stellar GUARD"))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           const Icon(Icons.shield_moon_outlined,
               color: StellarColors.accentBlue, size: 56),
           const SizedBox(height: 12),
-          const Text('Stellar GUARD', textAlign: TextAlign.center,
+          Text(stellarText(context, "Stellar GUARD"), textAlign: TextAlign.center,
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           const Text('Submit a secure report about a Stellar account. '
@@ -438,9 +439,9 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
               textAlign: TextAlign.center,
               style: TextStyle(color: StellarColors.textSecondary)),
           if (!ready)
-            const Card(child: Padding(
+            Card(child: Padding(
               padding: EdgeInsets.all(16),
-              child: Text('Complete account setup before using Guard.'),
+              child: Text(stellarText(context, "Complete account setup before using Guard.")),
             )),
           if (_loadError != null)
             Card(child: Padding(
@@ -453,7 +454,7 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
           const SizedBox(height: 12),
           _reportCard(ready && !_loading && _loadError == null),
           const SizedBox(height: 12),
-          _historyCard(),
+          _historyCard(context),
           const SizedBox(height: 16),
           const Text('Case IDs are stored securely on this device. If app '
               'data is wiped, these local references can be lost. Guard does '

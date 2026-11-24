@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:libsignal_protocol_dart/libsignal_protocol_dart.dart';
 
@@ -28,6 +28,9 @@ class GroupCallCoordinator {
     required this.signalRouter,
     required this.localNickname,
     required this.hasDirectCall,
+    required this.activeDirectPeer,
+    required this.prepareDirectMedia,
+    required this.onDirectUpgradeComplete,
   });
 
   final StellarDatabase db;
@@ -37,10 +40,40 @@ class GroupCallCoordinator {
   final CallSignalRouter signalRouter;
   final String localNickname;
   final bool Function() hasDirectCall;
+  final String? Function() activeDirectPeer;
+  final Future<CallGroupMedia?> Function({required bool video}) prepareDirectMedia;
+  final Future<bool> Function(String roomId) onDirectUpgradeComplete;
 
   final _roomController = StreamController<GroupCallRoom?>.broadcast();
   Stream<GroupCallRoom?> get roomStream => _roomController.stream;
   GroupCallRoom? get activeRoom => _room;
+
+  static const _nativeGroupCalls = MethodChannel('ecc.stellar.app/group_calls');
+
+  Future<void> _nativeInvitation(String method, String roomId) async {
+    try {
+      await _nativeGroupCalls.invokeMethod<bool>(method, {'roomId': roomId});
+    } on MissingPluginException {
+      // Foreground Flutter calls remain available on other platforms.
+    } on PlatformException {
+      // Native registry is advisory; signed Flutter state is authoritative.
+    }
+  }
+
+  Future<void> _groupForeground(String method, String roomId,
+      {bool video = false}) async {
+    try {
+      final accepted = await _nativeGroupCalls.invokeMethod<bool>(method, {
+        'roomId': roomId,
+        'video': video,
+      });
+      if (accepted != true) print('GROUP_FOREGROUND_REQUEST_REJECTED');
+    } on MissingPluginException {
+      // Native foreground service is Android-only.
+    } on PlatformException catch (error) {
+      print('GROUP_FOREGROUND_FAILED: ${error.code}');
+    }
+  }
 
   GroupCallRoom? _room;
   final Map<String, _MeshPeer> _peers = {};
@@ -53,9 +86,17 @@ class GroupCallCoordinator {
   Map<String, dynamic>? _iceConfiguration;
   StreamSubscription<CallSignal>? _subscription;
   Future<void> _incomingQueue = Future<void>.value();
+  final Map<String, int> _seenGroupSignals = {};
+  static const _maxSeenGroupSignals = 8192;
+  int _queuedSignals = 0;
+  static const _maxQueuedSignals = 256;
   Timer? _invitationTimeout;
   Timer? _presenceTimer;
   bool _changingVideo = false;
+  bool _ownsLocalMedia = true;
+  bool _ownsCameraMedia = true;
+  String? _directUpgradeRoomId;
+  bool _finishingDirectUpgrade = false;
   bool _disposed = false;
   int _generation = 0;
   int _mediaRevision = 0;
@@ -66,14 +107,88 @@ class GroupCallCoordinator {
       _room!.phase != GroupCallPhase.ended &&
       _room!.phase != GroupCallPhase.failed;
 
+  bool get isDirectUpgradeInProgress => _directUpgradeRoomId != null;
+
+  String? groupUpgradeRoomForPeer(String peer) {
+    final room = _room;
+    final roomId = _directUpgradeRoomId;
+    final normalized = GroupCallProtocol.normalize(peer);
+    if (room == null || roomId == null || room.roomId != roomId ||
+        !room.members.contains(normalized)) return null;
+    return roomId;
+  }
+
+  bool isGroupUpgradeReady(String roomId) =>
+      _room?.roomId == roomId && _directUpgradeRoomId == roomId &&
+      _allMembersConnected(_room!);
+
+  bool _allMembersConnected(GroupCallRoom room) =>
+      room.members.where((member) => member != _local)
+          .every((member) =>
+              room.connectionStates[member] == GroupMemberCallState.connected);
+
+  bool _drainingNativeActions = false;
+  bool _nativeDrainRequested = false;
+  final Map<String, MapEntry<String, DateTime>> _deferredNativeActions = {};
+
+  Future<void> _drainNativeActions() async {
+    _nativeDrainRequested = true;
+    if (_drainingNativeActions || _disposed) return;
+    _drainingNativeActions = true;
+    try {
+      while (_nativeDrainRequested && !_disposed) {
+        _nativeDrainRequested = false;
+        final actions = await _nativeGroupCalls.invokeListMethod<dynamic>(
+          'takeGroupActions',
+        );
+        for (final action in actions ?? const []) {
+          if (_disposed || action is! Map) continue;
+          final room = _room;
+          final id = action['roomId'];
+          final kind = action['action'];
+          if (room == null && id is String && RegExp(r'^[a-f0-9]{32}$').hasMatch(id) &&
+              (kind == 'join' || kind == 'decline')) {
+            final now = DateTime.now();
+            _deferredNativeActions.removeWhere((_, entry) => entry.value.isBefore(now));
+            if (_deferredNativeActions.length < 4) {
+              _deferredNativeActions.putIfAbsent(id, () => MapEntry(kind as String, now.add(const Duration(seconds: 45))));
+            }
+            continue;
+          }
+          if (room == null || room.phase != GroupCallPhase.ringing ||
+              action['roomId'] != room.roomId) continue;
+          if (action['action'] == 'join') {
+            await acceptInvitation();
+          } else if (action['action'] == 'decline') {
+            await declineInvitation();
+          }
+        }
+      }
+    } on MissingPluginException {
+      // Native actions are Android-only.
+    } on PlatformException {
+      // In-app controls remain available.
+    } finally {
+      _drainingNativeActions = false;
+    }
+  }
+
   void start() {
+    _nativeGroupCalls.setMethodCallHandler((call) async {
+      if (call.method == 'groupActionsAvailable') {
+        await _drainNativeActions();
+      }
+    });
+    unawaited(_drainNativeActions());
     _subscription ??= signalRouter.incoming.listen((signal) {
-      if (!signal.type.startsWith('group-')) return;
+      if (_disposed || !signal.type.startsWith('group-') ||
+          _queuedSignals >= _maxQueuedSignals) return;
+      _queuedSignals++;
       _incomingQueue = _incomingQueue
           .then((_) => _handleSignal(signal))
           .catchError((Object error) {
-        print('GROUP_CALL_SIGNAL_FAILED: $error');
-      });
+        print('GROUP_CALL_SIGNAL_FAILED');
+      }).whenComplete(() { _queuedSignals--; });
     });
   }
 
@@ -113,6 +228,21 @@ class GroupCallCoordinator {
     return names;
   }
 
+  Future<List<String>> _membersForIncomingInvitation(String chatId) async {
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        final members = await _membersFor(chatId);
+        if (members.isNotEmpty) return members;
+      } catch (_) {
+        // Group metadata may be delivered immediately before the call invite.
+      }
+      if (attempt < 4) await Future<void>.delayed(
+        const Duration(milliseconds: 500),
+      );
+    }
+    return const <String>[];
+  }
+
   Future<bool> _membershipStillMatches(GroupCallRoom room) async {
     try {
       final members = await _membersFor(room.chatId);
@@ -133,12 +263,28 @@ class GroupCallCoordinator {
     required String chatId,
     required bool video,
   }) async {
-    if (_room != null || hasDirectCall()) {
+    if (_room != null) {
       throw StateError('Another call is already active');
     }
+    var directPeer = hasDirectCall()
+        ? GroupCallProtocol.normalize(activeDirectPeer() ?? '')
+        : '';
+    if (hasDirectCall() && directPeer.isEmpty) {
+      throw StateError('The active call cannot be upgraded');
+    }
     final members = await _membersFor(chatId);
-    if (_room != null || hasDirectCall()) {
+    if (_room != null) {
       throw StateError('Another call started while opening group');
+    }
+    if (hasDirectCall()) {
+      final currentPeer =
+          GroupCallProtocol.normalize(activeDirectPeer() ?? '');
+      if (currentPeer.isEmpty || !members.contains(currentPeer)) {
+        throw StateError('Active call peer must be included in the group');
+      }
+      directPeer = currentPeer;
+    } else {
+      directPeer = '';
     }
 
     final roomId = _newRoomId();
@@ -161,23 +307,41 @@ class GroupCallCoordinator {
       joinedAt: DateTime.now(),
     );
     _room = room;
+    _directUpgradeRoomId = directPeer.isNotEmpty ? roomId : null;
     final generation = ++_generation;
     _emit();
     try {
       await _prepareMedia(video);
       if (!_isCurrent(generation, roomId)) return;
+      await _groupForeground('startGroupForeground', roomId, video: video);
+      if (!_isCurrent(generation, roomId)) {
+        await _groupForeground('stopGroupForeground', roomId);
+        return;
+      }
       _startPresence(roomId);
       for (final member in members) {
         if (member == _local) continue;
         try {
           await _send(member, 'group-invite');
-        } catch (error) {
-          print('GROUP_CALL_INVITE_FAILED: $member $error');
+          if (!_isCurrent(generation, roomId)) return;
+          // Push is a wake hint only; the signed relay invitation remains
+          // the authority for membership and accepting the call.
+          await relay.sendCallWake(
+            recipient: member,
+            callId: roomId,
+            kind: video ? 'video' : 'voice',
+            group: true,
+          );
+        } catch (_) {
+          print('GROUP_CALL_INVITE_FAILED');
         }
       }
       _invitationTimeout = Timer(const Duration(seconds: 60), () {
-        if (_isCurrent(generation, roomId) &&
-            _room!.connectedPeers == 0) {
+        final current = _room;
+        if (_isCurrent(generation, roomId) && current != null &&
+            (current.connectedPeers == 0 ||
+                (_directUpgradeRoomId == roomId &&
+                    !_allMembersConnected(current)))) {
           unawaited(leaveRoom());
         }
       });
@@ -187,25 +351,46 @@ class GroupCallCoordinator {
     }
   }
 
+  int? _decliningGeneration;
+
   Future<void> acceptInvitation() async {
     final room = _room;
     if (room == null || room.phase != GroupCallPhase.ringing) return;
-    if (hasDirectCall() || !await _membershipStillMatches(room)) {
+    final generation = _generation;
+    if (_decliningGeneration == generation) return;
+    final membershipValid = await _membershipStillMatches(room);
+    if (!_isCurrent(generation, room.roomId) ||
+        _room?.phase != GroupCallPhase.ringing ||
+        _decliningGeneration == generation) return;
+    final activePeer = hasDirectCall()
+        ? GroupCallProtocol.normalize(activeDirectPeer() ?? '')
+        : '';
+    final directUpgradeAllowed = activePeer.isNotEmpty &&
+        activePeer == room.inviter &&
+        room.members.contains(activePeer);
+    if ((hasDirectCall() && !directUpgradeAllowed) || !membershipValid) {
       await declineInvitation();
       return;
     }
+    if (directUpgradeAllowed) _directUpgradeRoomId = room.roomId;
+    unawaited(_nativeInvitation('consumeInvitation', room.roomId));
     _invitationTimeout?.cancel();
     _invitationTimeout = null;
-    final generation = _generation;
-    _room = room.copyWith(
+    _room = _room!.copyWith(
       phase: GroupCallPhase.connecting,
-      joined: {...room.joined, _local},
+      joined: {..._room!.joined, _local},
       joinedAt: DateTime.now(),
     );
     _emit();
     try {
       await _prepareMedia(room.video);
       if (!_isCurrent(generation, room.roomId)) return;
+      await _groupForeground('startGroupForeground', room.roomId,
+          video: room.video);
+      if (!_isCurrent(generation, room.roomId)) {
+        await _groupForeground('stopGroupForeground', room.roomId);
+        return;
+      }
       _startPresence(room.roomId);
       await _announceJoin();
       await _connectJoinedPeers();
@@ -218,44 +403,86 @@ class GroupCallCoordinator {
   Future<void> declineInvitation() async {
     final room = _room;
     if (room == null || room.phase != GroupCallPhase.ringing) return;
+    final generation = _generation;
+    if (_decliningGeneration == generation) return;
+    _decliningGeneration = generation;
     try {
       await _send(room.inviter, 'group-reject')
           .timeout(const Duration(seconds: 3));
     } catch (_) { /* Always dismiss locally. */ }
-    await _closeRoom(room.roomId);
+    if (_isCurrent(generation, room.roomId)) await _closeRoom(room.roomId);
+    if (_decliningGeneration == generation) _decliningGeneration = null;
   }
 
   Future<void> _announceJoin() async {
     final room = _room;
     if (room == null || !isActive) return;
+    final generation = _generation;
     for (final member in room.members) {
+      if (!_isCurrent(generation, room.roomId) || !isActive) return;
       if (member == _local) continue;
       try {
         await _send(member, 'group-join');
-      } catch (error) {
-        print('GROUP_JOIN_ANNOUNCE_FAILED: $member $error');
+      } catch (_) {
+        print('GROUP_JOIN_ANNOUNCE_FAILED');
       }
     }
   }
+
+  int? _presenceInFlightGeneration;
 
   void _startPresence(String roomId) {
     _presenceTimer?.cancel();
     _presenceTimer = Timer.periodic(const Duration(seconds: 12), (_) {
       if (_room?.roomId != roomId || !isActive) return;
-      unawaited(_refreshPresence(roomId));
+      final generation = _generation;
+      if (_presenceInFlightGeneration == generation) return;
+      _presenceInFlightGeneration = generation;
+      unawaited(_refreshPresence(roomId).catchError((Object _) {
+        // A transient signaling failure is retried on the next tick.
+      }).whenComplete(() {
+        if (_presenceInFlightGeneration == generation) {
+          _presenceInFlightGeneration = null;
+        }
+      }));
     });
   }
 
   Future<void> _refreshPresence(String roomId) async {
     final room = _room;
     if (room == null || room.roomId != roomId) return;
-    if (!await _membershipStillMatches(room)) {
+    final generation = _generation;
+    final matches = await _membershipStillMatches(room);
+    if (!_isCurrent(generation, roomId) || !isActive) return;
+    if (!matches) {
       await leaveRoom(); // Membership changes revoke the old room snapshot.
       return;
     }
     await _announceJoin(); // Also heals out-of-order or dropped join signals.
+    if (!_isCurrent(generation, roomId) || !isActive) return;
+    for (final remote in _room!.joined.toList()) {
+      if (remote == _local || !_isCurrent(generation, roomId)) continue;
+      final peer = _peers[remote];
+      if (peer == null) {
+        try {
+          await _connectJoinedPeers();
+        } catch (_) {
+          // Presence will retry missing mesh edges on the next tick.
+        }
+        break;
+      }
+      if (peer.connectionState ==
+              RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
+          peer.connectionState ==
+              RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        _schedulePeerRecovery(remote, peer);
+      }
+    }
+    if (!_isCurrent(generation, roomId)) return;
+    _maybeFinishDirectUpgrade();
     if (_room?.inviter == _local) {
       for (final peer in room.members) {
+        if (!_isCurrent(generation, roomId)) return;
         if (peer == _local ||
             _room?.connectionStates[peer] != GroupMemberCallState.invited) {
           continue;
@@ -273,13 +500,35 @@ class GroupCallCoordinator {
       signal.session.remoteNickname ?? '',
     );
     if (remote.isEmpty || remote == _local) return;
+    final sentAt = signal.payload['sentAt'];
+    final signature = signal.payload['signature'];
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final window = CallSignalAuthenticator.maxAge.inMilliseconds;
+    if (sentAt is! int || (now - sentAt).abs() > window ||
+        signature is! String || signature.isEmpty || signature.length > 256) return;
+    _seenGroupSignals.removeWhere((_, expiry) => expiry < now);
+    final replayKey = jsonEncode([remote, signature]);
+    if (_seenGroupSignals.containsKey(replayKey) ||
+        _seenGroupSignals.length >= _maxSeenGroupSignals) return;
+    _seenGroupSignals[replayKey] = sentAt + window;
     final roomId = signal.payload['roomId'] as String;
 
     if (signal.type == 'group-invite') {
-      if (_room != null || hasDirectCall()) return;
-      final members = await _membersFor(signal.session.chatId).catchError(
-        (Object _) => <String>[],
+      final activePeerBeforeLookup = hasDirectCall()
+          ? GroupCallProtocol.normalize(activeDirectPeer() ?? '')
+          : '';
+      if (_room != null ||
+          (hasDirectCall() && activePeerBeforeLookup != remote)) return;
+      final invitationGeneration = _generation;
+      final members = await _membersForIncomingInvitation(
+        signal.session.chatId,
       );
+      if (_disposed || _generation != invitationGeneration || _room != null) return;
+      final activePeerAfterLookup = hasDirectCall()
+          ? GroupCallProtocol.normalize(activeDirectPeer() ?? '')
+          : '';
+      if (hasDirectCall() &&
+          (activePeerAfterLookup != remote || !members.contains(remote))) return;
       if (!members.contains(remote) ||
           GroupCallProtocol.membershipDigest(members) !=
               signal.payload['membersDigest']) return;
@@ -301,14 +550,25 @@ class GroupCallCoordinator {
         localVideo: false,
       );
       _room = room;
+      if (activePeerAfterLookup == remote) _directUpgradeRoomId = roomId;
       final generation = ++_generation;
       _emit();
+      unawaited(_nativeInvitation('registerVerifiedInvitation', roomId));
       _invitationTimeout = Timer(const Duration(seconds: 45), () {
         if (_isCurrent(generation, roomId) &&
             _room?.phase == GroupCallPhase.ringing) {
           unawaited(declineInvitation());
         }
       });
+      final deferred = _deferredNativeActions.remove(roomId);
+      if (deferred != null && deferred.value.isAfter(DateTime.now()) &&
+          _isCurrent(generation, roomId)) {
+        if (deferred.key == 'join') {
+          await acceptInvitation();
+        } else {
+          await declineInvitation();
+        }
+      }
       return;
     }
 
@@ -318,11 +578,13 @@ class GroupCallCoordinator {
         room.video != (signal.payload['kind'] == 'video') ||
         room.membersDigest != signal.payload['membersDigest'] ||
         !room.members.contains(remote)) return;
-    if (!await _membershipStillMatches(room)) {
+    final generation = _generation;
+    final matches = await _membershipStillMatches(room);
+    if (!_isCurrent(generation, roomId)) return;
+    if (!matches) {
       await leaveRoom();
       return;
     }
-    if (_room?.roomId != roomId) return;
 
     switch (signal.type) {
       case 'group-join':
@@ -334,7 +596,9 @@ class GroupCallCoordinator {
             // A late joiner knows only the inviter. Announce ourselves
             // immediately so the remaining mesh edges form without waiting
             // for the next periodic presence tick.
+            if (!_isCurrent(generation, roomId)) return;
             await _send(remote, 'group-join');
+            if (!_isCurrent(generation, roomId)) return;
             // A camera toggle may predate this participant's arrival.
             await _send(remote, 'group-media', {
               'videoEnabled': _room!.localVideo,
@@ -345,6 +609,12 @@ class GroupCallCoordinator {
         break;
       case 'group-reject':
       case 'group-leave':
+        if (_directUpgradeRoomId == roomId) {
+          // A failed upgrade must leave the original 1:1 call intact and
+          // tell every other invitee to leave the temporary mesh.
+          await leaveRoom();
+          return;
+        }
         final joined = {..._room!.joined}..remove(remote);
         final states = {..._room!.connectionStates};
         states[remote] = GroupMemberCallState.left;
@@ -353,19 +623,19 @@ class GroupCallCoordinator {
         await _removePeer(remote);
         break;
       case 'group-offer':
-        if (!isActive) return;
-        _setJoined(remote);
+        if (!isActive || !_room!.joined.contains(remote)) return;
         await _receiveOffer(remote, signal.payload);
         break;
       case 'group-answer':
-        if (!isActive) return;
+        if (!isActive || !_room!.joined.contains(remote)) return;
         await _receiveAnswer(remote, signal.payload);
         break;
       case 'group-ice':
-        if (!isActive) return;
+        if (!isActive || !_room!.joined.contains(remote)) return;
         await _receiveIce(remote, signal.payload);
         break;
       case 'group-media':
+        if (!isActive || !_room!.joined.contains(remote)) return;
         final parsed = CallMediaState.parse(
           signal.payload, _remoteMediaRevisions[remote] ?? 0,
         );
@@ -393,18 +663,28 @@ class GroupCallCoordinator {
   Future<void> _connectJoinedPeers() async {
     final room = _room;
     if (room == null || !isActive) return;
+    final generation = _generation;
     for (final peer in room.joined) {
-      if (peer == _local || _room?.roomId != room.roomId) continue;
+      if (!_isCurrent(generation, room.roomId)) return;
+      if (peer == _local || !_room!.joined.contains(peer)) continue;
       final connection = await _ensurePeer(peer);
+      if (!_isCurrent(generation, room.roomId) ||
+          !identical(_peers[peer], connection)) return;
       if (GroupCallProtocol.shouldOffer(_local, peer) &&
           !connection.offered && !connection.remoteDescriptionSet) {
         connection.offered = true;
         try {
           final offer = await connection.pc.createOffer();
+          if (!_isCurrent(generation, room.roomId) ||
+              !identical(_peers[peer], connection)) return;
+          final negotiation = ++connection.negotiation;
           await connection.pc.setLocalDescription(offer);
+          if (!_isCurrent(generation, room.roomId) ||
+              !identical(_peers[peer], connection)) return;
           await _send(peer, 'group-offer', {
             'sdp': offer.sdp,
             'sdpType': offer.type,
+            'negotiationId': negotiation,
           });
         } catch (_) {
           connection.offered = false;
@@ -414,31 +694,103 @@ class GroupCallCoordinator {
     }
   }
 
+  void _schedulePeerRecovery(String remote, _MeshPeer peer) {
+    final room = _room;
+    final generation = _generation;
+    if (room == null || !isActive || !room.joined.contains(remote) ||
+        !identical(_peers[remote], peer) || peer.retryTimer != null ||
+        peer.retryCount >= 5 ||
+        !GroupCallProtocol.shouldOffer(_local, remote)) return;
+    final delay = Duration(seconds: 2 << peer.retryCount);
+    peer.retryTimer = Timer(delay, () async {
+      peer.retryTimer = null;
+      if (!_isCurrent(generation, room.roomId) ||
+          !identical(_peers[remote], peer) ||
+          !_room!.joined.contains(remote) ||
+          peer.connectionState ==
+              RTCPeerConnectionState.RTCPeerConnectionStateConnected) return;
+      peer.retryCount++;
+      await _restartPeerIce(remote, peer);
+      if (_isCurrent(generation, room.roomId) &&
+          peer.connectionState !=
+              RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        _schedulePeerRecovery(remote, peer);
+      }
+    });
+  }
+
+  Future<void> _restartPeerIce(String remote, _MeshPeer peer) async {
+    final room = _room;
+    final generation = _generation;
+    if (room == null || !isActive || !room.joined.contains(remote) ||
+        !identical(_peers[remote], peer) || peer.restarting ||
+        !peer.offered ||
+        !GroupCallProtocol.shouldOffer(_local, remote)) return;
+    peer.restarting = true;
+    try {
+      final offer = await peer.pc.createOffer({'iceRestart': true});
+      if (!_isCurrent(generation, room.roomId) ||
+          !identical(_peers[remote], peer)) return;
+      final negotiation = ++peer.negotiation;
+      await peer.pc.setLocalDescription(offer);
+      if (!_isCurrent(generation, room.roomId) ||
+          !identical(_peers[remote], peer)) return;
+      peer.remoteDescriptionSet = false;
+      await _send(remote, 'group-offer', {
+        'sdp': offer.sdp,
+        'sdpType': offer.type,
+        'negotiationId': negotiation,
+      });
+    } catch (_) {
+      print('GROUP_ICE_RESTART_FAILED');
+    } finally {
+      peer.restarting = false;
+    }
+  }
+
   Future<void> _receiveOffer(String remote, Map<String, dynamic> payload) async {
     // The lexical higher side is always the answerer. Never allow glare.
     if (GroupCallProtocol.shouldOffer(_local, remote)) return;
+    final room = _room;
+    if (room == null) return;
+    final generation = _generation;
     final peer = await _ensurePeer(remote);
-    if (peer.remoteDescriptionSet) return;
+    bool current() => _isCurrent(generation, room.roomId) && identical(_peers[remote], peer);
+    if (!current()) return;
+    final negotiation = payload['negotiationId'];
+    if (negotiation is! int || negotiation <= peer.remoteNegotiation) return;
     await peer.pc.setRemoteDescription(
       RTCSessionDescription(payload['sdp'] as String, 'offer'),
     );
+    if (!current()) return;
     peer.remoteDescriptionSet = true;
     await _flushEarlyIce(remote, peer);
+    if (!current()) return;
     final answer = await peer.pc.createAnswer();
+    if (!current()) return;
     await peer.pc.setLocalDescription(answer);
+    if (!current()) return;
     await _send(remote, 'group-answer', {
       'sdp': answer.sdp,
       'sdpType': answer.type,
+      'negotiationId': negotiation,
     });
+    if (current()) peer.remoteNegotiation = negotiation;
   }
 
   Future<void> _receiveAnswer(String remote, Map<String, dynamic> payload) async {
     if (!GroupCallProtocol.shouldOffer(_local, remote)) return;
+    final room = _room;
+    if (room == null) return;
+    final generation = _generation;
     final peer = _peers[remote] ?? await _creatingPeers[remote];
-    if (peer == null || peer.remoteDescriptionSet || !peer.offered) return;
+    if (!_isCurrent(generation, room.roomId) || !identical(_peers[remote], peer)) return;
+    if (peer == null || peer.remoteDescriptionSet || !peer.offered ||
+        payload['negotiationId'] != peer.negotiation) return;
     await peer.pc.setRemoteDescription(
       RTCSessionDescription(payload['sdp'] as String, 'answer'),
     );
+    if (!_isCurrent(generation, room.roomId) || !identical(_peers[remote], peer)) return;
     peer.remoteDescriptionSet = true;
     await _flushEarlyIce(remote, peer);
   }
@@ -453,7 +805,11 @@ class GroupCallCoordinator {
     final peer = _peers[remote];
     if (peer == null || !peer.remoteDescriptionSet) {
       final queue = _earlyIce.putIfAbsent(remote, () => []);
-      if (queue.length < 128) queue.add(candidate);
+      final duplicate = queue.any((item) =>
+          item.candidate == candidate.candidate &&
+          item.sdpMid == candidate.sdpMid &&
+          item.sdpMLineIndex == candidate.sdpMLineIndex);
+      if (!duplicate && queue.length < 128) queue.add(candidate);
       return;
     }
     await peer.pc.addCandidate(candidate);
@@ -462,18 +818,24 @@ class GroupCallCoordinator {
   Future<void> _flushEarlyIce(String remote, _MeshPeer peer) async {
     final queue = _earlyIce.remove(remote) ?? <RTCIceCandidate>[];
     for (final candidate in queue) {
-      await peer.pc.addCandidate(candidate);
+      if (!identical(_peers[remote], peer)) return;
+      try {
+        await peer.pc.addCandidate(candidate);
+      } catch (_) {
+        // A stale candidate must not block the remaining candidates.
+      }
     }
   }
 
   Future<_MeshPeer> _ensurePeer(String nickname) {
     final existing = _peers[nickname];
     if (existing != null) return Future.value(existing);
+    final generation = _generation;
     return _creatingPeers.putIfAbsent(nickname, () async {
       try {
         return await _createPeer(nickname);
       } finally {
-        _creatingPeers.remove(nickname);
+        if (_generation == generation) _creatingPeers.remove(nickname);
       }
     });
   }
@@ -517,6 +879,7 @@ class GroupCallCoordinator {
 
       pc.onTrack = (event) {
         if (!_isCurrent(generation, room.roomId) ||
+            !identical(_peers[nickname], peer) ||
             event.track.kind != 'video') return;
         if (event.streams.isNotEmpty) {
           renderer.srcObject = event.streams.first;
@@ -525,25 +888,43 @@ class GroupCallCoordinator {
         }
       };
       pc.onIceCandidate = (candidate) {
-        if (!_isCurrent(generation, room.roomId)) return;
+        if (!_isCurrent(generation, room.roomId) ||
+            !identical(_peers[nickname], peer)) return;
         unawaited(_send(nickname, 'group-ice', {
           'candidate': candidate.toMap(),
         }).catchError((Object error) {
-          print('GROUP_ICE_SEND_FAILED: $nickname $error');
+          print('GROUP_ICE_SEND_FAILED');
         }));
       };
       pc.onConnectionState = (state) {
-        if (!_isCurrent(generation, room.roomId)) return;
+        if (!_isCurrent(generation, room.roomId) ||
+            !identical(_peers[nickname], peer) ||
+            !_room!.joined.contains(nickname)) return;
+        if (peer.connectionState == state) return;
+        peer.connectionState = state;
         final states = {..._room!.connectionStates};
-        if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
-          states[nickname] = GroupMemberCallState.connected;
-          _invitationTimeout?.cancel();
-          _invitationTimeout = null;
-        } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
-            state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
-          states[nickname] = GroupMemberCallState.failed;
-        } else {
-          return;
+        switch (state) {
+          case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
+            peer.retryTimer?.cancel();
+            peer.retryTimer = null;
+            peer.retryCount = 0;
+            states[nickname] = GroupMemberCallState.connected;
+            if (_directUpgradeRoomId == null ||
+                _allMembersConnected(_room!.copyWith(connectionStates: states))) {
+              _invitationTimeout?.cancel();
+              _invitationTimeout = null;
+            }
+            break;
+          case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
+          case RTCPeerConnectionState.RTCPeerConnectionStateConnecting:
+            states[nickname] = GroupMemberCallState.joining;
+            break;
+          case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
+          case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
+            states[nickname] = GroupMemberCallState.failed;
+            break;
+          default:
+            return;
         }
         final hasConnected = states.values
             .any((value) => value == GroupMemberCallState.connected);
@@ -552,6 +933,11 @@ class GroupCallCoordinator {
           phase: hasConnected ? GroupCallPhase.connected : GroupCallPhase.connecting,
         );
         _emit();
+        _maybeFinishDirectUpgrade();
+        if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+            state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+          _schedulePeerRecovery(nickname, peer);
+        }
       };
       return peer;
     } catch (_) {
@@ -559,6 +945,32 @@ class GroupCallCoordinator {
       await renderer.dispose();
       rethrow;
     }
+  }
+
+  void _maybeFinishDirectUpgrade() {
+    final room = _room;
+    final roomId = _directUpgradeRoomId;
+    if (_finishingDirectUpgrade || room == null || roomId == null ||
+        room.roomId != roomId || !_allMembersConnected(room)) return;
+    _finishingDirectUpgrade = true;
+    unawaited(() async {
+      try {
+        final transferred = await onDirectUpgradeComplete(roomId);
+        if (transferred && _room?.roomId == roomId &&
+            _directUpgradeRoomId == roomId) {
+          // The group mesh now owns the shared capture. CallService ends
+          // its old peer connection but deliberately keeps these tracks alive.
+          _ownsLocalMedia = true;
+          _ownsCameraMedia = true;
+          _directUpgradeRoomId = null;
+          _emit();
+        }
+      } catch (error) {
+        print('GROUP_DIRECT_UPGRADE_FINISH_FAILED: $error');
+      } finally {
+        _finishingDirectUpgrade = false;
+      }
+    }());
   }
 
   Future<void> _attachStreamlessVideo(
@@ -585,33 +997,73 @@ class GroupCallCoordinator {
     _earlyIce.remove(nickname);
     _remoteMediaRevisions.remove(nickname);
     if (peer == null) return;
+    await _disposePeer(peer);
+  }
+
+  Future<void> _disposePeer(_MeshPeer peer) async {
+    peer.retryTimer?.cancel();
+    peer.retryTimer = null;
     peer.renderer.srcObject = null;
     try { await peer.pc.close(); } catch (_) { /* Best effort. */ }
     try { await peer.syntheticVideoStream?.dispose(); } catch (_) { /* Best effort. */ }
-    await peer.renderer.dispose();
+    try { await peer.renderer.dispose(); } catch (_) { /* Best effort. */ }
   }
+
+  // Mesh sends a separate encoded stream to each remote participant.
+  // Keep capture modest on mobile, especially in four-member rooms.
+  Map<String, dynamic> _groupVideoConstraints(int memberCount) => {
+    'facingMode': 'user',
+    'width': memberCount >= 4 ? 480 : 640,
+    'height': memberCount >= 4 ? 360 : 480,
+    'frameRate': memberCount >= 4 ? 15 : 24,
+  };
 
   Future<void> _prepareMedia(bool video) async {
     final generation = _generation;
-    final roomId = _room!.roomId;
-    final stream = await navigator.mediaDevices.getUserMedia({
-      'audio': true,
-      'video': video
-          ? {'facingMode': 'user', 'width': 640, 'height': 480}
-          : false,
-    });
-    if (!_isCurrent(generation, roomId)) {
-      await stream.dispose();
-      return;
+    final room = _room!;
+    final roomId = room.roomId;
+    final directPeer = hasDirectCall()
+        ? GroupCallProtocol.normalize(activeDirectPeer() ?? '')
+        : '';
+    if (_directUpgradeRoomId == roomId && directPeer.isNotEmpty &&
+        room.members.contains(directPeer)) {
+      final shared = await prepareDirectMedia(video: video);
+      if (!_isCurrent(generation, roomId)) return;
+      if (shared == null) {
+        throw StateError('Active call media could not be shared');
+      }
+      _localStream = shared.audioStream;
+      _cameraCaptureStream = shared.videoStream;
+      _ownsLocalMedia = false;
+      _ownsCameraMedia = false;
+      if (video) {
+        _localRenderer?.srcObject = shared.videoStream ?? shared.audioStream;
+      }
+    } else {
+      final stream = await navigator.mediaDevices.getUserMedia({
+        'audio': true,
+        'video': video
+            ? _groupVideoConstraints(room.members.length)
+            : false,
+      });
+      if (!_isCurrent(generation, roomId)) {
+        await stream.dispose();
+        return;
+      }
+      _localStream = stream;
+      _cameraCaptureStream = null;
+      _ownsLocalMedia = true;
+      _ownsCameraMedia = true;
+      if (video) _localRenderer?.srcObject = stream;
     }
-    _localStream = stream;
-    if (video) _localRenderer?.srcObject = stream;
     final identity = await sessionManager.identityStore.getIdentityKeyPair();
     final registrationId =
         await sessionManager.identityStore.getLocalRegistrationId();
+    if (!_isCurrent(generation, roomId)) return;
     final challenge = await directory.getTurnChallenge(
       nickname: _local, deviceId: 1, registrationId: registrationId,
     );
+    if (!_isCurrent(generation, roomId)) return;
     final message = DirectoryClient.buildTurnAuthMessage(
       nickname: _local, deviceId: 1,
       registrationId: registrationId, challenge: challenge,
@@ -629,7 +1081,22 @@ class GroupCallCoordinator {
         (response['iceServers'] as List).isEmpty) {
       throw StateError('No TURN credentials for group call');
     }
-    _iceConfiguration = {'iceServers': response['iceServers']};
+    final servers = response['iceServers'] as List;
+    // Do not accept malformed or non-ICE URLs from the credential endpoint.
+    final validated = <Map<String, dynamic>>[];
+    for (final entry in servers) {
+      if (entry is! Map) throw StateError('Invalid ICE configuration');
+      final rawUrls = entry['urls'];
+      final urls = rawUrls is String ? [rawUrls] : rawUrls;
+      if (urls is! List || urls.isEmpty ||
+          urls.any((url) => url is! String ||
+              !RegExp(r'^(stun|stuns|turn|turns):[^\s]+$',
+                  caseSensitive: false).hasMatch(url))) {
+        throw StateError('Invalid ICE server URL');
+      }
+      validated.add(Map<String, dynamic>.from(entry));
+    }
+    _iceConfiguration = {'iceServers': validated};
   }
 
   Future<void> _send(String recipient, String type,
@@ -640,8 +1107,9 @@ class GroupCallCoordinator {
     if (!room.members.contains(recipientName) || recipientName == _local) {
       throw StateError('Unauthorized group call recipient');
     }
+    final generation = _generation;
     final identity = await sessionManager.identityStore.getIdentityKeyPair();
-    if (_room?.roomId != room.roomId) return;
+    if (!_isCurrent(generation, room.roomId)) return;
     final payload = <String, dynamic>{
       ...fields,
       'type': type,
@@ -693,10 +1161,9 @@ class GroupCallCoordinator {
       if (enabled) {
         newCapture = await navigator.mediaDevices.getUserMedia({
           'audio': false,
-          'video': {'facingMode': 'user', 'width': 640, 'height': 480},
+          'video': _groupVideoConstraints(room.members.length),
         });
         if (!_isCurrent(generation, room.roomId)) {
-          await newCapture.dispose();
           return;
         }
       }
@@ -705,7 +1172,8 @@ class GroupCallCoordinator {
           ?.getVideoTracks().firstOrNull;
       final updated = <_MeshPeer>[];
       try {
-        for (final peer in _peers.values) {
+        for (final peer in _peers.values.toList()) {
+          if (!_isCurrent(generation, room.roomId)) break;
           await peer.videoSender.replaceTrack(newTrack);
           updated.add(peer);
         }
@@ -716,13 +1184,14 @@ class GroupCallCoordinator {
         rethrow;
       }
       if (!_isCurrent(generation, room.roomId)) {
-        await newCapture?.dispose();
         return;
       }
 
       final oldCapture = _cameraCaptureStream;
       _cameraCaptureStream = newCapture;
       _room = _room!.copyWith(localVideo: enabled);
+      unawaited(_groupForeground('startGroupForeground', room.roomId,
+          video: enabled));
       _localRenderer?.srcObject = enabled ? (newCapture ?? _localStream) : null;
       _emit();
       if (oldCapture != null) {
@@ -733,18 +1202,23 @@ class GroupCallCoordinator {
           await _localStream?.removeTrack(track);
         }
       }
+      if (!_isCurrent(generation, room.roomId)) return;
       final revision = ++_mediaRevision;
-      for (final remote in _room!.joined) {
+      for (final remote in _room!.joined.toList()) {
+        if (!_isCurrent(generation, room.roomId)) return;
         if (remote == _local) continue;
         try {
           await _send(remote, 'group-media', {
             'videoEnabled': enabled, 'mediaRevision': revision,
           });
-        } catch (error) {
-          print('GROUP_MEDIA_ANNOUNCE_FAILED: $remote $error');
+        } catch (_) {
+          print('GROUP_MEDIA_ANNOUNCE_FAILED');
         }
       }
     } finally {
+      if (newCapture != null && !identical(_cameraCaptureStream, newCapture)) {
+        try { await newCapture.dispose(); } catch (_) { /* Best effort. */ }
+      }
       _changingVideo = false;
     }
   }
@@ -752,12 +1226,14 @@ class GroupCallCoordinator {
   Future<void> leaveRoom() async {
     final room = _room;
     if (room == null) return;
+    final generation = _generation;
     if (room.phase == GroupCallPhase.ringing) {
       await declineInvitation();
       return;
     }
     if (room.phase != GroupCallPhase.ringing) {
       for (final remote in room.members) {
+        if (!_isCurrent(generation, room.roomId)) return;
         if (remote == _local) continue;
         try {
           await _send(remote, 'group-leave')
@@ -765,38 +1241,51 @@ class GroupCallCoordinator {
         } catch (_) { /* Local teardown is unconditional. */ }
       }
     }
-    await _closeRoom(room.roomId);
+    if (_isCurrent(generation, room.roomId)) await _closeRoom(room.roomId);
   }
 
   Future<void> _closeRoom(String roomId) async {
     if (_room?.roomId != roomId) return;
     ++_generation;
+    if (_room?.phase != GroupCallPhase.ringing) {
+      unawaited(_groupForeground('stopGroupForeground', roomId));
+    }
+    unawaited(_nativeInvitation('dismissInvitation', roomId));
     _invitationTimeout?.cancel();
     _invitationTimeout = null;
     _presenceTimer?.cancel();
     _presenceTimer = null;
     _room = null;
-    _emit();
+    if (_directUpgradeRoomId == roomId) _directUpgradeRoomId = null;
+    _finishingDirectUpgrade = false;
     _iceConfiguration = null;
     _earlyIce.clear();
     _remoteMediaRevisions.clear();
     _mediaRevision = 0;
-    final names = _peers.keys.toList();
-    for (final name in names) {
-      await _removePeer(name);
-    }
+    final peers = _peers.values.toList();
+    _peers.clear();
     _creatingPeers.clear();
     _localRenderer?.srcObject = null;
     final capture = _cameraCaptureStream;
     final stream = _localStream;
     _cameraCaptureStream = null;
     _localStream = null;
-    try { await capture?.dispose(); } catch (_) { /* Best effort. */ }
-    try { await stream?.dispose(); } catch (_) { /* Best effort. */ }
+    _emit();
+    await Future.wait(peers.map(_disposePeer));
+    if (_ownsCameraMedia && capture != null &&
+        !identical(capture, stream)) {
+      try { await capture.dispose(); } catch (_) { /* Best effort. */ }
+    }
+    if (_ownsLocalMedia && stream != null) {
+      try { await stream.dispose(); } catch (_) { /* Best effort. */ }
+    }
+    _ownsLocalMedia = true;
+    _ownsCameraMedia = true;
   }
 
   Future<void> dispose() async {
     _disposed = true;
+    _nativeGroupCalls.setMethodCallHandler(null);
     await _subscription?.cancel();
     final room = _room;
     if (room != null) await _closeRoom(room.roomId);
@@ -814,6 +1303,12 @@ class _MeshPeer {
   final RTCVideoRenderer renderer;
   final RTCRtpSender videoSender;
   MediaStream? syntheticVideoStream;
+  RTCPeerConnectionState? connectionState;
+  Timer? retryTimer;
+  int retryCount = 0;
+  bool restarting = false;
+  int negotiation = 0;
+  int remoteNegotiation = 0;
   bool offered = false;
   bool remoteDescriptionSet = false;
 }

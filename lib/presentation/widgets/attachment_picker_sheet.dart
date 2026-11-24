@@ -3,6 +3,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../../core/theme/stellar_theme.dart';
+import '../../l10n/stellar_translations.dart';
 
 enum AttachmentKind { camera, gallery, file, voice }
 
@@ -16,7 +17,7 @@ class AttachmentPickerSheet extends StatelessWidget {
         children: [
           _AttachmentOption(
             icon: Icons.camera_alt_outlined,
-            label: 'Camera',
+            label: stellarText(context, "Camera"),
             color: StellarColors.accentBlue,
             onTap: () async {
               final picker = ImagePicker();
@@ -32,7 +33,7 @@ class AttachmentPickerSheet extends StatelessWidget {
           ),
           _AttachmentOption(
             icon: Icons.photo_outlined,
-            label: 'Gallery',
+            label: stellarText(context, "Gallery"),
             color: StellarColors.accentPurple,
             onTap: () async {
               final picker = ImagePicker();
@@ -42,7 +43,7 @@ class AttachmentPickerSheet extends StatelessWidget {
           ),
           _AttachmentOption(
             icon: Icons.insert_drive_file_outlined,
-            label: 'File',
+            label: stellarText(context, "File"),
             color: StellarColors.success,
             onTap: () async {
               final result = await FilePicker.platform.pickFiles();
@@ -51,7 +52,7 @@ class AttachmentPickerSheet extends StatelessWidget {
           ),
           _AttachmentOption(
             icon: Icons.timer_outlined,
-            label: 'Message timer',
+            label: stellarText(context, "Message timer"),
             color: StellarColors.accentPurple,
             onTap: () {
               Navigator.pop(context, 'ttl');

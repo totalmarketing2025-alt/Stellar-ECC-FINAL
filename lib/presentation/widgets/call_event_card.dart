@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/stellar_theme.dart';
+import '../../l10n/stellar_translations.dart';
 import '../../domain/models/call_event.dart';
 import '../../domain/models/message.dart';
 
@@ -79,31 +80,33 @@ class CallEventCard extends StatelessWidget {
             localNickname.toLowerCase();
 
     final video = event.kind == 'video';
-    final title =
-        '${outgoing ? 'Outgoing' : 'Incoming'} ${video ? 'video' : 'voice'} call';
+    final title = stellarText(
+      context,
+      '${outgoing ? 'Outgoing' : 'Incoming'} ${video ? 'video' : 'voice'} call',
+    );
 
     String subtitle;
     switch (terminal?.outcome) {
       case 'completed':
         final duration = terminal?.durationSeconds;
         subtitle = duration == null
-            ? 'Completed'
-            : 'Completed · ${_durationLabel(duration)}';
+            ? stellarText(context, 'Completed')
+            : '${stellarText(context, 'Completed')} · ${_durationLabel(duration)}';
         break;
       case 'declined':
-        subtitle = 'Declined';
+        subtitle = stellarText(context, 'Declined');
         break;
       case 'no_answer':
-        subtitle = 'No answer';
+        subtitle = stellarText(context, 'No answer');
         break;
       case 'cancelled':
-        subtitle = 'Cancelled';
+        subtitle = stellarText(context, 'Cancelled');
         break;
       case 'failed':
-        subtitle = 'Failed';
+        subtitle = stellarText(context, 'Failed');
         break;
       default:
-        subtitle = outgoing ? 'Calling…' : 'Incoming call';
+        subtitle = stellarText(context, outgoing ? 'Calling…' : 'Incoming call');
     }
 
     final timestamp = startedMessage?.sentAt ??

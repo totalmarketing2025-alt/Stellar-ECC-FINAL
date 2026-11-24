@@ -6,11 +6,14 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../../core/calls/call_coordinator.dart';
 import '../../../domain/models/call_session.dart';
 import '../../state/app_providers.dart';
 import '../../widgets/stellar_avatar.dart';
 import '../../widgets/call_control_dock.dart';
+import 'add_participant_to_call_dialog.dart';
 
 class VoiceCallScreen extends ConsumerStatefulWidget {
   const VoiceCallScreen({
@@ -181,8 +184,11 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
     final coordinator = _callCoordinator;
     final session = coordinator?.activeSession;
 
+    final upgradingToGroup =
+        ref.read(groupCallCoordinatorProvider).isDirectUpgradeInProgress;
     if (coordinator != null &&
         session != null &&
+        !upgradingToGroup &&
         session.chatId == widget.chatId &&
         session.kind == CallKind.voice) {
       unawaited(coordinator.endActiveCall());
@@ -195,11 +201,12 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final session = _session;
     final identity = session?.remoteNickname?.isNotEmpty == true
         ? session!.remoteNickname!
         : widget.chatId;
-    final stateLabel = _stateLabel(session);
+    final stateLabel = _stateLabel(session, l10n);
 
     return Scaffold(
       backgroundColor: StellarColors.bgPrimary,
@@ -271,7 +278,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
               TextButton.icon(
               onPressed: () => _showSafetyNumberCompare(context),
               icon: const Icon(Icons.verified_user_outlined, size: 16, color: StellarColors.accentBlue),
-              label: const Text('Verify safety number', style: TextStyle(color: StellarColors.accentBlue)),
+              label: Text(l10n.verifySafetyNumber, style: const TextStyle(color: StellarColors.accentBlue)),
             ),
             const SizedBox(height: 24),
             if (widget.incoming &&
@@ -306,6 +313,13 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
                 setState(() => _speakerOn = next);
                 _callCoordinator?.setSpeakerphone(next);
               },
+              onAddParticipant: session?.state == CallState.connected
+                  ? () => unawaited(addParticipantToActiveCall(
+                        context: context,
+                        ref: ref,
+                        session: session!,
+                      ))
+                  : null,
               onEndCall: () async {
                 await _callCoordinator?.endActiveCall();
                 if (mounted) _closeCallScreen();
@@ -321,6 +335,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
   }
 
   Widget _buildIncomingControls() {
+    final l10n = AppLocalizations.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Row(
@@ -339,7 +354,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
               await _callCoordinator?.answerIncomingCall();
             },
             icon: const Icon(Icons.call),
-            label: const Text('Answer'),
+            label: Text(l10n.answer),
           ),
           FilledButton.icon(
             style: FilledButton.styleFrom(
@@ -355,27 +370,27 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
               if (mounted) _closeCallScreen();
             },
             icon: const Icon(Icons.call_end),
-            label: const Text('Decline'),
+            label: Text(l10n.decline),
           ),
         ],
       ),
     );
   }
 
-  String _stateLabel(CallSession? session) {
+  String _stateLabel(CallSession? session, AppLocalizations l10n) {
     switch (session?.state) {
       case CallState.ringing:
-        return 'Ringing…';
+        return l10n.ringing;
       case CallState.answering:
-        return 'Answering…';
+        return l10n.answering;
       case CallState.connecting:
-        return 'Connecting…';
+        return l10n.connecting;
       case CallState.connected:
-        return 'Encrypted call in progress';
+        return l10n.encryptedCallInProgress;
       case CallState.ended:
-        return 'Call ended';
+        return l10n.callEnded;
       case CallState.failed:
-        return 'Call failed';
+        return l10n.callFailed;
       case null:
         return 'Connecting…';
     }
@@ -397,13 +412,13 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: StellarColors.bgElevated,
-        title: const Text('Safety Number'),
+        title: Text(stellarText(context, "Safety Number")),
         content: const Text(
           'Compare this number with your contact in person or over a separate '
           'trusted channel to confirm no one is intercepting your conversation.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text(stellarText(context, "Close"))),
         ],
       ),
     );

@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:math' show cos;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/stellar_theme.dart';
+import '../l10n/app_localizations.dart';
 import 'router.dart';
 import '../presentation/state/relay_listener.dart';
 import '../presentation/state/incoming_message_pulse.dart';
@@ -365,6 +367,13 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
       themeMode: ThemeMode.dark,
       darkTheme: StellarTheme.dark(),
       theme: StellarTheme.dark(), // Deep Space theme is dark-only, per spec
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: AppLocalizations.supportedLocales,
       routerConfig: router,
       builder: (context, child) {
         return Stack(

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 import '../../state/app_providers.dart';
 
 class NewGroupScreen extends ConsumerStatefulWidget {
@@ -22,11 +23,11 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('New Group'),
+        title: Text(stellarText(context, "New Group")),
         actions: [
           TextButton(
             onPressed: _members.isEmpty || _nameController.text.trim().isEmpty ? null : _createGroup,
-            child: const Text('Create'),
+            child: Text(stellarText(context, "Create")),
           ),
         ],
       ),
@@ -37,7 +38,7 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
           children: [
             TextField(
               controller: _nameController,
-              decoration: const InputDecoration(hintText: 'Group name'),
+              decoration: InputDecoration(hintText: stellarText(context, "Group name")),
               onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 16),
@@ -46,7 +47,7 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
                 Expanded(
                   child: TextField(
                     controller: _memberController,
-                    decoration: const InputDecoration(hintText: 'Add @nickname'),
+                    decoration: InputDecoration(hintText: stellarText(context, "Add @nickname")),
                     onSubmitted: (_) => _addMember(),
                   ),
                 ),

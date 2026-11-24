@@ -298,7 +298,8 @@ class RelayListener {
 
       // The directory identity key is the trust anchor.
       // Never trust senderIdentityKey from the plaintext call payload.
-      var verified = CallSignalAuthenticator.verify(
+      var authenticatedPayload =
+          CallSignalAuthenticator.verifyAndPreserveSignature(
         identityKey: identityKey,
         recipient: localNickname,
         payload: signal,
@@ -306,24 +307,16 @@ class RelayListener {
       );
 
       // If the cached identity failed, refresh it once. This handles
-      // legitimate identity rotation without accepting an unverified
-      // sender.
-      if (!verified) {
-        final directoryClient =
-            ref.read(directoryClientProvider);
-
-        final remote =
-            await directoryClient.lookupBundle(sender);
-
-        final refreshedIdentity =
-            IdentityKey.fromBytes(
+      // legitimate identity rotation without accepting an unverified sender.
+      if (authenticatedPayload == null) {
+        final remote = await ref.read(directoryClientProvider).lookupBundle(sender);
+        final refreshedIdentity = IdentityKey.fromBytes(
           base64Decode(remote.identityKey),
           0,
         );
-
         _callIdentityCache[sender] = refreshedIdentity;
-
-        verified = CallSignalAuthenticator.verify(
+        authenticatedPayload =
+            CallSignalAuthenticator.verifyAndPreserveSignature(
           identityKey: refreshedIdentity,
           recipient: localNickname,
           payload: signal,
@@ -331,7 +324,7 @@ class RelayListener {
         );
       }
 
-      if (!verified) {
+      if (authenticatedPayload == null) {
         print(
           'CALL_SIGNAL_PERMANENT_REJECT: '
           'invalid identity signature '
@@ -353,6 +346,7 @@ class RelayListener {
         'end',
         'busy',
         'media-state',
+        'group-upgrade-complete',
       };
 
       if (type is! String ||
@@ -431,6 +425,11 @@ class RelayListener {
       }
 
       _acceptedCallSignals[replayKey] = now;
+
+      // Preserve the verified signature for group-call replay protection.
+      signal
+        ..clear()
+        ..addAll(authenticatedPayload);
 
       final session = CallSession(
         callId: callId,

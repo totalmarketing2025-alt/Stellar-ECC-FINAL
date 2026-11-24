@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/stellar_theme.dart';
+import '../../l10n/stellar_translations.dart';
 import '../../domain/models/chat.dart';
 
 class TtlPickerSheet extends StatelessWidget {
@@ -23,7 +24,7 @@ class TtlPickerSheet extends StatelessWidget {
                   value: seconds,
                   groupValue: current,
                   activeColor: StellarColors.accentBlue,
-                  title: Text(TtlPreset.label(seconds)),
+                  title: Text(stellarText(context, TtlPreset.label(seconds))),
                   onChanged: (value) => Navigator.pop(context, value),
                 )),
           ],

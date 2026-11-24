@@ -1630,7 +1630,9 @@ export class RelayRoom {
         token: registration.token,
         data: {
           wake: "1",
-          ...(callMeta
+          ...(callMeta?.group === true
+            ? { type: "group-call", roomId: callMeta.callId, sentAt: String(callMeta.sentAt) }
+            : callMeta
             ? {
                 type: "call",
                 callId: callMeta.callId,
@@ -2207,8 +2209,14 @@ export class RelayRoom {
           return;
         }
 
+        const group = payload.group === true;
+        if (group && (!/^[0-9a-f]{32}$/.test(callId) || recipient === sender)) {
+          return;
+        }
+
         this.ctx.waitUntil(
           this.sendPushWake(recipient, {
+            ...(group ? { group: true, sentAt: Date.now() } : {}),
             callId,
             from: sender,
             kind,

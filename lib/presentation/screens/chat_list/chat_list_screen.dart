@@ -9,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../../core/moderation/stellar_broadcast.dart';
 import '../../../domain/models/chat.dart';
 import '../../state/app_providers.dart';
@@ -55,6 +57,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final chatsAsync = ref.watch(chatListProvider);
     final wantedModeEnabled = ref.watch(wantedModeWipeEnabledProvider);
 
@@ -62,16 +65,16 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       appBar: AppBar(
         title: wantedModeEnabled
             ? const _WantedHeaderTitle()
-            : const Text('Stellar ECC'),
+            : Text(l10n.appName),
         actions: [
           IconButton(
-            tooltip: 'My Profile',
+            tooltip: stellarText(context, "My Profile"),
             icon: const Icon(Icons.account_circle_outlined),
             onPressed: () {
               final nickname = ref.read(localNicknameProvider)?.trim();
               if (nickname == null || nickname.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Your profile is not ready yet.')),
+                  SnackBar(content: Text(stellarText(context, "Your profile is not ready yet."))),
                 );
                 return;
               }
@@ -113,8 +116,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             padding: const EdgeInsets.all(16),
             child: TextField(
               controller: _searchController,
-              decoration: const InputDecoration(
-                hintText: 'Search chats and contacts',
+              decoration: InputDecoration(
+                hintText: l10n.searchChatsContacts,
                 prefixIcon: Icon(Icons.search, color: StellarColors.textSecondary),
               ),
               onChanged: (_) => setState(() {}),
@@ -124,7 +127,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             child: chatsAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (err, st) => Center(
-                child: Text('Could not load chats: $err',
+                child: Text('${l10n.couldNotLoadChats}: $err',
                     style: const TextStyle(color: StellarColors.danger)),
               ),
               data: (chats) {
@@ -223,7 +226,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
         children: [
           ListTile(
             leading: Icon(chat.isPinned ? Icons.push_pin_outlined : Icons.push_pin),
-            title: Text(chat.isPinned ? 'Unpin Chat' : 'Pin Chat'),
+            title: Text(chat.isPinned ? stellarText(context, "Unpin Chat") : stellarText(context, "Pin Chat")),
             onTap: () async {
               Navigator.pop(sheetContext);
               try {
@@ -241,7 +244,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           if (chat.chatType == ChatType.direct)
             ListTile(
               leading: const Icon(Icons.delete_outline, color: StellarColors.danger),
-              title: const Text('Delete Chat'),
+              title: Text(stellarText(context, "Delete Chat")),
               onTap: () {
                 Navigator.pop(sheetContext);
                 _confirmDeleteChat(chat);
@@ -256,15 +259,15 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete Chat?'),
+        title: Text(stellarText(context, "Delete Chat?")),
         content: Text('Delete local conversation with ${chat.displayName}? '
           'This does not delete messages on the other device. '
           'New incoming messages will recreate the chat.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel')),
+            child: Text(stellarText(context, "Cancel"))),
           TextButton(onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Delete')),
+            child: Text(stellarText(context, "Delete"))),
         ],
       ),
     );
@@ -294,7 +297,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.person_add_alt_1, color: StellarColors.accentBlue),
-              title: const Text('New direct chat'),
+              title: Text(AppLocalizations.of(sheetContext).newDirectChat),
               onTap: () {
                 Navigator.pop(sheetContext);
                 _promptNewDirectChat(context);
@@ -302,7 +305,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.group_add, color: StellarColors.accentPurple),
-              title: const Text('New group'),
+              title: Text(AppLocalizations.of(sheetContext).newGroup),
               onTap: () {
                 Navigator.pop(sheetContext);
                 context.push('/group/new');
@@ -320,20 +323,20 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: StellarColors.bgElevated,
-        title: const Text('Start a chat'),
+        title: Text(stellarText(context, "Start a chat")),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(hintText: '@nickname'),
+          decoration: InputDecoration(hintText: stellarText(context, "@nickname")),
           autofocus: true,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
+            child: Text(stellarText(context, "Cancel")),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
-            child: const Text('Start'),
+            child: Text(stellarText(context, "Start")),
           ),
         ],
       ),
@@ -438,10 +441,10 @@ class _EmptyState extends StatelessWidget {
               child: const Icon(Icons.chat_bubble_outline, color: Colors.white),
             ),
             const SizedBox(height: 16),
-            const Text('No chats yet', style: TextStyle(fontWeight: FontWeight.w600)),
+            Text(AppLocalizations.of(context).noChatsYet, style: const TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
-            const Text(
-              'Start a private, self-destructing conversation with the + button.',
+            Text(
+              AppLocalizations.of(context).emptyChatsHint,
               textAlign: TextAlign.center,
               style: TextStyle(color: StellarColors.textSecondary),
             ),
@@ -521,14 +524,14 @@ class _BroadcastAnnouncementCardState
         context: context,
         builder: (dialogContext) => AlertDialog(
           backgroundColor: StellarColors.bgSurface,
-          title: const Text('Broadcast attachment'),
+          title: Text(stellarText(context, "Broadcast attachment")),
           content: SingleChildScrollView(
             child: SelectableText(content),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('CLOSE'),
+              child: Text(stellarText(context, "CLOSE")),
             ),
           ],
         ),
@@ -652,7 +655,7 @@ class _BroadcastAnnouncementCardState
               },
             ),
             const SizedBox(height: 5),
-            const Text('Tap image to zoom',
+            Text(stellarText(context, "Tap image to zoom"),
                 style: TextStyle(
                     color: StellarColors.textSecondary, fontSize: 11)),
           ] else if (broadcast.hasAttachment) ...[
@@ -660,7 +663,7 @@ class _BroadcastAnnouncementCardState
             OutlinedButton.icon(
               onPressed: _openAttachment,
               icon: const Icon(Icons.attach_file),
-              label: const Text('OPEN ATTACHMENT'),
+              label: Text(stellarText(context, "OPEN ATTACHMENT")),
             ),
           ],
         ],

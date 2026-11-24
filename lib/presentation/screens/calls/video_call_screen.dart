@@ -6,10 +6,13 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../../core/calls/call_coordinator.dart';
 import '../../../domain/models/call_session.dart';
 import '../../state/app_providers.dart';
 import '../../widgets/call_control_dock.dart';
+import 'add_participant_to_call_dialog.dart';
 import '../../widgets/stellar_avatar.dart';
 
 class VideoCallScreen extends ConsumerStatefulWidget {
@@ -163,7 +166,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not update camera: $error')),
+          SnackBar(content: Text('${stellarText(context, 'Could not update camera:')} $error')),
         );
       }
     } finally {
@@ -179,8 +182,11 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     final coordinator = _callCoordinator;
     final session = coordinator?.activeSession;
 
+    final upgradingToGroup =
+        ref.read(groupCallCoordinatorProvider).isDirectUpgradeInProgress;
     if (coordinator != null &&
         session != null &&
+        !upgradingToGroup &&
         session.chatId == widget.chatId &&
         session.kind == CallKind.video) {
       unawaited(coordinator.endActiveCall());
@@ -204,22 +210,22 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     return widget.chatId;
   }
 
-  String _stateLabel(CallState? state) {
+  String _stateLabel(CallState? state, AppLocalizations l10n) {
     switch (state) {
       case CallState.ringing:
-        return 'Ringing…';
+        return l10n.ringing;
       case CallState.answering:
-        return 'Answering…';
+        return l10n.answering;
       case CallState.connecting:
-        return 'Connecting…';
+        return l10n.connecting;
       case CallState.connected:
-        return 'Encrypted video call';
+        return l10n.encryptedVideoCall;
       case CallState.ended:
-        return 'Call ended';
+        return l10n.callEnded;
       case CallState.failed:
-        return 'Call failed';
+        return l10n.callFailed;
       case null:
-        return 'Connecting…';
+        return l10n.connecting;
     }
   }
 
@@ -257,7 +263,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
               await _callCoordinator?.answerIncomingCall();
             },
             icon: const Icon(Icons.call),
-            label: const Text('Answer'),
+            label: Text(AppLocalizations.of(context).answer),
           ),
           FilledButton.icon(
             style: FilledButton.styleFrom(
@@ -273,7 +279,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
               if (mounted) _closeCallScreen();
             },
             icon: const Icon(Icons.call_end),
-            label: const Text('Decline'),
+            label: Text(AppLocalizations.of(context).decline),
           ),
         ],
       ),
@@ -282,6 +288,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
@@ -334,7 +341,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                   ),
                   const SizedBox(width: 10),
                   Text(
-                    _stateLabel(_session?.state),
+                    _stateLabel(_session?.state, l10n),
                     style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 12,
@@ -407,11 +414,18 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                       } catch (error) {
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Could not switch camera: $error')),
+                            SnackBar(content: Text('${stellarText(context, 'Could not switch camera:')} $error')),
                           );
                         }
                       }
                     },
+                    onAddParticipant: _session?.state == CallState.connected
+                        ? () => unawaited(addParticipantToActiveCall(
+                              context: context,
+                              ref: ref,
+                              session: _session!,
+                            ))
+                        : null,
                     onEndCall: () async {
                       await _callCoordinator?.endActiveCall();
                       if (mounted) _closeCallScreen();

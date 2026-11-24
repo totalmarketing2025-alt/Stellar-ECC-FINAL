@@ -1032,8 +1032,10 @@ class RelayClient {
     required String callId,
     required String kind,
     String? chatId,
+    bool group = false,
   }) async {
     final payload = <String, dynamic>{
+      if (group) 'group': true,
       'recipient': recipient,
       'callId': callId,
       'kind': kind,

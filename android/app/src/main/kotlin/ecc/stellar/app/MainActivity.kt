@@ -36,6 +36,8 @@ class MainActivity : FlutterFragmentActivity() {
         private const val METHOD_SET_CALL_ENDED = "setCallEnded"
         private const val METHOD_START_OUTGOING_RINGBACK = "startOutgoingRingback"
         private const val METHOD_STOP_CALL_RINGTONE = "stopCallRingtone"
+        private const val METHOD_START_OUTGOING_CALL_FOREGROUND = "startOutgoingCallForeground"
+        private const val METHOD_STOP_OUTGOING_CALL_FOREGROUND = "stopOutgoingCallForeground"
 
         private const val PREFS_NAME = "stellar_call_state"
         private const val PREF_PENDING_ACTION = "pending_call_action"
@@ -44,6 +46,9 @@ class MainActivity : FlutterFragmentActivity() {
         private const val PREF_STARTUP_PERMISSIONS_REQUESTED = "requested_v1"
         private const val PREF_FULL_SCREEN_SETTINGS_OPENED = "full_screen_settings_opened_v1"
     }
+
+    private var groupChannel: MethodChannel? = null
+    private val pendingGroupActions = linkedMapOf<String, Map<String, String>>()
 
     private var callChannel: MethodChannel? = null
     private lateinit var wantedModeEventMonitor: WantedModeEventMonitor
@@ -123,6 +128,68 @@ class MainActivity : FlutterFragmentActivity() {
         flutterEngine: FlutterEngine
     ) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "ecc.stellar.app/group_calls"
+        ).also { groupChannel = it }.setMethodCallHandler { call, result ->
+            val roomId = call.argument<String>("roomId").orEmpty()
+            val manager = ecc.stellar.app.calls.StellarGroupCallManager
+            when (call.method) {
+                "startGroupForeground", "stopGroupForeground" -> {
+                    if (!Regex("[0-9a-f]{32}").matches(roomId)) {
+                        result.error("INVALID_GROUP_ROOM", "Invalid room ID", null)
+                    } else {
+                        val starting = call.method == "startGroupForeground"
+                        val serviceIntent = Intent(
+                            this@MainActivity,
+                            ecc.stellar.app.calls.StellarGroupCallForegroundService::class.java
+                        ).apply {
+                            action = if (starting)
+                                ecc.stellar.app.calls.StellarGroupCallForegroundService.START
+                            else ecc.stellar.app.calls.StellarGroupCallForegroundService.STOP
+                            putExtra(ecc.stellar.app.calls.StellarGroupCallForegroundService.ROOM, roomId)
+                            putExtra(ecc.stellar.app.calls.StellarGroupCallForegroundService.VIDEO,
+                                call.argument<Boolean>("video") == true)
+                        }
+                        try {
+                            if (starting && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(serviceIntent)
+                            } else {
+                                startService(serviceIntent)
+                            }
+                            // A successful dispatch is not confirmation of service startup.
+                            result.success(true)
+                        } catch (_: Exception) {
+                            result.error("GROUP_FOREGROUND_DISPATCH_FAILED",
+                                "Unable to dispatch group foreground service", null)
+                        }
+                    }
+                }
+                "takeGroupActions" -> {
+                    val actions = pendingGroupActions.values.toList()
+                    pendingGroupActions.clear()
+                    result.success(actions)
+                }
+                "registerVerifiedInvitation" -> {
+                    val registered = manager.registerVerifiedInvitation(roomId)
+                    if (registered) {
+                        ecc.stellar.app.calls.StellarGroupCallNotification.show(applicationContext, roomId)
+                    }
+                    result.success(registered)
+                }
+                "consumeInvitation" -> {
+                    val consumed = manager.consumeInvitation(roomId)
+                    ecc.stellar.app.calls.StellarGroupCallNotification.cancel(applicationContext, roomId)
+                    result.success(consumed)
+                }
+                "dismissInvitation" -> {
+                    manager.dismiss(roomId)
+                    ecc.stellar.app.calls.StellarGroupCallNotification.cancel(applicationContext, roomId)
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
         callActionHandlerReady = false
 
         callChannel = MethodChannel(
@@ -157,6 +224,52 @@ class MainActivity : FlutterFragmentActivity() {
                                 ecc.stellar.app.calls.StellarCallManager
                                     .setCallEnded(this@MainActivity, callId)
                             )
+                        }
+                    }
+
+                    METHOD_START_OUTGOING_CALL_FOREGROUND -> {
+                        val callId = call.argument<String>("callId").orEmpty()
+                        val remote = call.argument<String>("remoteNickname").orEmpty()
+                        val kind = call.argument<String>("kind").orEmpty()
+                        if (callId.isBlank() || remote.isBlank() ||
+                            (kind != "voice" && kind != "video")
+                        ) {
+                            result.success(false)
+                        } else {
+                            val serviceIntent = Intent(
+                                this@MainActivity,
+                                ecc.stellar.app.calls.StellarCallForegroundService::class.java
+                            ).apply {
+                                action = ecc.stellar.app.calls.StellarCallForegroundService.ACTION_START
+                                putExtra(ecc.stellar.app.calls.StellarCallForegroundService.EXTRA_CALL_ID, callId)
+                                putExtra(ecc.stellar.app.calls.StellarCallForegroundService.EXTRA_REMOTE_NICKNAME, remote)
+                                putExtra(ecc.stellar.app.calls.StellarCallForegroundService.EXTRA_CALL_KIND, kind)
+                            }
+                            try {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    startForegroundService(serviceIntent)
+                                } else {
+                                    startService(serviceIntent)
+                                }
+                                result.success(true)
+                            } catch (_: Exception) {
+                                result.success(false)
+                            }
+                        }
+                    }
+
+                    METHOD_STOP_OUTGOING_CALL_FOREGROUND -> {
+                        val callId = call.argument<String>("callId").orEmpty()
+                        if (callId.isBlank()) {
+                            result.success(false)
+                        } else {
+                            try {
+                                ecc.stellar.app.calls.StellarCallForegroundService
+                                    .stopForCall(this@MainActivity, callId)
+                                result.success(true)
+                            } catch (_: Exception) {
+                                result.success(false)
+                            }
                         }
                     }
 
@@ -726,6 +839,26 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun deliverIntent(intent: Intent?) {
+        val groupRoom = intent?.getStringExtra("stellar.group.roomId")
+        val groupAction = intent?.getStringExtra("stellar.group.action")
+        if (groupRoom != null || groupAction != null) {
+            if (groupRoom != null && Regex("[0-9a-f]{32}").matches(groupRoom) &&
+                (groupAction == "join" || groupAction == "decline") &&
+                intent?.dataString == "stellar-group-action://invitation/$groupRoom/$groupAction" &&
+                ecc.stellar.app.calls.StellarGroupCallManager.consumeActionToken(
+                    groupRoom, intent?.getStringExtra("stellar.group.token"))) {
+                if (pendingGroupActions.size < 4) {
+                    pendingGroupActions.putIfAbsent(groupRoom, mapOf(
+                        "roomId" to groupRoom, "action" to groupAction
+                    ))
+                    groupChannel?.invokeMethod("groupActionsAvailable", null)
+                }
+            }
+            intent?.removeExtra("stellar.group.roomId")
+            intent?.removeExtra("stellar.group.action")
+            intent?.removeExtra("stellar.group.token")
+            return
+        }
         if (intent?.action == OPEN_WANTED_SECURITY_ACTION) {
             val challengeId = intent.getStringExtra(
                 WantedModeForegroundService.EXTRA_CHALLENGE_ID

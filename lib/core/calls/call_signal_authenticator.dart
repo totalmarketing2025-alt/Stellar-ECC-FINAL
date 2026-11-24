@@ -23,6 +23,29 @@ class CallSignalAuthenticator {
     );
   }
 
+  /// Verifies a call envelope and retains its signature for downstream
+  /// room-level replay protection. The signature is added only after
+  /// cryptographic verification succeeds.
+  static Map<String, dynamic>? verifyAndPreserveSignature({
+    required IdentityKey identityKey,
+    required String recipient,
+    required Map<String, dynamic> payload,
+    required Uint8List signature,
+    DateTime? now,
+  }) {
+    if (signature.length != 64 ||
+        !verify(
+          identityKey: identityKey,
+          recipient: recipient,
+          payload: payload,
+          signature: signature,
+          now: now,
+        )) {
+      return null;
+    }
+    return <String, dynamic>{...payload, 'signature': base64Encode(signature)};
+  }
+
   static bool verify({
     required IdentityKey identityKey,
     required String recipient,

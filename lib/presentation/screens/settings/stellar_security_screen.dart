@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 
 class StellarSecurityScreen extends StatelessWidget {
   const StellarSecurityScreen({super.key});
@@ -7,13 +8,13 @@ class StellarSecurityScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Stellar Security')),
+      appBar: AppBar(title: Text(stellarText(context, "Stellar Security"))),
       body: ListView(
         padding: const EdgeInsets.all(16),
-        children: const [
+        children: [
           _SecuritySection(
             icon: Icons.lock_outline,
-            title: 'Message encryption',
+            title: stellarText(context, "Message encryption"),
             body: 'One-to-one conversations use the Signal Protocol '
                 'and Double Ratchet encryption. Group conversations use '
                 'Sender Keys. Message content is encrypted for the '
@@ -22,14 +23,14 @@ class StellarSecurityScreen extends StatelessWidget {
           ),
           _SecuritySection(
             icon: Icons.key_outlined,
-            title: 'Protect your keys and account',
+            title: stellarText(context, "Protect your keys and account"),
             body: 'Sensitive key material is stored using platform-protected '
                 'secure storage. Use a strong app PIN and device screen lock. '
                 'Never share your PIN and keep your device and Stellar updated.',
           ),
           _SecuritySection(
             icon: Icons.shield_outlined,
-            title: 'Wanted Mode',
+            title: stellarText(context, "Wanted Mode"),
             body: 'Wanted Mode is an optional security feature that requires '
                 'an app PIN. When enabled, it monitors selected local events '
                 'in USB, Bluetooth, network and power categories. Certain '
@@ -38,7 +39,7 @@ class StellarSecurityScreen extends StatelessWidget {
           ),
           _SecuritySection(
             icon: Icons.info_outline,
-            title: 'You stay in control',
+            title: stellarText(context, "You stay in control"),
             body: 'Detected events do not automatically wipe data or lock '
                 'your account. You can choose Lock now to lock the app. '
                 'Wipe local data and lock is a separate manual action. '
@@ -49,14 +50,14 @@ class StellarSecurityScreen extends StatelessWidget {
           ),
           _SecuritySection(
             icon: Icons.verified_user_outlined,
-            title: 'Security best practices',
+            title: stellarText(context, "Security best practices"),
             body: 'Keep your PIN private, lock your phone when unattended, '
                 'install updates and verify contact safety information '
                 'through a trusted channel when appropriate.',
           ),
           _SecuritySection(
             icon: Icons.business_outlined,
-            title: 'About',
+            title: stellarText(context, "About"),
             body: 'Stellar is a product of I-WORKS North Macedonia.',
           ),
         ],

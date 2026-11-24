@@ -94,6 +94,25 @@ class CallService {
   CallKind? get callKind => _callKind;
   bool get localVideoEnabled => _localVideoEnabled;
 
+  Future<CallGroupMedia?> prepareGroupUpgradeMedia({
+    required String remoteNickname,
+    required bool video,
+  }) async {
+    if (_peerConnection == null || _localStream == null ||
+        _callId == null || _callId!.isEmpty) {
+      return null;
+    }
+    if (_localVideoEnabled != video) {
+      await setVideoEnabled(remoteNickname, video);
+    }
+    final audio = _localStream;
+    if (audio == null || audio.getAudioTracks().isEmpty) return null;
+    return CallGroupMedia(
+      audioStream: audio,
+      videoStream: video ? _cameraCaptureStream : null,
+    );
+  }
+
   void attachRenderers({
     RTCVideoRenderer? local,
     RTCVideoRenderer? remote,
@@ -197,6 +216,18 @@ class CallService {
 
       print('CALL_START_MEDIA_OK: callId=$_callId');
 
+      // Start the native foreground service only after Android grants the
+      // microphone/camera permissions through getUserMedia().
+      final activeCallId = _callId;
+      if (activeCallId != null && activeCallId.isNotEmpty) {
+        await platformBridge.startOutgoingCallForeground(
+          callId: activeCallId,
+          remoteNickname: remoteNickname,
+          kind: video ? 'video' : 'voice',
+        );
+      }
+
+      if (!_isCurrentGeneration(generation)) return;
       localRenderer?.srcObject = _localStream;
 
       phase = 'buildIceConfiguration';
@@ -820,7 +851,28 @@ class CallService {
     await end();
   }
 
-  Future<void> end({String? expectedCallId}) async {
+  Future<bool> signalGroupUpgradeReady({
+    required String remoteNickname,
+    required String groupRoomId,
+  }) async {
+    final callId = _callId;
+    if (callId == null || callId.isEmpty || remoteNickname.isEmpty) return false;
+    try {
+      await _sendSignal(remoteNickname, {
+        'type': 'group-upgrade-complete',
+        'groupRoomId': groupRoomId,
+      }).timeout(const Duration(seconds: 3));
+      return true;
+    } catch (error) {
+      print('CALL_GROUP_UPGRADE_SIGNAL_FAILED: $error');
+      return false;
+    }
+  }
+
+  Future<void> end({
+    String? expectedCallId,
+    bool preserveMedia = false,
+  }) async {
   // Prevent stale cleanup from ending a replacement call.
   if (expectedCallId != null && _callId != expectedCallId) {
     return;
@@ -854,13 +906,13 @@ class CallService {
     remoteRenderer?.srcObject = null;
 
     try {
-      await localStream?.dispose();
+      if (!preserveMedia) await localStream?.dispose();
     } catch (error) {
       print('CALL_END_STREAM_CLEANUP_FAILED: $error');
     }
 
     try {
-      await cameraCaptureStream?.dispose();
+      if (!preserveMedia) await cameraCaptureStream?.dispose();
     } catch (error) {
       print('CALL_END_CAMERA_CLEANUP_FAILED: $error');
     }
@@ -883,6 +935,7 @@ class CallService {
       } catch (error) {
         print('CALL_END_NATIVE_CLEANUP_FAILED: $error');
       }
+      await platformBridge.stopOutgoingCallForeground(callId);
     }
   }
 

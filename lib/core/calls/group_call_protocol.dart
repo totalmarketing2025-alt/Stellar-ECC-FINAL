@@ -38,14 +38,16 @@ class GroupCallProtocol {
     if (type == 'group-offer' || type == 'group-answer') {
       final sdp = payload['sdp'];
       final sdpType = payload['sdpType'];
-      return sdp is String && sdp.isNotEmpty &&
+      return sdp is String && sdp.isNotEmpty && sdp.length <= 65536 &&
           sdpType == (type == 'group-offer' ? 'offer' : 'answer');
     }
     if (type == 'group-ice') {
       final value = payload['candidate'];
       return value is Map && value['candidate'] is String &&
           (value['candidate'] as String).isNotEmpty &&
-          (value['sdpMid'] == null || value['sdpMid'] is String) &&
+          (value['candidate'] as String).length <= 4096 &&
+          (value['sdpMid'] == null ||
+              (value['sdpMid'] is String && (value['sdpMid'] as String).length <= 256)) &&
           (value['sdpMLineIndex'] == null ||
               (value['sdpMLineIndex'] is int && value['sdpMLineIndex'] >= 0));
     }

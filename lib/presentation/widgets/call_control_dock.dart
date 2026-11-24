@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/stellar_theme.dart';
+import '../../l10n/app_localizations.dart';
 
 class CallControlDock extends StatelessWidget {
   const CallControlDock({
@@ -15,6 +16,7 @@ class CallControlDock extends StatelessWidget {
     this.cameraBusy = false,
     this.onToggleCamera,
     this.onFlipCamera,
+    this.onAddParticipant,
   });
 
   final bool muted;
@@ -27,54 +29,67 @@ class CallControlDock extends StatelessWidget {
   final VoidCallback onEndCall;
   final VoidCallback? onToggleCamera;
   final VoidCallback? onFlipCamera;
+  final VoidCallback? onAddParticipant;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Container(
-      // Five controls must also fit narrow Android displays without overflow.
+      // Keep the dock usable on narrow phones as controls are added.
       margin: const EdgeInsets.symmetric(horizontal: 12),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
       decoration: BoxDecoration(
         color: StellarColors.bgElevated.withOpacity(0.9),
         borderRadius: BorderRadius.circular(32),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           _DockButton(
             icon: muted ? Icons.mic_off : Icons.mic,
             active: muted,
             onTap: onToggleMute,
-            tooltip: muted ? 'Unmute microphone' : 'Mute microphone',
+            tooltip: muted ? l10n.unmuteMicrophone : l10n.muteMicrophone,
           ),
           _DockButton(
             icon: speakerOn ? Icons.volume_up : Icons.volume_down,
             active: speakerOn,
             onTap: onToggleSpeaker,
-            tooltip: speakerOn ? 'Turn speaker off' : 'Turn speaker on',
+            tooltip: speakerOn ? l10n.turnSpeakerOff : l10n.turnSpeakerOn,
           ),
           if (showCameraControls) ...[
             _DockButton(
               icon: cameraOff ? Icons.videocam_off : Icons.videocam,
               active: !cameraOff,
               onTap: cameraBusy ? null : onToggleCamera,
-              tooltip: cameraOff ? 'Turn on video' : 'Turn off video',
+              tooltip: cameraOff ? l10n.turnVideoOn : l10n.turnVideoOff,
             ),
             if (!cameraOff) _DockButton(
               icon: Icons.cameraswitch,
               active: false,
               onTap: cameraBusy ? null : onFlipCamera,
-              tooltip: 'Switch camera',
+              tooltip: l10n.switchCamera,
             ),
           ],
+          if (onAddParticipant != null)
+            _DockButton(
+              icon: Icons.person_add_alt_1,
+              active: false,
+              onTap: onAddParticipant,
+              tooltip: l10n.addParticipantToGroupCall,
+            ),
           _DockButton(
             icon: Icons.call_end,
             active: true,
             activeColor: StellarColors.danger,
             onTap: onEndCall,
-            tooltip: 'End call',
+            tooltip: l10n.endCall,
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
