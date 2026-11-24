@@ -226,6 +226,21 @@ class GroupCallCoordinator {
     return names;
   }
 
+  Future<List<String>> _membersForIncomingInvitation(String chatId) async {
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        final members = await _membersFor(chatId);
+        if (members.isNotEmpty) return members;
+      } catch (_) {
+        // Group metadata may be delivered immediately before the call invite.
+      }
+      if (attempt < 4) await Future<void>.delayed(
+        const Duration(milliseconds: 500),
+      );
+    }
+    return const <String>[];
+  }
+
   Future<bool> _membershipStillMatches(GroupCallRoom room) async {
     try {
       final members = await _membersFor(room.chatId);
@@ -489,8 +504,8 @@ class GroupCallCoordinator {
       if (_room != null ||
           (hasDirectCall() && activePeerBeforeLookup != remote)) return;
       final invitationGeneration = _generation;
-      final members = await _membersFor(signal.session.chatId).catchError(
-        (Object _) => <String>[],
+      final members = await _membersForIncomingInvitation(
+        signal.session.chatId,
       );
       if (_disposed || _generation != invitationGeneration || _room != null) return;
       final activePeerAfterLookup = hasDirectCall()
