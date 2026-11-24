@@ -893,6 +893,7 @@ class GroupCallCoordinator {
           phase: hasConnected ? GroupCallPhase.connected : GroupCallPhase.connecting,
         );
         _emit();
+        _maybeFinishDirectUpgrade();
         if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
             state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
           _schedulePeerRecovery(nickname, peer);
@@ -904,6 +905,30 @@ class GroupCallCoordinator {
       await renderer.dispose();
       rethrow;
     }
+  }
+
+  void _maybeFinishDirectUpgrade() {
+    final room = _room;
+    final roomId = _directUpgradeRoomId;
+    if (_finishingDirectUpgrade || room == null || roomId == null ||
+        room.roomId != roomId || !_allMembersConnected(room)) return;
+    _finishingDirectUpgrade = true;
+    unawaited(() async {
+      try {
+        await onDirectUpgradeComplete(roomId);
+        if (_room?.roomId == roomId && _directUpgradeRoomId == roomId) {
+          // The group mesh now owns the shared capture. CallService ends
+          // its old peer connection but deliberately keeps these tracks alive.
+          _ownsLocalMedia = true;
+          _ownsCameraMedia = true;
+          _directUpgradeRoomId = null;
+        }
+      } catch (error) {
+        print('GROUP_DIRECT_UPGRADE_FINISH_FAILED: $error');
+      } finally {
+        _finishingDirectUpgrade = false;
+      }
+    }());
   }
 
   Future<void> _attachStreamlessVideo(
@@ -1187,6 +1212,8 @@ class GroupCallCoordinator {
     _presenceTimer?.cancel();
     _presenceTimer = null;
     _room = null;
+    if (_directUpgradeRoomId == roomId) _directUpgradeRoomId = null;
+    _finishingDirectUpgrade = false;
     _iceConfiguration = null;
     _earlyIce.clear();
     _remoteMediaRevisions.clear();
@@ -1201,8 +1228,15 @@ class GroupCallCoordinator {
     _localStream = null;
     _emit();
     await Future.wait(peers.map(_disposePeer));
-    try { await capture?.dispose(); } catch (_) { /* Best effort. */ }
-    try { await stream?.dispose(); } catch (_) { /* Best effort. */ }
+    if (_ownsCameraMedia && capture != null &&
+        !identical(capture, stream)) {
+      try { await capture.dispose(); } catch (_) { /* Best effort. */ }
+    }
+    if (_ownsLocalMedia && stream != null) {
+      try { await stream.dispose(); } catch (_) { /* Best effort. */ }
+    }
+    _ownsLocalMedia = true;
+    _ownsCameraMedia = true;
   }
 
   Future<void> dispose() async {
