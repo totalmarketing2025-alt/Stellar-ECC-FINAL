@@ -10,6 +10,7 @@ import '../../../core/calls/call_coordinator.dart';
 import '../../../domain/models/call_session.dart';
 import '../../state/app_providers.dart';
 import '../../widgets/call_control_dock.dart';
+import 'add_participant_to_call_dialog.dart';
 import '../../widgets/stellar_avatar.dart';
 
 class VideoCallScreen extends ConsumerStatefulWidget {
@@ -179,8 +180,11 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     final coordinator = _callCoordinator;
     final session = coordinator?.activeSession;
 
+    final upgradingToGroup =
+        ref.read(groupCallCoordinatorProvider).isDirectUpgradeInProgress;
     if (coordinator != null &&
         session != null &&
+        !upgradingToGroup &&
         session.chatId == widget.chatId &&
         session.kind == CallKind.video) {
       unawaited(coordinator.endActiveCall());
@@ -412,7 +416,14 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                         }
                       }
                     },
-                    onEndCall: () async {
+                    onAddParticipant: session?.state == CallState.connected
+                  ? () => unawaited(addParticipantToActiveCall(
+                        context: context,
+                        ref: ref,
+                        session: session!,
+                      ))
+                  : null,
+              onEndCall: () async {
                       await _callCoordinator?.endActiveCall();
                       if (mounted) _closeCallScreen();
                     },
