@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../../domain/models/call_session.dart';
 import '../../state/app_providers.dart';
 
@@ -30,6 +31,7 @@ Future<void> addParticipantToActiveCall({
   if (remote == null || remote.isEmpty || session.state != CallState.connected) {
     return;
   }
+  final l10n = AppLocalizations.of(context);
   final controller = TextEditingController();
   var video = session.localVideoEnabled || session.remoteVideoEnabled;
   final choice = await showDialog<_UpgradeChoice>(
@@ -37,7 +39,7 @@ Future<void> addParticipantToActiveCall({
     builder: (dialogContext) => StatefulBuilder(
       builder: (context, setDialogState) => AlertDialog(
         backgroundColor: StellarColors.bgElevated,
-        title: const Text('Add participant'),
+        title: Text(l10n.addParticipant),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -45,10 +47,7 @@ Future<void> addParticipantToActiveCall({
               controller: controller,
               autofocus: true,
               textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(
-                labelText: 'Stellar nickname',
-                hintText: '@nickname',
-              ),
+              decoration: InputDecoration(labelText: l10n.stellarNickname, hintText: l10n.nicknameHint),
               onSubmitted: (_) {
                 final nickname = controller.text.trim().replaceFirst(RegExp(r'^@'), '');
                 if (nickname.isNotEmpty) {
@@ -58,17 +57,16 @@ Future<void> addParticipantToActiveCall({
             ),
             const SizedBox(height: 16),
             SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: false, label: Text('Voice'), icon: Icon(Icons.call)),
-                ButtonSegment(value: true, label: Text('Video'), icon: Icon(Icons.videocam)),
+              segments: [
+                ButtonSegment(value: false, label: Text(l10n.voice), icon: const Icon(Icons.call)),
+                ButtonSegment(value: true, label: Text(l10n.video), icon: const Icon(Icons.videocam)),
               ],
               selected: {video},
               onSelectionChanged: (values) =>
                   setDialogState(() => video = values.first),
             ),
             const SizedBox(height: 12),
-            const Text(
-              'Your current call stays active while everyone connects to the group call.',
+            Text(l10n.groupUpgradeKeepsCallActive,
               style: TextStyle(color: StellarColors.textSecondary, fontSize: 12),
             ),
           ],
@@ -76,7 +74,7 @@ Future<void> addParticipantToActiveCall({
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.cancel),
           ),
           FilledButton(
             onPressed: () {
@@ -85,7 +83,7 @@ Future<void> addParticipantToActiveCall({
                 Navigator.of(dialogContext).pop(_UpgradeChoice(nickname, video));
               }
             },
-            child: const Text('Add'),
+            child: Text(l10n.add),
           ),
         ],
       ),
@@ -100,7 +98,7 @@ Future<void> addParticipantToActiveCall({
       nickname.toLowerCase() == local.toLowerCase() ||
       nickname.toLowerCase() == remote.toLowerCase()) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Choose a different participant nickname.')),
+      SnackBar(content: Text(l10n.chooseDifferentParticipantNickname)),
     );
     return;
   }

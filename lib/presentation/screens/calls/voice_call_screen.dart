@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../../core/calls/call_coordinator.dart';
 import '../../../domain/models/call_session.dart';
 import '../../state/app_providers.dart';
@@ -199,11 +200,12 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final session = _session;
     final identity = session?.remoteNickname?.isNotEmpty == true
         ? session!.remoteNickname!
         : widget.chatId;
-    final stateLabel = _stateLabel(session);
+    final stateLabel = _stateLabel(session, l10n);
 
     return Scaffold(
       backgroundColor: StellarColors.bgPrimary,
@@ -275,7 +277,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
               TextButton.icon(
               onPressed: () => _showSafetyNumberCompare(context),
               icon: const Icon(Icons.verified_user_outlined, size: 16, color: StellarColors.accentBlue),
-              label: const Text('Verify safety number', style: TextStyle(color: StellarColors.accentBlue)),
+              label: Text(l10n.verifySafetyNumber, style: const TextStyle(color: StellarColors.accentBlue)),
             ),
             const SizedBox(height: 24),
             if (widget.incoming &&
@@ -350,7 +352,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
               await _callCoordinator?.answerIncomingCall();
             },
             icon: const Icon(Icons.call),
-            label: const Text('Answer'),
+            label: Text(l10n.answer),
           ),
           FilledButton.icon(
             style: FilledButton.styleFrom(
@@ -366,27 +368,27 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
               if (mounted) _closeCallScreen();
             },
             icon: const Icon(Icons.call_end),
-            label: const Text('Decline'),
+            label: Text(l10n.decline),
           ),
         ],
       ),
     );
   }
 
-  String _stateLabel(CallSession? session) {
+  String _stateLabel(CallSession? session, AppLocalizations l10n) {
     switch (session?.state) {
       case CallState.ringing:
-        return 'Ringing…';
+        return l10n.ringing;
       case CallState.answering:
-        return 'Answering…';
+        return l10n.answering;
       case CallState.connecting:
-        return 'Connecting…';
+        return l10n.connecting;
       case CallState.connected:
-        return 'Encrypted call in progress';
+        return l10n.encryptedCallInProgress;
       case CallState.ended:
-        return 'Call ended';
+        return l10n.callEnded;
       case CallState.failed:
-        return 'Call failed';
+        return l10n.callFailed;
       case null:
         return 'Connecting…';
     }

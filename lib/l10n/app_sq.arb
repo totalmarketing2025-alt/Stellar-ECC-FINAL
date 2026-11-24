@@ -19,5 +19,58 @@
   "chatsSection": "Bisedat",
   "appLockSection": "Kyçja e aplikacionit",
   "notificationsSection": "Njoftimet",
-  "aboutSection": "Rreth aplikacionit"
+  "aboutSection": "Rreth aplikacionit",
+  "addParticipant": "Shto pjesëmarrës",
+  "addParticipantToGroupCall": "Shto pjesëmarrës në telefonatën në grup",
+  "stellarNickname": "Nofka Stellar",
+  "nicknameHint": "@nofka",
+  "voice": "Zë",
+  "video": "Video",
+  "groupUpgradeKeepsCallActive": "Telefonata aktuale mbetet aktive derisa të gjithë të lidhen me telefonatën në grup.",
+  "cancel": "Anulo",
+  "add": "Shto",
+  "chooseDifferentParticipantNickname": "Zgjidh një nofkë tjetër për pjesëmarrësin.",
+  "groupVideoCall": "Telefonatë video në grup",
+  "groupVoiceCall": "Telefonatë zanore në grup",
+  "leaveGroupCall": "Dil nga telefonata në grup",
+  "connected": "të lidhur",
+  "groupInvitation": "{inviter} po të fton në një telefonatë në grup",
+  "@groupInvitation": {
+    "placeholders": {
+      "inviter": {}
+    }
+  },
+  "preparingEncryptedGroupCall": "Po përgatitet telefonata e enkriptuar në grup…",
+  "encryptedPeerToPeerGroupCall": "Telefonatë e enkriptuar grupore pikë më pikë",
+  "waitingForMembers": "Në pritje të pjesëmarrësve…",
+  "youLabel": "{nickname} (ti)",
+  "@youLabel": {
+    "placeholders": {
+      "nickname": {}
+    }
+  },
+  "invited": "I ftuar",
+  "inCall": "Në telefonatë",
+  "memberConnected": "I lidhur",
+  "connecting": "Duke u lidhur…",
+  "memberLeft": "U largua",
+  "connectionLost": "Lidhja humbi",
+  "join": "Bashkohu",
+  "decline": "Refuzo",
+  "muteMicrophone": "Çaktivizo mikrofonin",
+  "unmuteMicrophone": "Aktivizo mikrofonin",
+  "turnSpeakerOff": "Fik altoparlantin",
+  "turnSpeakerOn": "Ndez altoparlantin",
+  "turnVideoOn": "Aktivizo videon",
+  "turnVideoOff": "Çaktivizo videon",
+  "switchCamera": "Ndërro kamerën",
+  "endCall": "Përfundo telefonatën",
+  "verifySafetyNumber": "Verifiko numrin e sigurisë",
+  "answer": "Përgjigju",
+  "ringing": "Po bie…",
+  "answering": "Duke u përgjigjur…",
+  "encryptedCallInProgress": "Telefonatë e enkriptuar aktive",
+  "encryptedVideoCall": "Telefonatë video e enkriptuar",
+  "callEnded": "Telefonata përfundoi",
+  "callFailed": "Telefonata dështoi"
 }

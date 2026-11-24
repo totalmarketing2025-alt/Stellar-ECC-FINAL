@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/calls/group_call_coordinator.dart';
 import '../../../core/calls/group_call_protocol.dart';
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../../domain/models/group_call_room.dart';
 import '../../state/app_providers.dart';
 import '../../widgets/call_control_dock.dart';
@@ -167,6 +168,7 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final room = _room;
     final nickname = ref.watch(localNicknameProvider) ?? 'You';
     final peers = room?.members.where((name) => name != GroupCallProtocol.normalize(nickname))
@@ -179,17 +181,17 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
     return Scaffold(
       backgroundColor: StellarColors.bgPrimary,
       appBar: AppBar(
-        title: Text(showingVideo ? 'Group video call' : 'Group voice call'),
+        title: Text(showingVideo ? l10n.groupVideoCall : l10n.groupVoiceCall),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          tooltip: 'Leave group call',
+          tooltip: l10n.leaveGroupCall,
           onPressed: _endCall,
         ),
         actions: [
           if (room != null) Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Center(child: Text(
-              '${room.participantCount}/${room.members.length} connected',
+              '${room.participantCount}/${room.members.length} ${l10n.connected}',
               style: const TextStyle(color: StellarColors.textSecondary),
             )),
           ),
@@ -207,17 +209,17 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
             children: [
               const SizedBox(height: 16),
               if (room?.isIncoming == true) ...[
-                Text('${room!.inviter} is inviting you to a group call',
+                Text(l10n.groupInvitation(room!.inviter),
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 18)),
                 const SizedBox(height: 16),
               ] else if (room == null) ...[
-                Text(_error ?? 'Preparing encrypted group call…',
+                Text(_error ?? l10n.preparingEncryptedGroupCall,
                     textAlign: TextAlign.center),
               ] else ...[
                 Text(room.phase == GroupCallPhase.connected
-                    ? 'Encrypted peer-to-peer group call'
-                    : 'Waiting for members to join…',
+                    ? l10n.encryptedPeerToPeerGroupCall
+                    : l10n.waitingForMembers,
                     style: const TextStyle(color: StellarColors.textSecondary)),
               ],
               const SizedBox(height: 12),
@@ -229,18 +231,18 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
                 childAspectRatio: 0.85,
                 children: [
                   _callTile(
-                    label: '$nickname (You)',
+                    label: l10n.youLabel(nickname),
                     videoEnabled: room?.localVideo == true,
                     renderer: _localRenderer,
                     mirror: _frontCamera,
-                    state: room?.isIncoming == true ? 'Invited' : 'In call',
+                    state: room?.isIncoming == true ? l10n.invited : l10n.inCall,
                   ),
                   for (final peer in peers)
                     _callTile(
                       label: peer,
                       videoEnabled: room?.remoteVideo[peer] ?? room?.video == true,
                       renderer: _coordinator?.rendererFor(peer),
-                      state: _memberState(room?.connectionStates[peer]),
+                      state: _memberState(room?.connectionStates[peer], l10n),
                     ),
                 ],
               )),
@@ -253,7 +255,7 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
                       FilledButton.icon(
                         onPressed: _accept,
                         icon: const Icon(Icons.call),
-                        label: const Text('Join'),
+                        label: Text(l10n.join),
                       ),
                       FilledButton.icon(
                         onPressed: () async {
@@ -264,7 +266,7 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
                           backgroundColor: StellarColors.danger,
                         ),
                         icon: const Icon(Icons.call_end),
-                        label: const Text('Decline'),
+                        label: Text(l10n.decline),
                       ),
                     ],
                   ),
@@ -307,14 +309,14 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
     );
   }
 
-  String _memberState(GroupMemberCallState? state) {
+  String _memberState(GroupMemberCallState? state, AppLocalizations l10n) {
     switch (state) {
-      case GroupMemberCallState.connected: return 'Connected';
-      case GroupMemberCallState.joining: return 'Connecting';
-      case GroupMemberCallState.left: return 'Left';
-      case GroupMemberCallState.failed: return 'Connection lost';
+      case GroupMemberCallState.connected: return l10n.memberConnected;
+      case GroupMemberCallState.joining: return l10n.connecting;
+      case GroupMemberCallState.left: return l10n.memberLeft;
+      case GroupMemberCallState.failed: return l10n.connectionLost;
       case GroupMemberCallState.invited:
-      case null: return 'Invited';
+      case null: return l10n.invited;
     }
   }
 
