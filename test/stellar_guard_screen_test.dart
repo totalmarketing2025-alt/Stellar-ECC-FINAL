@@ -53,7 +53,7 @@ class _FakeGuardService extends GuardCaseService {
     latestReason = reason;
     final caseReceipt = GuardCaseReceipt(
       caseId: _caseId,
-      status: reason == 'theft' ? 'approved' : 'pending_review',
+      status: 'pending_review',
       createdAt: 100,
       updatedAt: 100,
       targetCode: targetCode,
@@ -156,7 +156,7 @@ void main() {
     expect(find.text('Scam / fraud'), findsOneWidget);
   });
 
-  testWidgets('theft reason warns about immediate account revocation', (tester) async {
+  testWidgets('theft report is reviewed by a moderator', (tester) async {
     final fake = _FakeGuardService();
     await _mount(tester, fake);
     final dropdown = find.byType(DropdownButtonFormField<String>);
@@ -176,13 +176,13 @@ void main() {
     await tester.ensureVisible(submit);
     await tester.tap(submit);
     await tester.pumpAndSettle();
-    expect(find.textContaining('permanently revokes'), findsOneWidget);
+    expect(find.textContaining('reviewed by a moderator'), findsOneWidget);
     expect(fake.submissions, 0);
     await tester.tap(find.text('Submit theft report'));
     await tester.pumpAndSettle();
     expect(fake.latestReason, 'theft');
     expect(fake.submissions, 1);
-    expect(find.text('Status: approved'), findsOneWidget);
+    expect(find.text('Status: pending review'), findsOneWidget);
   });
 
   testWidgets('valid report requires confirmation and stays pending review',
@@ -202,7 +202,7 @@ void main() {
     await tester.ensureVisible(submit);
     await tester.tap(submit);
     await tester.pumpAndSettle();
-    expect(find.textContaining('does NOT remove'), findsOneWidget);
+    expect(find.textContaining('moderator reviews the details'), findsOneWidget);
     expect(fake.submissions, 0);
 
     await tester.tap(find.text('Back'));
