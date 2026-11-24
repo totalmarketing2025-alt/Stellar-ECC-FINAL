@@ -71,7 +71,7 @@ class _TypingDot extends StatelessWidget {
       parent: controller,
       curve: Interval(
         start,
-        (start + 0.55).clamp(0.0, 1.0),
+        (start + 0.55).clamp(0.0, 1.0).toDouble(),
         curve: Curves.easeInOut,
       ),
     );
