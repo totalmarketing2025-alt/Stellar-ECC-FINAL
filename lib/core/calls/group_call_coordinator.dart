@@ -941,6 +941,7 @@ class GroupCallCoordinator {
           _ownsLocalMedia = true;
           _ownsCameraMedia = true;
           _directUpgradeRoomId = null;
+          _emit();
         }
       } catch (error) {
         print('GROUP_DIRECT_UPGRADE_FINISH_FAILED: $error');
