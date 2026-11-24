@@ -45,12 +45,16 @@ class _StoriesBarState extends ConsumerState<StoriesBar> {
     if (nickname == null || nickname.isEmpty) return;
     try {
       final stories = await ref.read(storiesServiceProvider).load(nickname: nickname);
-      if (mounted) setState(() {
-        _stories = stories;
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _stories = stories;
+          _loading = false;
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -85,7 +89,6 @@ class _StoriesBarState extends ConsumerState<StoriesBar> {
                 _StoryCircle(
                   label: stellarText(context, 'Your story'),
                   icon: Icons.add,
-                  isOwn: true,
                   hasStory: own.isNotEmpty,
                   onTap: own.isEmpty
                       ? () => _composeStory(chats)
@@ -399,8 +402,13 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
 
   Widget _buildMedia() {
     if (_loading) return const CircularProgressIndicator();
-    if (_error != null) return Padding(padding: const EdgeInsets.all(24),
-      child: Text(_error!, style: const TextStyle(color: Colors.white), textAlign: TextAlign.center));
+    if (_error != null) {
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(_error!, style: const TextStyle(color: Colors.white),
+            textAlign: TextAlign.center),
+      );
+    }
     if (widget.story.mediaType == 'video') {
       final controller = _video;
       if (controller == null || !controller.value.isInitialized) return const CircularProgressIndicator();
