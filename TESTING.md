@@ -1,148 +1,61 @@
-# Testing Stellar ECC — What Works Right Now vs What Needs Setup
+# Stellar ECC test and validation guide
 
-## Phone-only install (no PC/laptop needed)
+This guide reflects the Android-first application and current `main` code. CI checks code and build contracts; it does not prove that voice/video calls, push delivery or Cloudflare services work end-to-end on real devices.
 
-A GitHub Actions workflow is already included at
-`.github/workflows/build-apk.yml` — it builds the APK on GitHub's own
-servers. Your phone only needs to get the code onto GitHub and then
-download the finished file; it never compiles anything itself.
+## Local Android checks
 
-**1. Get a code editor + git app on your phone (both free):**
-   - Android: install **Termux** from F-Droid (not the outdated Play Store
-     version) — [f-droid.org/packages/com.termux](https://f-droid.org/packages/com.termux)
+Run from the repository root with the Flutter version used by CI (Flutter 3.24.0):
 
-**2. Create a GitHub account and a new empty repository**, from your
-   phone's browser at github.com — tap "New repository," name it e.g.
-   `stellar-ecc`, leave it empty (no README), create it. Keep the page
-   open, you'll need the repo URL in step 4.
-
-**3. Get the project files onto your phone and unzip them.** Download
-   `stellar_ecc_complete.zip` to your phone, then extract it — Android's
-   built-in Files app can usually extract zips directly (tap the file,
-   "Extract"), or use Termux: `unzip stellar_ecc_complete.zip`.
-
-**4. Push the code to GitHub using Termux:**
-   ```
-   pkg install git
-   termux-setup-storage
-   cd storage/downloads/stellar_ecc_complete   # wherever you extracted it
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git branch -M main
-   git remote add origin https://github.com/YOUR_USERNAME/stellar-ecc.git
-   git push -u origin main
-   ```
-   GitHub will prompt for a username + password — use a **Personal Access
-   Token** instead of your real password (GitHub no longer accepts
-   account passwords for git operations): on github.com, go to Settings →
-   Developer settings → Personal access tokens → generate one with `repo`
-   scope, and paste it in when git asks for a password.
-
-**5. Watch it build.** As soon as the push lands, go to your repo's
-   **Actions** tab in the GitHub app or mobile browser — you'll see "Build
-   APK" running (takes a few minutes the first time).
-
-**6. Download the APK.** Once it finishes (green checkmark), open that
-   run, scroll to **Artifacts**, and download `stellar-ecc-debug-apk` —
-   it's a zip containing `app-debug.apk`. Extract that on your phone.
-
-**7. Install it.** Open the extracted `app-debug.apk` from Downloads —
-   Android will prompt to allow installing from this source (expected for
-   an unsigned debug build, not a sign of a problem) — tap through and
-   install.
-
-From then on, any time you want a fresh build after changes, just `git
-add . && git commit -m "..." && git push` from Termux and repeat steps
-5–7.
-
----
-
-## Fastest path to an installable APK (if you do have a PC)
-
-```bash
-cd stellar_ecc_complete
+```sh
 flutter pub get
+flutter gen-l10n
+flutter analyze
+flutter test
 flutter build apk --debug
 ```
 
-Output: `build/app/outputs/flutter-apk/app-debug.apk` — copy to your phone
-and install, or run `flutter install` with the phone connected via USB
-debugging (Developer Options > USB debugging must be on).
+Run Android native unit tests with:
 
-## What you can actually test today, fully offline
+```sh
+cd android
+./gradlew :app:testDebugUnitTest --no-daemon
+```
 
-- Splash → onboarding flow (identity key generation is real, happens on-device)
-- Choosing an @nickname
-- App lock setup (biometric/PIN — real `local_auth` calls)
-- Chat list UI, creating a new direct chat or group (rows persist to a real
-  encrypted local SQLCipher database)
-- Chat window: composing, TTL picker, reply, reactions, attach-file picker
-- **Security Center**: score calculation, fingerprint display (a real
-  SHA-256 fingerprint of your actual generated identity key), QR code
-  generation, panic lock/wipe
-- Settings screen toggles
+The debug APK is written to `build/app/outputs/flutter-apk/app-debug.apk`. This is a test build, not a production release.
 
-## What will visibly fail, and why that's expected
+## GitHub Actions
 
-- **Sending a message** will show status "failed" on the bubble. There is
-  no relay server deployed at the placeholder `wss://relay.stellarecc.example`
-  URL — the relay server code exists (see the Phase 9 doc / `relay-server/`
-  design) but was never stood up on real infrastructure. This is the
-  correct error-handling path working, not a crash.
-- **Voice/video calls** will fail to connect for the same reason — no
-  signaling relay is reachable.
-- **Push notifications** won't arrive — `google-services.json` /
-  `GoogleService-Info.plist` contain structurally-correct placeholder
-  values, not a real Firebase project's credentials. `main.dart` now
-  catches this gracefully at startup rather than crashing.
+- [Internal Audit](.github/workflows/internal-audit.yml) generates Flutter localizations, runs `flutter analyze`, and runs `flutter test`.
+- [GUARD Phase 05 verification](.github/workflows/guard-phase05.yml) runs GUARD backend tests, Flutter GUARD contract/UI tests, builds a debug APK and runs a native Android policy test.
+- [Group call validation](.github/workflows/group-call-validation.yml) runs localization generation, Flutter analysis/tests, Android debug compilation and a native group-call wake test. Its current trigger is the `feature/group-call-engine-v2` branch only; it does not automatically run for every PR or push to `main`. Confirm the run manually when changing group-call code.
 
-## Known gaps between this codebase and a green CI build
+For the source tree merged as main commit `ebb8e543` on 2026-11-24, the Flutter audit, GUARD verification, Directory backend tests and the group-call validation run completed successfully. This validates compilation and automated tests, not live calling or release readiness.
 
-1. **`android/gradle/wrapper/gradle-wrapper.jar` is missing.** It's a
-   binary fetched from `services.gradle.org`, which this environment had
-   no network access to download. `gradlew`/`gradlew.bat` and
-   `gradle-wrapper.properties` are in place. Fix, one-time, on a machine
-   with Gradle installed:
-   ```
-   cd android && gradle wrapper --gradle-version 8.7
-   ```
-   Alternatively, just run `flutter build apk` — Flutter's tooling
-   frequently bootstraps a working Gradle wrapper automatically on first
-   run even when this file is absent; try it before assuming you need the
-   manual fix above.
+## Live service configuration
 
-2. **`ios/Runner.xcodeproj/project.pbxproj` was never generated.** This is
-   the actual Xcode project file (binary-ish plist format, normally
-   produced by `flutter create`, not something hand-written). Without it
-   Xcode can't open the iOS project at all yet — everything else iOS-side
-   (Info.plist, entitlements, storyboards, AppDelegate.swift, app icons)
-   is real and in place waiting for it. Fix: run `flutter create --platforms=ios .`
-   from the project root on a machine with Flutter installed — it detects
-   the existing `ios/Runner/` contents and fills in just the missing
-   project file rather than overwriting your code.
+The app uses the Cloudflare Worker URLs configured in `lib/presentation/state/app_providers.dart`:
 
-3. **`libsignal_protocol_dart` API surface** — written from memory,
-   unverified against the real package (no network access here to check
-   it). If `flutter analyze` flags a method signature mismatch in
-   `core/crypto/signal_stores.dart`, `session_manager.dart`, or
-   `group_crypto.dart`, paste me the exact error and I'll fix it against
-   the real API.
+- Directory: `https://stellar-ecc-directory.totalmarketing2025.workers.dev`
+- Relay WebSocket: `wss://stellar-ecc-final.totalmarketing2025.workers.dev/v1/connect`
 
-4. **No live backend.** Messaging/calls/push need the relay server
-   deployed somewhere reachable and `wss://relay.stellarecc.example`
-   (searched in `core/network/relay_client.dart` and
-   `core/calls/call_service.dart`) pointed at it.
+These are configured endpoints; CI tests do not guarantee that a deployed Worker, TURN credentials, FCM registration or current production secrets are healthy. Check the Directory and Relay `/health` endpoints and inspect the relevant deployment workflows before a live test. Push delivery also depends on valid Firebase configuration and the required Worker secrets.
 
-## If you want to add something next
+## Manual test matrix
 
-Good next additions, roughly in order of "most useful for testing on a
-single phone" to "needs a second phone / server":
-- A local mock/loopback relay so you can send a message to yourself and
-  see the full encrypt → store → decrypt round trip without a real server
-- Deploying `relay-server/` (Phase 9) somewhere reachable (even a cheap
-  VPS) and pointing the app at it, so two phones can actually message
-  each other
-- Running `flutterfire configure` against a real Firebase project to
-  light up push notifications
-- Filling in the `ios/Runner.xcodeproj` gap so you can test on iPhone too
+Use at least two Android phones with separate test identities for one-to-one messaging/calls. Use three or four phones in the same group chat to verify group mesh behavior.
+
+- Send and receive text, media and expiring messages with both phones online; repeat with one device offline and reconnecting.
+- Test 1:1 voice, 1:1 video, voice-to-video and video-to-voice switching; verify camera permission denial leaves audio usable.
+- Start group voice and group video from a group chat. Test adding a participant from an active 1:1 call, participant decline/leave, camera/microphone controls, Wi-Fi-to-mobile handoff, TURN-only connectivity and reconnect.
+- Test incoming group invitations while Stellar is open, backgrounded, screen-locked and removed from recents. Group calls do not yet have the same verified native background ringing/lock-screen flow as 1:1 calls; treat those cases as a known limitation until verified on devices.
+- Change Android system language to English, Macedonian, Albanian and Russian. Verify app UI, incoming-call UI, message notifications, call notifications, group-call notifications, Wanted Mode alerts and notification-channel names.
+- Test Wanted Mode only on a disposable device identity. Verify enabled/disabled notifications, 10-second PIN expiry, low-battery threshold below 20%, rearming at 25%, reboot recovery, lock-only and manual local wipe.
+- Test GUARD only with disposable accounts in a staging environment. A theft report can irreversibly revoke an exact matching active account when production processing is enabled; a nine-digit code is not evidence of theft.
+
+Record Android version, device model, system language, network type, Worker deployment version, steps and logs for every failed case. Do not treat a green CI build as a replacement for this matrix.
+
+## Release and platform limits
+
+- The Android `release` build currently uses the debug signing configuration. Configure and protect a production signing key before creating a distributable release; CI presently verifies debug APK builds.
+- This repository does not currently contain `ios/Runner.xcodeproj/project.pbxproj`. An iOS build is therefore not validated by the current project.
+- Group calls use a small peer-to-peer mesh capped at four participants. Do not infer four-device performance or production reliability from unit tests and successful compilation alone.
