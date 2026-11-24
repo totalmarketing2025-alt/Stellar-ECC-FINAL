@@ -20,7 +20,7 @@ internal object StellarGroupCallNotification {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26) {
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL, "Group calls", NotificationManager.IMPORTANCE_HIGH)
+                NotificationChannel(CHANNEL, context.getString(R.string.notification_channel_group_calls), NotificationManager.IMPORTANCE_HIGH)
             )
         }
         val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
@@ -41,19 +41,19 @@ internal object StellarGroupCallNotification {
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(context, CHANNEL)
             else Notification.Builder(context)
         builder.setSmallIcon(R.drawable.ic_stat_stellar)
-            .setContentTitle("Stellar ECC")
-            .setContentText("Incoming group call — open to respond")
+            .setContentTitle(context.getString(R.string.app_name))
+            .setContentText(context.getString(R.string.notification_incoming_group_call))
             .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setCategory(Notification.CATEGORY_CALL)
             .setPriority(Notification.PRIORITY_HIGH)
             .setContentIntent(pending)
             .addAction(Notification.Action.Builder(
                 android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_menu_call),
-                "Join", actionIntent("join")
+                context.getString(R.string.notification_join), actionIntent("join")
             ).build())
             .addAction(Notification.Action.Builder(
                 android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_menu_close_clear_cancel),
-                "Decline", actionIntent("decline")
+                context.getString(R.string.notification_decline), actionIntent("decline")
             ).build())
             .setAutoCancel(true)
         if (Build.VERSION.SDK_INT >= 26) builder.setTimeoutAfter(45_000L)
