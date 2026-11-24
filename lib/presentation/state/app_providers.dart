@@ -138,6 +138,8 @@ final Provider<CallCoordinator> callCoordinatorProvider = Provider<CallCoordinat
     platformBridge: ref.watch(callPlatformBridgeProvider),
     isGroupCallActive: () =>
         ref.read(groupCallCoordinatorProvider).activeRoom != null,
+    groupUpgradeRoomForPeer: (peer) =>
+        ref.read(groupCallCoordinatorProvider).groupUpgradeRoomForPeer(peer),
     onCallHistoryEvent: (event) async {
       final repo = ref.read(chatRepositoryProvider);
       final chatRow = await repo.db.chatDao.byId(event.chatId);
@@ -215,6 +217,13 @@ final Provider<GroupCallCoordinator> groupCallCoordinatorProvider = Provider<Gro
     signalRouter: ref.watch(callSignalRouterProvider),
     localNickname: nickname,
     hasDirectCall: () => ref.read(callCoordinatorProvider).activeSession != null,
+    activeDirectPeer: () =>
+        ref.read(callCoordinatorProvider).activeSession?.remoteNickname,
+    prepareDirectMedia: ({required video}) =>
+        ref.read(callCoordinatorProvider)
+            .prepareMediaForGroupUpgrade(video: video),
+    onDirectUpgradeComplete: (roomId) =>
+        ref.read(callCoordinatorProvider).completeGroupUpgrade(roomId),
   );
   coordinator.start();
   ref.onDispose(coordinator.dispose);
