@@ -17,6 +17,7 @@ class CallCoordinator {
     this.onCallHistoryEvent,
     this.isGroupCallActive,
     this.groupUpgradeRoomForPeer,
+    this.isGroupUpgradeReady,
   })  : _signalRouter = signalRouter,
         _callService = callService,
         _platformBridge = platformBridge;
@@ -26,7 +27,12 @@ class CallCoordinator {
   final CallPlatformBridge _platformBridge;
   final bool Function()? isGroupCallActive;
   final String? Function(String peer)? groupUpgradeRoomForPeer;
+  final bool Function(String roomId)? isGroupUpgradeReady;
   String? _groupUpgradeCompletingRoomId;
+  String? _groupUpgradeReadyRoomId;
+  bool _groupUpgradeLocalReady = false;
+  bool _groupUpgradeRemoteReady = false;
+  Completer<void>? _groupUpgradePeerReady;
 
   void _stopCallAudio(String? callId) {
     if (callId == null || callId.isEmpty) return;
@@ -100,8 +106,8 @@ class CallCoordinator {
             state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) &&
         remote != null && remote.isNotEmpty) {
       final readyRoom = groupUpgradeRoomForPeer?.call(remote);
-      if (readyRoom != null) {
-        unawaited(completeGroupUpgrade(readyRoom, notifyRemote: false));
+      if (readyRoom != null && isGroupUpgradeReady?.call(readyRoom) == true) {
+        unawaited(completeGroupUpgrade(readyRoom));
         return;
       }
     }
@@ -605,28 +611,55 @@ class CallCoordinator {
     );
   }
 
-  Future<void> completeGroupUpgrade(
-    String roomId, {
-    bool notifyRemote = true,
-  }) async {
-    if (roomId.isEmpty || _groupUpgradeCompletingRoomId == roomId) return;
+  Future<bool> completeGroupUpgrade(String roomId) async {
+    if (roomId.isEmpty || _groupUpgradeCompletingRoomId == roomId) return false;
     final session = _activeSession;
     final remote = session?.remoteNickname;
-    if (session == null || remote == null || remote.isEmpty) return;
-    if (groupUpgradeRoomForPeer?.call(remote.toLowerCase()) != roomId) return;
+    if (session == null || remote == null || remote.isEmpty ||
+        groupUpgradeRoomForPeer?.call(remote.toLowerCase()) != roomId ||
+        isGroupUpgradeReady?.call(roomId) != true) return false;
+
+    if (_groupUpgradeReadyRoomId != roomId) {
+      _groupUpgradeReadyRoomId = roomId;
+      _groupUpgradeLocalReady = false;
+      _groupUpgradeRemoteReady = false;
+      _groupUpgradePeerReady = Completer<void>();
+    }
     _groupUpgradeCompletingRoomId = roomId;
+    _groupUpgradeLocalReady = true;
+
+    final sent = await _callService.signalGroupUpgradeReady(
+      remoteNickname: remote,
+      groupRoomId: roomId,
+    );
+    if (!sent) {
+      _groupUpgradeCompletingRoomId = null;
+      return false;
+    }
+
+    if (!_groupUpgradeRemoteReady) {
+      try {
+        await _groupUpgradePeerReady!.future.timeout(
+          const Duration(seconds: 20),
+        );
+      } on TimeoutException {
+        _groupUpgradeCompletingRoomId = null;
+        return false;
+      }
+    }
+    if (!_groupUpgradeRemoteReady ||
+        isGroupUpgradeReady?.call(roomId) != true) {
+      _groupUpgradeCompletingRoomId = null;
+      return false;
+    }
+
     _publishHistory(session, phase: 'ended', outcome: 'completed');
     _activeSession = session.copyWith(state: CallState.ended);
     _sessionController.add(_activeSession);
     try {
-      if (notifyRemote) {
-        await _callService.endForGroupUpgrade(
-          remoteNickname: remote,
-          groupRoomId: roomId,
-        );
-      } else {
-        await _callService.end(preserveMedia: true);
-      }
+      // Both devices have a fully connected group mesh and exchanged the
+      // readiness signal before the original peer connection is closed.
+      await _callService.end(preserveMedia: true);
     } finally {
       if (_activeSession?.callId == session.callId) {
         _activeSession = null;
@@ -638,7 +671,12 @@ class CallCoordinator {
         _sessionController.add(null);
       }
       _groupUpgradeCompletingRoomId = null;
+      _groupUpgradeReadyRoomId = null;
+      _groupUpgradeLocalReady = false;
+      _groupUpgradeRemoteReady = false;
+      _groupUpgradePeerReady = null;
     }
+    return true;
   }
 
   Future<void> toggleMute(bool muted) {
@@ -954,7 +992,19 @@ class CallCoordinator {
         final roomId = signal.payload['groupRoomId'];
         if (remote != null && remote.isNotEmpty && roomId is String &&
             groupUpgradeRoomForPeer?.call(remote) == roomId) {
-          unawaited(completeGroupUpgrade(roomId, notifyRemote: false));
+          if (_groupUpgradeReadyRoomId != roomId) {
+            _groupUpgradeReadyRoomId = roomId;
+            _groupUpgradeLocalReady = false;
+            _groupUpgradeRemoteReady = false;
+            _groupUpgradePeerReady = Completer<void>();
+          }
+          _groupUpgradeRemoteReady = true;
+          if (!(_groupUpgradePeerReady?.isCompleted ?? true)) {
+            _groupUpgradePeerReady!.complete();
+          }
+          if (_groupUpgradeLocalReady) {
+            unawaited(completeGroupUpgrade(roomId));
+          }
         }
         break;
 
