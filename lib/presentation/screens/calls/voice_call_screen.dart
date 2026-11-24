@@ -334,6 +334,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
   }
 
   Widget _buildIncomingControls() {
+    final l10n = AppLocalizations.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Row(
