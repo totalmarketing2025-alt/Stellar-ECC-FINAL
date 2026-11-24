@@ -3,6 +3,16 @@ import 'package:flutter/widgets.dart';
 const Map<String, Map<String, String>> _stellarTranslations = {
   "en": {},
   "mk": {
+    "Share to Stellar": "Сподели во Stellar",
+    "Choose a conversation to send the shared content.": "Избери разговор во кој да ја испратиш споделената содржина.",
+    "Send shared content?": "Да се испрати споделената содржина?",
+    "shared item(s) to": "споделени ставки до",
+    "shared item(s) to": "споделени ставки до",
+    "Some shared items are unavailable.": "Некои споделени ставки не се достапни.",
+    "No conversations available.": "Нема достапни разговори.",
+    "Could not load chats:": "Разговорите не можеа да се вчитаат:",
+    "Could not send shared content:": "Споделената содржина не може да се испрати:",
+
     "Back": "Назад",
     "Voice call": "Гласовен повик",
     "Video call": "Видео повик",
@@ -295,6 +305,15 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "Disabled": "Оневозможено"
   },
   "sq": {
+    "Share to Stellar": "Ndaj në Stellar",
+    "Choose a conversation to send the shared content.": "Zgjidhni një bisedë për të dërguar përmbajtjen e ndarë.",
+    "Send shared content?": "Të dërgohet përmbajtja e ndarë?",
+    "shared item(s) to": "elemente të ndara te",
+    "Some shared items are unavailable.": "Disa elemente të ndara nuk janë të disponueshme.",
+    "No conversations available.": "Nuk ka biseda të disponueshme.",
+    "Could not load chats:": "Bisedat nuk mund të ngarkoheshin:",
+    "Could not send shared content:": "Përmbajtja e ndarë nuk mund të dërgohej:",
+
     "Back": "Prapa",
     "Voice call": "Telefonatë zanore",
     "Video call": "Telefonatë video",
@@ -587,6 +606,15 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "Disabled": "Çaktivizuar"
   },
   "ru": {
+    "Share to Stellar": "Поделиться через Stellar",
+    "Choose a conversation to send the shared content.": "Выберите беседу, чтобы отправить общий материал.",
+    "Send shared content?": "Отправить общий материал?",
+    "shared item(s) to": "элементов для отправки в чат",
+    "Some shared items are unavailable.": "Некоторые общие материалы недоступны.",
+    "No conversations available.": "Нет доступных бесед.",
+    "Could not load chats:": "Не удалось загрузить беседы:",
+    "Could not send shared content:": "Не удалось отправить общий материал:",
+
     "Back": "Назад",
     "Voice call": "Голосовой звонок",
     "Video call": "Видеозвонок",
