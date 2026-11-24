@@ -34,6 +34,7 @@ class ChatRepository {
     required this.localNickname,
     this.mediaService,
     this.onTypingChanged,
+    this.onChatChanged,
     required this.moderationClient,
   }) {
     moderationOutbox = ModerationOutboxService(
@@ -63,6 +64,7 @@ class ChatRepository {
   final ModerationClient moderationClient;
   final void Function(String chatId, String nickname, bool isTyping)?
       onTypingChanged;
+  final void Function(String chatId)? onChatChanged;
 
   static const messageEditWindow = Duration(minutes: 15);
   static const _typingSignalLifetime = Duration(seconds: 6);
@@ -1324,6 +1326,7 @@ class ChatRepository {
           plaintext: text,
           revision: revision,
         );
+        onChatChanged?.call(chatId);
       }
       return null;
     }
@@ -1352,6 +1355,7 @@ class ChatRepository {
               messageEditWindow) {
         await _eraseMessageAttachment(messageId);
         await db.messageDao.markDeletedForEveryone(messageId);
+        onChatChanged?.call(chatId);
       }
       return null;
     }
@@ -1372,6 +1376,7 @@ class ChatRepository {
           pinnedBy: senderNickname,
           pinned: decoded['pinned'] as bool,
         );
+        onChatChanged?.call(chatId);
       } on StateError {
         // Expired, deleted, unknown, or over-limit pins are safely ignored.
       }
@@ -1544,6 +1549,22 @@ class ChatRepository {
       ttlSeconds: ttl,
       replyToId: replyToId,
       deliveryToken: envelope.deliveryToken,
+    );
+    final replyTarget = replyToId == null
+        ? null
+        : await db.messageDao.byId(replyToId);
+    final isReplyToMe = replyTarget != null &&
+        replyTarget['sender_id'].toString().toLowerCase() ==
+            localNickname.toLowerCase();
+    final isMention = chatRow['chat_type'] == 'group' &&
+        RegExp(
+          '(^|[^A-Za-z0-9_])@${RegExp.escape(localNickname)}(?![A-Za-z0-9_])',
+          caseSensitive: false,
+        ).hasMatch(plaintext);
+    await db.messageDao.setMessageFlags(
+      messageId: messageId,
+      isMention: isMention,
+      isReplyToMe: isReplyToMe,
     );
 
     if (attachment != null) {
