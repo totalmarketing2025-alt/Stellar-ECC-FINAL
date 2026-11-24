@@ -62,7 +62,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       appBar: AppBar(
         title: wantedModeEnabled
             ? const _WantedHeaderTitle()
-            : const Text('Stellar ECC'),
+            : const Text('Stellar ✨️'),
         actions: [
           IconButton(
             tooltip: 'My Profile',
