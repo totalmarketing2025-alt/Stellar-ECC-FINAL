@@ -69,7 +69,7 @@ class StellarCallForegroundService : Service() {
 
                 val remote = intent.getStringExtra(EXTRA_REMOTE_NICKNAME)
                     .orEmpty()
-                    .ifBlank { "Stellar call" }
+                    .ifBlank { getString(R.string.notification_stellar_call_fallback) }
 
                 val kind = intent.getStringExtra(EXTRA_CALL_KIND)
                     .orEmpty()
@@ -109,8 +109,8 @@ class StellarCallForegroundService : Service() {
         kind: String,
     ) {
         val title =
-            if (kind == "video") "Stellar video call"
-            else "Stellar voice call"
+            if (kind == "video") getString(R.string.notification_stellar_video_call)
+            else getString(R.string.notification_stellar_voice_call)
 
         val notification = NotificationCompat.Builder(
             this,
@@ -160,10 +160,10 @@ class StellarCallForegroundService : Service() {
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                "Active Stellar calls",
+                getString(R.string.notification_channel_active_calls),
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = "Ongoing Stellar ECC calls"
+                description = getString(R.string.notification_channel_active_calls_description)
             },
         )
     }

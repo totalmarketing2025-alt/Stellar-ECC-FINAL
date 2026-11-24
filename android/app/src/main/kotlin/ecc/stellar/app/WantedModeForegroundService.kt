@@ -275,10 +275,10 @@ class WantedModeForegroundService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Wanted Mode",
+                getString(R.string.notification_wanted_channel),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Известување додека е активен Wanted Mode"
+                description = getString(R.string.notification_wanted_channel_description)
                 setShowBadge(false)
             }
 
@@ -288,10 +288,10 @@ class WantedModeForegroundService : Service() {
 
             val powerAlertChannel = NotificationChannel(
                 POWER_ALERT_CHANNEL_ID,
-                "Wanted Mode – проверка на полнач",
+                getString(R.string.notification_wanted_power_channel),
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Итна PIN-проверка при приклучување полнач"
+                description = getString(R.string.notification_wanted_power_channel_description)
                 setShowBadge(true)
             }
             manager.createNotificationChannel(powerAlertChannel)
@@ -299,10 +299,10 @@ class WantedModeForegroundService : Service() {
             manager.createNotificationChannel(
                 NotificationChannel(
                     EVENT_ALERT_CHANNEL_ID,
-                    "Wanted Mode – event verification",
+                    getString(R.string.notification_wanted_event_channel),
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "PIN verification for USB, Bluetooth, Wi-Fi, battery and power events"
+                    description = getString(R.string.notification_wanted_event_channel_description)
                     setShowBadge(true)
                 }
             )
@@ -337,19 +337,37 @@ class WantedModeForegroundService : Service() {
         }
 
         val eventDescription = if (challenge.category == "BATTERY") {
-            "Батеријата е под 20%"
+            getString(R.string.notification_wanted_battery_low)
         } else {
-            "${challenge.category} ${challenge.action}"
+            val category = when (challenge.category.uppercase()) {
+                "USB" -> getString(R.string.notification_wanted_category_usb)
+                "BLUETOOTH" -> getString(R.string.notification_wanted_category_bluetooth)
+                "NETWORK", "WIFI" -> getString(R.string.notification_wanted_category_network)
+                "POWER" -> getString(R.string.notification_wanted_category_power)
+                else -> challenge.category
+            }
+            val action = when (challenge.action.lowercase()) {
+                "connected" -> getString(R.string.notification_wanted_action_connected)
+                "disconnected" -> getString(R.string.notification_wanted_action_disconnected)
+                "changed" -> getString(R.string.notification_wanted_action_changed)
+                "low" -> getString(R.string.notification_wanted_action_low)
+                else -> challenge.action
+            }
+            getString(R.string.notification_wanted_event_description, category, action)
         }
         val eventSummary = if (pendingCount > 1) {
-            "$eventDescription (+${pendingCount - 1}) – отвори веднаш."
+            getString(
+                R.string.notification_wanted_event_summary_many,
+                eventDescription,
+                pendingCount - 1,
+            )
         } else {
-            "$eventDescription – отвори веднаш за PIN-проверка."
+            getString(R.string.notification_wanted_event_summary_one, eventDescription)
         }
 
         return builder
             .setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setContentTitle("Stellar ECC – Wanted Mode PIN check")
+            .setContentTitle(getString(R.string.notification_wanted_pin_title))
             .setContentText(eventSummary)
             .setCategory(Notification.CATEGORY_EVENT)
             .setVisibility(Notification.VISIBILITY_PRIVATE)
@@ -386,20 +404,20 @@ class WantedModeForegroundService : Service() {
 
         builder
             .setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setContentTitle("Stellar ECC")
+            .setContentTitle(getString(R.string.app_name))
             .setContentText(
                 when {
                     wipePending ->
-                        "Истечен е рокот. Отвори ја апликацијата за локално безбедносно бришење."
+                        getString(R.string.notification_wanted_wipe_pending)
 
                     corrupted ->
-                        "ГРЕШКА: складиштето за PIN-проверки е оштетено. Мониторингот е запрен."
+                        getString(R.string.notification_wanted_storage_corrupted)
 
                     expiredCount > 0 ->
-                        "Истечени PIN-проверки: $expiredCount – отвори ја апликацијата."
+                        getString(R.string.notification_wanted_expired_count, expiredCount)
 
                     else ->
-                        "Wanted Mode е активен – мониторингот е вклучен."
+                        getString(R.string.notification_wanted_active)
                 }
             )
             .setOngoing(true)

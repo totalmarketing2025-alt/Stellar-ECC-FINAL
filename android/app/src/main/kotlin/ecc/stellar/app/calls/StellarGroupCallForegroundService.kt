@@ -43,13 +43,13 @@ class StellarGroupCallForegroundService : Service() {
                 if (Build.VERSION.SDK_INT >= 26) {
                     getSystemService(NotificationManager::class.java)
                         .createNotificationChannel(NotificationChannel(
-                            CHANNEL, "Active group calls", NotificationManager.IMPORTANCE_LOW
+                            CHANNEL, getString(R.string.notification_channel_active_group_calls), NotificationManager.IMPORTANCE_LOW
                         ))
                 }
                 val builder = NotificationCompat.Builder(this, CHANNEL)
                     .setSmallIcon(R.drawable.ic_stat_stellar)
-                    .setContentTitle("Stellar ECC")
-                    .setContentText("Group call in progress")
+                    .setContentTitle(getString(R.string.app_name))
+                    .setContentText(getString(R.string.notification_group_call_in_progress))
                     .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                     .setCategory(NotificationCompat.CATEGORY_CALL)
                     .setOngoing(true)

@@ -37,7 +37,7 @@ object StellarPushBackgroundRunner {
                 manager.createNotificationChannel(
                     NotificationChannel(
                         MESSAGE_CHANNEL,
-                        "Messages",
+                        context.getString(R.string.notification_channel_messages),
                         NotificationManager.IMPORTANCE_DEFAULT
                     ).apply {
                         enableLights(true)
@@ -73,8 +73,8 @@ object StellarPushBackgroundRunner {
 
             builder
                 .setSmallIcon(R.drawable.ic_stat_stellar)
-                .setContentTitle("Stellar ECC")
-                .setContentText("Имате нова порака")
+                .setContentTitle(context.getString(R.string.app_name))
+                .setContentText(context.getString(R.string.notification_new_message))
                 .setAutoCancel(true)
 
             if (pending != null) {

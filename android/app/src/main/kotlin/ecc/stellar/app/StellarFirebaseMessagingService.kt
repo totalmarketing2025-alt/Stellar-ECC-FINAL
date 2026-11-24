@@ -142,7 +142,7 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
             manager.createNotificationChannel(
                 NotificationChannel(
                     MESSAGE_CHANNEL,
-                    "Messages",
+                    getString(R.string.notification_channel_messages),
                     NotificationManager.IMPORTANCE_DEFAULT
                 ).apply {
                     enableLights(true)
@@ -179,8 +179,8 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
             .setSmallIcon(
                 ecc.stellar.app.R.drawable.ic_stat_stellar
             )
-            .setContentTitle("Stellar ECC")
-            .setContentText("Имате нова порака")
+            .setContentTitle(getString(R.string.app_name))
+            .setContentText(getString(R.string.notification_new_message))
             .setAutoCancel(true)
 
         if (pending != null) {
