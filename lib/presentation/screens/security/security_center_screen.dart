@@ -434,7 +434,7 @@ class _QrScanScreen extends StatelessWidget {
     // trusted-identity record as user-verified).
     return Scaffold(
       appBar: AppBar(title: Text(stellarText(context, "Scan Code"))),
-      body: const Center(
+      body: Center(
         child: Text(stellarText(context, "Camera scanner view"), style: TextStyle(color: StellarColors.textSecondary)),
       ),
     );

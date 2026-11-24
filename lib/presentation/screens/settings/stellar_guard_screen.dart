@@ -357,7 +357,7 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
     ),
   );
 
-  Widget _historyCard() => Card(
+  Widget _historyCard(BuildContext context) => Card(
     color: StellarColors.bgElevated,
     child: Padding(
       padding: const EdgeInsets.all(16),
@@ -368,7 +368,7 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           if (_loading) const LinearProgressIndicator()
           else if (_cases.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(top: 8),
               child: Text(stellarText(context, "No reports saved on this device."),
                   style: TextStyle(color: StellarColors.textSecondary)),
@@ -439,7 +439,7 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
               textAlign: TextAlign.center,
               style: TextStyle(color: StellarColors.textSecondary)),
           if (!ready)
-            const Card(child: Padding(
+            Card(child: Padding(
               padding: EdgeInsets.all(16),
               child: Text(stellarText(context, "Complete account setup before using Guard.")),
             )),
@@ -454,7 +454,7 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
           const SizedBox(height: 12),
           _reportCard(ready && !_loading && _loadError == null),
           const SizedBox(height: 12),
-          _historyCard(),
+          _historyCard(context),
           const SizedBox(height: 16),
           const Text('Case IDs are stored securely on this device. If app '
               'data is wiped, these local references can be lost. Guard does '

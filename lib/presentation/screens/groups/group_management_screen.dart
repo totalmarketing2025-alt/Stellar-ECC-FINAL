@@ -54,7 +54,7 @@ class _GroupManagementScreenState extends ConsumerState<GroupManagementScreen> {
             ),
           ),
           if (_members.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.all(24),
               child: Text(stellarText(context, "No other members yet"), style: TextStyle(color: StellarColors.textSecondary)),
             ),

@@ -336,8 +336,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         child: ListView(
           shrinkWrap: true,
           children: [
-            const ListTile(
-              title: Text(stellarText(context, "Forward to chat"), style: TextStyle(fontWeight: FontWeight.w600)),
+            ListTile(
+              title: Text(stellarText(sheetContext, "Forward to chat"), style: TextStyle(fontWeight: FontWeight.w600)),
             ),
             for (final chat in chats)
               ListTile(

@@ -476,7 +476,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         Icons.delete_outline,
                         color: StellarColors.danger,
                       ),
-                      label: const Text(
+                      label: Text(
                         stellarText(context, "Remove"),
                         style: TextStyle(color: StellarColors.danger),
                       ),

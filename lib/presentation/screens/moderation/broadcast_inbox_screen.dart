@@ -150,9 +150,9 @@ class _BroadcastInboxScreenState
                 child: Image.memory(
                   bytes,
                   fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => const Padding(
+                  errorBuilder: (errorContext, __, ___) => Padding(
                     padding: EdgeInsets.all(24),
-                    child: Text(stellarText(context, "Unable to display this image.")),
+                    child: Text(stellarText(errorContext, "Unable to display this image.")),
                   ),
                 ),
               ),
@@ -239,7 +239,7 @@ class _BroadcastInboxScreenState
         onRefresh: _refresh,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          children: const [
+          children: [
             SizedBox(height: 140),
             Icon(Icons.campaign_outlined, size: 52),
             SizedBox(height: 16),

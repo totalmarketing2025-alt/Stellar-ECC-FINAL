@@ -363,7 +363,7 @@ class _ModerationBroadcastAdminTabState
               child: Center(child: CircularProgressIndicator()),
             )
           else if (_broadcasts.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
               child: Text(stellarText(context, "No Broadcast announcements yet.")),
             )

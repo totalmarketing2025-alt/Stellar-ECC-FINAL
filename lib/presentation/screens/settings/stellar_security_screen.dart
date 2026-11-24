@@ -11,7 +11,7 @@ class StellarSecurityScreen extends StatelessWidget {
       appBar: AppBar(title: Text(stellarText(context, "Stellar Security"))),
       body: ListView(
         padding: const EdgeInsets.all(16),
-        children: const [
+        children: [
           _SecuritySection(
             icon: Icons.lock_outline,
             title: stellarText(context, "Message encryption"),

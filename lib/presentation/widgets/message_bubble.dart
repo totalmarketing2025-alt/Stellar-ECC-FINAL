@@ -78,7 +78,7 @@ class _AudioAttachmentPlayerState extends State<_AudioAttachmentPlayer> {
         }
 
         if (!bytesSnapshot.hasData) {
-          return const Row(
+          return Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(Icons.broken_image, size: 22),

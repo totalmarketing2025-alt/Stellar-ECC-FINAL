@@ -408,7 +408,7 @@ class _ModerationRoomScreenState
       return RefreshIndicator(
         onRefresh: _refresh,
         child: ListView(
-          children: const [
+          children: [
             SizedBox(height: 180),
             Center(
               child: Text(stellarText(context, "No active moderation messages")),
