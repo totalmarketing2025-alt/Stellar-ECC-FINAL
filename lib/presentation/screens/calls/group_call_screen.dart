@@ -108,10 +108,20 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
       if (!mounted) return;
       if (!ref.read(isUnlockedProvider)) {
         context.go('/unlock');
-      } else if (context.canPop()) {
-        context.pop();
       } else {
-        context.go('/chat/${Uri.encodeComponent(widget.chatId)}');
+        final direct = ref.read(callCoordinatorProvider).activeSession;
+        if (direct != null) {
+          final kind = direct.kind.name;
+          context.go(
+            '/call/$kind/${Uri.encodeComponent(direct.chatId)}',
+          );
+          return;
+        }
+        if (context.canPop()) {
+        context.pop();
+        } else {
+          context.go('/chat/${Uri.encodeComponent(widget.chatId)}');
+        }
       }
     });
   }
@@ -265,7 +275,8 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
                   speakerOn: _speakerOn,
                   cameraOff: !room.localVideo,
                   cameraBusy: _busyCamera,
-                  showCameraControls: true,
+                  showCameraControls:
+                       _coordinator?.isDirectUpgradeInProgress != true,
                   onToggleMute: () async {
                     final next = !_muted;
                     await _coordinator?.toggleMute(next);
