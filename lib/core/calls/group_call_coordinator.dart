@@ -28,6 +28,9 @@ class GroupCallCoordinator {
     required this.signalRouter,
     required this.localNickname,
     required this.hasDirectCall,
+    required this.activeDirectPeer,
+    required this.prepareDirectMedia,
+    required this.onDirectUpgradeComplete,
   });
 
   final StellarDatabase db;
@@ -37,6 +40,9 @@ class GroupCallCoordinator {
   final CallSignalRouter signalRouter;
   final String localNickname;
   final bool Function() hasDirectCall;
+  final String? Function() activeDirectPeer;
+  final Future<CallGroupMedia?> Function({required bool video}) prepareDirectMedia;
+  final Future<void> Function(String roomId) onDirectUpgradeComplete;
 
   final _roomController = StreamController<GroupCallRoom?>.broadcast();
   Stream<GroupCallRoom?> get roomStream => _roomController.stream;
@@ -87,6 +93,10 @@ class GroupCallCoordinator {
   Timer? _invitationTimeout;
   Timer? _presenceTimer;
   bool _changingVideo = false;
+  bool _ownsLocalMedia = true;
+  bool _ownsCameraMedia = true;
+  String? _directUpgradeRoomId;
+  bool _finishingDirectUpgrade = false;
   bool _disposed = false;
   int _generation = 0;
   int _mediaRevision = 0;
@@ -96,6 +106,24 @@ class GroupCallCoordinator {
       _room!.phase != GroupCallPhase.ringing &&
       _room!.phase != GroupCallPhase.ended &&
       _room!.phase != GroupCallPhase.failed;
+
+  bool get isDirectUpgradeInProgress => _directUpgradeRoomId != null;
+
+  String? groupUpgradeRoomForPeer(String peer) {
+    final room = _room;
+    final roomId = _directUpgradeRoomId;
+    final normalized = GroupCallProtocol.normalize(peer);
+    if (room == null || roomId == null || room.roomId != roomId ||
+        !room.members.contains(normalized) || !_allMembersConnected(room)) {
+      return null;
+    }
+    return roomId;
+  }
+
+  bool _allMembersConnected(GroupCallRoom room) =>
+      room.members.where((member) => member != _local)
+          .every((member) =>
+              room.connectionStates[member] == GroupMemberCallState.connected);
 
   bool _drainingNativeActions = false;
   bool _nativeDrainRequested = false;
@@ -218,12 +246,18 @@ class GroupCallCoordinator {
     required String chatId,
     required bool video,
   }) async {
-    if (_room != null || hasDirectCall()) {
+    if (_room != null) {
       throw StateError('Another call is already active');
     }
+    final directPeer = hasDirectCall()
+        ? GroupCallProtocol.normalize(activeDirectPeer() ?? '')
+        : '';
+    if (hasDirectCall() && directPeer.isEmpty) {
+      throw StateError('The active call cannot be upgraded');
+    }
     final members = await _membersFor(chatId);
-    if (_room != null || hasDirectCall()) {
-      throw StateError('Another call started while opening group');
+    if (_room != null || (hasDirectCall() && !members.contains(directPeer))) {
+      throw StateError('Active call peer must be included in the group');
     }
 
     final roomId = _newRoomId();
@@ -246,6 +280,7 @@ class GroupCallCoordinator {
       joinedAt: DateTime.now(),
     );
     _room = room;
+    _directUpgradeRoomId = directPeer.isNotEmpty ? roomId : null;
     final generation = ++_generation;
     _emit();
     try {
@@ -297,10 +332,17 @@ class GroupCallCoordinator {
     if (!_isCurrent(generation, room.roomId) ||
         _room?.phase != GroupCallPhase.ringing ||
         _decliningGeneration == generation) return;
-    if (hasDirectCall() || !membershipValid) {
+    final activePeer = hasDirectCall()
+        ? GroupCallProtocol.normalize(activeDirectPeer() ?? '')
+        : '';
+    final directUpgradeAllowed = activePeer.isNotEmpty &&
+        activePeer == room.inviter &&
+        room.members.contains(activePeer);
+    if ((hasDirectCall() && !directUpgradeAllowed) || !membershipValid) {
       await declineInvitation();
       return;
     }
+    if (directUpgradeAllowed) _directUpgradeRoomId = room.roomId;
     unawaited(_nativeInvitation('consumeInvitation', room.roomId));
     _invitationTimeout?.cancel();
     _invitationTimeout = null;
@@ -441,13 +483,21 @@ class GroupCallCoordinator {
     final roomId = signal.payload['roomId'] as String;
 
     if (signal.type == 'group-invite') {
-      if (_room != null || hasDirectCall()) return;
+      final activePeerBeforeLookup = hasDirectCall()
+          ? GroupCallProtocol.normalize(activeDirectPeer() ?? '')
+          : '';
+      if (_room != null ||
+          (hasDirectCall() && activePeerBeforeLookup != remote)) return;
       final invitationGeneration = _generation;
       final members = await _membersFor(signal.session.chatId).catchError(
         (Object _) => <String>[],
       );
-      if (_disposed || _generation != invitationGeneration ||
-          _room != null || hasDirectCall()) return;
+      if (_disposed || _generation != invitationGeneration || _room != null) return;
+      final activePeerAfterLookup = hasDirectCall()
+          ? GroupCallProtocol.normalize(activeDirectPeer() ?? '')
+          : '';
+      if (hasDirectCall() &&
+          (activePeerAfterLookup != remote || !members.contains(remote))) return;
       if (!members.contains(remote) ||
           GroupCallProtocol.membershipDigest(members) !=
               signal.payload['membersDigest']) return;
@@ -469,6 +519,7 @@ class GroupCallCoordinator {
         localVideo: false,
       );
       _room = room;
+      if (activePeerAfterLookup == remote) _directUpgradeRoomId = roomId;
       final generation = ++_generation;
       _emit();
       unawaited(_nativeInvitation('registerVerifiedInvitation', roomId));
@@ -902,19 +953,40 @@ class GroupCallCoordinator {
 
   Future<void> _prepareMedia(bool video) async {
     final generation = _generation;
-    final roomId = _room!.roomId;
-    final stream = await navigator.mediaDevices.getUserMedia({
-      'audio': true,
-      'video': video
-          ? _groupVideoConstraints(_room!.members.length)
-          : false,
-    });
-    if (!_isCurrent(generation, roomId)) {
-      await stream.dispose();
-      return;
+    final room = _room!;
+    final roomId = room.roomId;
+    final directPeer = hasDirectCall()
+        ? GroupCallProtocol.normalize(activeDirectPeer() ?? '')
+        : '';
+    if (_directUpgradeRoomId == roomId && directPeer.isNotEmpty &&
+        room.members.contains(directPeer)) {
+      final shared = await prepareDirectMedia(video: video);
+      if (!_isCurrent(generation, roomId)) return;
+      if (shared == null) {
+        throw StateError('Active call media could not be shared');
+      }
+      _localStream = shared.audioStream;
+      _cameraCaptureStream = shared.videoStream;
+      _ownsLocalMedia = false;
+      _ownsCameraMedia = false;
+      if (video) _localRenderer?.srcObject = shared.videoStream;
+    } else {
+      final stream = await navigator.mediaDevices.getUserMedia({
+        'audio': true,
+        'video': video
+            ? _groupVideoConstraints(room.members.length)
+            : false,
+      });
+      if (!_isCurrent(generation, roomId)) {
+        await stream.dispose();
+        return;
+      }
+      _localStream = stream;
+      _cameraCaptureStream = null;
+      _ownsLocalMedia = true;
+      _ownsCameraMedia = true;
+      if (video) _localRenderer?.srcObject = stream;
     }
-    _localStream = stream;
-    if (video) _localRenderer?.srcObject = stream;
     final identity = await sessionManager.identityStore.getIdentityKeyPair();
     final registrationId =
         await sessionManager.identityStore.getLocalRegistrationId();
