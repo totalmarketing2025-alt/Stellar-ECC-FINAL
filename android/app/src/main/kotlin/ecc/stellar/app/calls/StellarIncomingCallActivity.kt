@@ -192,7 +192,7 @@ class StellarIncomingCallActivity : Activity() {
             ).apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
             }
-            contentDescription = "Contact avatar"
+            contentDescription = getString(R.string.notification_contact_avatar)
         }
 
         content.addView(
@@ -203,7 +203,7 @@ class StellarIncomingCallActivity : Activity() {
         )
 
         val title = TextView(this).apply {
-            text = remote.ifBlank { "Stellar ECC" }
+            text = remote.ifBlank { getString(R.string.app_name) }
             textSize = 22f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
@@ -229,7 +229,7 @@ class StellarIncomingCallActivity : Activity() {
         }
 
         val status = TextView(this).apply {
-            text = "Ringing…"
+            text = getString(R.string.notification_call_ringing)
             textSize = 14f
             setTextColor(secondary)
         }
@@ -296,8 +296,8 @@ class StellarIncomingCallActivity : Activity() {
             gravity = Gravity.CENTER
         }
 
-        val answer = createCallButton("☎  Answer", success, "answer")
-        val reject = createCallButton("✕  Decline", danger, "reject")
+        val answer = createCallButton("☎  ${getString(R.string.notification_answer)}", success, "answer")
+        val reject = createCallButton("✕  ${getString(R.string.notification_decline)}", danger, "reject")
 
         buttons.addView(
             answer,
