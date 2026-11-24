@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/presentation/widgets/typing_indicator.dart';
-import '../lib/core/theme/stellar_theme.dart';
+import 'package:stellar_ecc/presentation/widgets/typing_indicator.dart';
+import 'package:stellar_ecc/core/theme/stellar_theme.dart';
 
 void main() {
   testWidgets('typing indicator is left aligned and shows four animated dots',
