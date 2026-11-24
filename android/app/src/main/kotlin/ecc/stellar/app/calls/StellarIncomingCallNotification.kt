@@ -29,10 +29,10 @@ object StellarIncomingCallNotification {
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID,
-                    "Incoming calls",
+                    context.getString(R.string.notification_channel_incoming_calls),
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "Stellar encrypted incoming calls"
+                    description = context.getString(R.string.notification_channel_incoming_calls_description)
                     setSound(null, null)
                 }
             )
@@ -136,16 +136,16 @@ object StellarIncomingCallNotification {
                 .setSmallIcon(ecc.stellar.app.R.drawable.ic_stat_stellar)
                 .setContentTitle(
                     if (remoteNickname.isBlank()) {
-                        "Stellar ECC"
+                        context.getString(R.string.app_name)
                     } else {
                         remoteNickname
                     }
                 )
                 .setContentText(
                     if (kind == "video") {
-                        "Incoming video call"
+                        context.getString(R.string.notification_incoming_video_call)
                     } else {
-                        "Incoming call"
+                        context.getString(R.string.notification_incoming_voice_call)
                     }
                 )
                 .setCategory(
@@ -163,9 +163,9 @@ object StellarIncomingCallNotification {
         // Add explicit actions only on older versions to avoid a third button.
         if (Build.VERSION.SDK_INT < 31) {
             builder.addAction(
-                android.app.Notification.Action.Builder(null, "Answer", answerPending).build()
+                android.app.Notification.Action.Builder(null, context.getString(R.string.notification_answer), answerPending).build()
             ).addAction(
-                android.app.Notification.Action.Builder(null, "Reject", rejectPending).build()
+                android.app.Notification.Action.Builder(null, context.getString(R.string.notification_reject), rejectPending).build()
             )
         }
 
@@ -175,7 +175,7 @@ object StellarIncomingCallNotification {
                     android.app.Person.Builder()
                         .setName(
                             if (remoteNickname.isBlank()) {
-                                "Stellar ECC"
+                                context.getString(R.string.app_name)
                             } else {
                                 remoteNickname
                             }
