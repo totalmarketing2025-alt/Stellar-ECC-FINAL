@@ -685,7 +685,8 @@ class CallCoordinator {
   void _handleSignal(CallSignal signal) {
     // Group-room signaling is owned by GroupCallCoordinator. Never interpret
     // an invited group participant as an ordinary 1:1 call.
-    if (signal.type.startsWith('group-')) return;
+    if (signal.type.startsWith('group-') &&
+        signal.type != 'group-upgrade-complete') return;
     final session = signal.session;
 
     if (signal.type == 'offer') {
