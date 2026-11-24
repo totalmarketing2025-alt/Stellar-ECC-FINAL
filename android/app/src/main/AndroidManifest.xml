@@ -65,7 +65,7 @@
         <service
             android:name=".calls.StellarCallForegroundService"
             android:exported="false"
-            android:foregroundServiceType="phoneCall" />
+            android:foregroundServiceType="phoneCall|microphone|camera" />
 
         <service
             android:name=".calls.StellarGroupCallForegroundService"
