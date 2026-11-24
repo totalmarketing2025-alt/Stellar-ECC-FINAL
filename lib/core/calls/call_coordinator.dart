@@ -258,6 +258,11 @@ class CallCoordinator {
     // Start local ringback and the overall no-answer timer immediately.
     // WebRTC setup time is included in the outgoing call deadline.
     unawaited(_platformBridge.startOutgoingRingback(callId));
+    await _platformBridge.startOutgoingCallForeground(
+      callId: callId,
+      remoteNickname: remoteNickname,
+      kind: video ? 'video' : 'voice',
+    );
 
     _outgoingRingTimeout = Timer(_outgoingRingDuration, () {
       unawaited(_expireOutgoingCall(callId));
