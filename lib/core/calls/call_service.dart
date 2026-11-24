@@ -109,9 +109,7 @@ class CallService {
     if (audio == null || audio.getAudioTracks().isEmpty) return null;
     return CallGroupMedia(
       audioStream: audio,
-      videoStream: video
-          ? (_cameraCaptureStream ?? audio)
-          : null,
+      videoStream: video ? _cameraCaptureStream : null,
     );
   }
 
