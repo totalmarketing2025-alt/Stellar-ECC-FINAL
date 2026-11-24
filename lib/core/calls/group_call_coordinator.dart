@@ -337,8 +337,11 @@ class GroupCallCoordinator {
         }
       }
       _invitationTimeout = Timer(const Duration(seconds: 60), () {
-        if (_isCurrent(generation, roomId) &&
-            _room!.connectedPeers == 0) {
+        final current = _room;
+        if (_isCurrent(generation, roomId) && current != null &&
+            (current.connectedPeers == 0 ||
+                (_directUpgradeRoomId == roomId &&
+                    !_allMembersConnected(current)))) {
           unawaited(leaveRoom());
         }
       });
@@ -606,6 +609,11 @@ class GroupCallCoordinator {
         break;
       case 'group-reject':
       case 'group-leave':
+        if (_directUpgradeRoomId == roomId) {
+          // A failed upgrade must leave the original 1:1 call and capture intact.
+          await _closeRoom(roomId);
+          return;
+        }
         final joined = {..._room!.joined}..remove(remote);
         final states = {..._room!.connectionStates};
         states[remote] = GroupMemberCallState.left;
@@ -900,8 +908,11 @@ class GroupCallCoordinator {
             peer.retryTimer = null;
             peer.retryCount = 0;
             states[nickname] = GroupMemberCallState.connected;
-            _invitationTimeout?.cancel();
-            _invitationTimeout = null;
+            if (_directUpgradeRoomId == null ||
+                _allMembersConnected(_room!.copyWith(connectionStates: states))) {
+              _invitationTimeout?.cancel();
+              _invitationTimeout = null;
+            }
             break;
           case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
           case RTCPeerConnectionState.RTCPeerConnectionStateConnecting:
