@@ -118,7 +118,7 @@ Future<void> addParticipantToActiveCall({
       video: choice.video,
     );
     if (!context.mounted) return;
-    ref.read(appRouterProvider).go(
+    GoRouter.of(context).go(
       '/group/call/${Uri.encodeComponent(groupChatId)}'
       '${choice.video ? '?video=1' : ''}',
     );
