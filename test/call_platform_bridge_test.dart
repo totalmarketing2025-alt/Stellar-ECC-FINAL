@@ -74,7 +74,8 @@ void main() {
     expect(await bridge.stopOutgoingCallForeground(''), isFalse);
     expect(
       invocations.where(
-        (call) => call.method.startsWith('OutgoingCallForeground'),
+        (call) => call.method == 'startOutgoingCallForeground' ||
+            call.method == 'stopOutgoingCallForeground',
       ),
       isEmpty,
     );
