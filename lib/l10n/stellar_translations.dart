@@ -7,7 +7,7 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "Choose a conversation to send the shared content.": "Избери разговор во кој да ја испратиш споделената содржина.",
     "Send shared content?": "Да се испрати споделената содржина?",
     "shared item(s) to": "споделени ставки до",
-    "shared item(s) to": "споделени ставки до",
+    "Send": "Испрати",
     "Some shared items are unavailable.": "Некои споделени ставки не се достапни.",
     "No conversations available.": "Нема достапни разговори.",
     "Could not load chats:": "Разговорите не можеа да се вчитаат:",
