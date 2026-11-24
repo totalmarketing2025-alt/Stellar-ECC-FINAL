@@ -395,8 +395,9 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                     muted: _muted,
                     speakerOn: _speakerOn,
                     cameraOff: _session?.localVideoEnabled != true,
-                    showCameraControls: _session?.state == CallState.connected,
-                    cameraBusy: _cameraSwitching,
+                    showCameraControls: true,
+                    cameraBusy: _cameraSwitching ||
+                         _session?.state != CallState.connected,
                     onToggleMute: () {
                       setState(() => _muted = !_muted);
                       _callCoordinator?.toggleMute(_muted);
