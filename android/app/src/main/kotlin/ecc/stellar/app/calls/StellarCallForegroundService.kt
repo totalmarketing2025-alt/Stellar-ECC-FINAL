@@ -75,7 +75,12 @@ class StellarCallForegroundService : Service() {
                     .orEmpty()
                     .ifBlank { "voice" }
 
-                startAsForeground(remote, kind)
+                try {
+                    startAsForeground(remote, kind)
+                } catch (_: SecurityException) {
+                    activeCallId = null
+                    stopSelf(startId)
+                }
             }
 
             ACTION_STOP -> {
@@ -120,7 +125,17 @@ class StellarCallForegroundService : Service() {
             .setOnlyAlertOnce(true)
             .build()
 
-        if (Build.VERSION.SDK_INT >= 29) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val serviceTypes =
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                    (if (kind == "video") {
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                    } else {
+                        0
+                    })
+            startForeground(NOTIFICATION_ID, notification, serviceTypes)
+        } else if (Build.VERSION.SDK_INT >= 29) {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
