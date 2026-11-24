@@ -289,8 +289,8 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
               muted: _muted,
               speakerOn: _speakerOn,
               cameraOff: session?.localVideoEnabled != true,
-              cameraBusy: _cameraSwitching,
-              showCameraControls: session?.state == CallState.connected,
+              cameraBusy: _cameraSwitching || session?.state != CallState.connected,
+              showCameraControls: true,
               onToggleCamera: _toggleVideo,
               onFlipCamera: () async {
                 try {
