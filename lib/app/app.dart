@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/stellar_theme.dart';
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+import '../l10n/app_localizations.dart';
 import 'router.dart';
 import '../presentation/state/relay_listener.dart';
 import '../presentation/state/incoming_message_pulse.dart';
