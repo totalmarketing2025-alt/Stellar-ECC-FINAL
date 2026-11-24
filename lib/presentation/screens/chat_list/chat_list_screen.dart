@@ -115,7 +115,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             padding: const EdgeInsets.all(16),
             child: TextField(
               controller: _searchController,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: l10n.searchChatsContacts,
                 prefixIcon: Icon(Icons.search, color: StellarColors.textSecondary),
               ),
@@ -442,7 +442,7 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 16),
             Text(AppLocalizations.of(context).noChatsYet, style: const TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               AppLocalizations.of(context).emptyChatsHint,
               textAlign: TextAlign.center,
               style: TextStyle(color: StellarColors.textSecondary),
