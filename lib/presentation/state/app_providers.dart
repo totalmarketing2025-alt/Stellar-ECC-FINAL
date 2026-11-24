@@ -140,6 +140,8 @@ final Provider<CallCoordinator> callCoordinatorProvider = Provider<CallCoordinat
         ref.read(groupCallCoordinatorProvider).activeRoom != null,
     groupUpgradeRoomForPeer: (peer) =>
         ref.read(groupCallCoordinatorProvider).groupUpgradeRoomForPeer(peer),
+    isGroupUpgradeReady: (roomId) =>
+        ref.read(groupCallCoordinatorProvider).isGroupUpgradeReady(roomId),
     onCallHistoryEvent: (event) async {
       final repo = ref.read(chatRepositoryProvider);
       final chatRow = await repo.db.chatDao.byId(event.chatId);
