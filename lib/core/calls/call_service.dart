@@ -197,6 +197,18 @@ class CallService {
 
       print('CALL_START_MEDIA_OK: callId=$_callId');
 
+      // Start the native foreground service only after Android grants the
+      // microphone/camera permissions through getUserMedia().
+      final activeCallId = _callId;
+      if (activeCallId != null && activeCallId.isNotEmpty) {
+        await platformBridge.startOutgoingCallForeground(
+          callId: activeCallId,
+          remoteNickname: remoteNickname,
+          kind: video ? 'video' : 'voice',
+        );
+      }
+
+      if (!_isCurrentGeneration(generation)) return;
       localRenderer?.srcObject = _localStream;
 
       phase = 'buildIceConfiguration';
