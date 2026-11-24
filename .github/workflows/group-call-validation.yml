@@ -27,4 +27,6 @@ jobs:
       - name: Android debug compilation
         if: ${{ !cancelled() }}
         run: flutter build apk --debug
-
+      - name: Native group-call wake tests
+        if: ${{ !cancelled() }}
+        run: cd android && ./gradlew :app:testDebugUnitTest --tests ecc.stellar.app.StellarGroupCallWakeTest --no-daemon
