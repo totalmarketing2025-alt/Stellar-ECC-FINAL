@@ -1,3 +1,5 @@
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+
 /// Call kind is fixed for the lifetime of a call and binds its signed signals.
 /// Camera state is independent and can change without creating a new call.
 class CallMediaState {
@@ -15,4 +17,16 @@ class CallMediaState {
     }
     return CallMediaState(enabled: enabled, revision: revision);
   }
+}
+
+/// Existing 1:1 capture borrowed by the group mesh during an in-call upgrade.
+/// The original CallService owns these streams until the upgrade completes.
+class CallGroupMedia {
+  const CallGroupMedia({
+    required this.audioStream,
+    this.videoStream,
+  });
+
+  final MediaStream audioStream;
+  final MediaStream? videoStream;
 }
