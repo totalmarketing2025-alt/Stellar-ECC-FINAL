@@ -36,6 +36,8 @@ class MainActivity : FlutterFragmentActivity() {
         private const val METHOD_SET_CALL_ENDED = "setCallEnded"
         private const val METHOD_START_OUTGOING_RINGBACK = "startOutgoingRingback"
         private const val METHOD_STOP_CALL_RINGTONE = "stopCallRingtone"
+        private const val METHOD_START_OUTGOING_CALL_FOREGROUND = "startOutgoingCallForeground"
+        private const val METHOD_STOP_OUTGOING_CALL_FOREGROUND = "stopOutgoingCallForeground"
 
         private const val PREFS_NAME = "stellar_call_state"
         private const val PREF_PENDING_ACTION = "pending_call_action"
@@ -222,6 +224,52 @@ class MainActivity : FlutterFragmentActivity() {
                                 ecc.stellar.app.calls.StellarCallManager
                                     .setCallEnded(this@MainActivity, callId)
                             )
+                        }
+                    }
+
+                    METHOD_START_OUTGOING_CALL_FOREGROUND -> {
+                        val callId = call.argument<String>("callId").orEmpty()
+                        val remote = call.argument<String>("remoteNickname").orEmpty()
+                        val kind = call.argument<String>("kind").orEmpty()
+                        if (callId.isBlank() || remote.isBlank() ||
+                            (kind != "voice" && kind != "video")
+                        ) {
+                            result.success(false)
+                        } else {
+                            val serviceIntent = Intent(
+                                this@MainActivity,
+                                ecc.stellar.app.calls.StellarCallForegroundService::class.java
+                            ).apply {
+                                action = ecc.stellar.app.calls.StellarCallForegroundService.ACTION_START
+                                putExtra(ecc.stellar.app.calls.StellarCallForegroundService.EXTRA_CALL_ID, callId)
+                                putExtra(ecc.stellar.app.calls.StellarCallForegroundService.EXTRA_REMOTE_NICKNAME, remote)
+                                putExtra(ecc.stellar.app.calls.StellarCallForegroundService.EXTRA_CALL_KIND, kind)
+                            }
+                            try {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    startForegroundService(serviceIntent)
+                                } else {
+                                    startService(serviceIntent)
+                                }
+                                result.success(true)
+                            } catch (_: Exception) {
+                                result.success(false)
+                            }
+                        }
+                    }
+
+                    METHOD_STOP_OUTGOING_CALL_FOREGROUND -> {
+                        val callId = call.argument<String>("callId").orEmpty()
+                        if (callId.isBlank()) {
+                            result.success(false)
+                        } else {
+                            try {
+                                ecc.stellar.app.calls.StellarCallForegroundService
+                                    .stopForCall(this@MainActivity, callId)
+                                result.success(true)
+                            } catch (_: Exception) {
+                                result.success(false)
+                            }
                         }
                     }
 
