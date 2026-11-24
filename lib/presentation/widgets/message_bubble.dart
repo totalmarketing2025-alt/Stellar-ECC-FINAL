@@ -639,6 +639,9 @@ class MessageBubble extends StatelessWidget {
     required this.onReply,
     required this.onReact,
     required this.onDelete,
+    this.onEdit,
+    this.onDeleteForEveryone,
+    this.onTogglePin,
     required this.onLoadAttachment,
   });
 
@@ -649,6 +652,9 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback onReply;
   final void Function(String emoji) onReact;
   final VoidCallback onDelete;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDeleteForEveryone;
+  final VoidCallback? onTogglePin;
   final Future<Uint8List> Function(String blobId) onLoadAttachment;
 
   static const _quickReactions = ['❤️', '😂', '👍', '😮', '😢', '🙏'];
@@ -733,13 +739,17 @@ class MessageBubble extends StatelessWidget {
                         ],
                       ),
                     ),
-                  if (message.mediaBlobId != null)
+                  if (message.isPinned)
+                    Padding(padding: const EdgeInsets.only(bottom: 5), child: Row(mainAxisSize: MainAxisSize.min, children: [const Icon(Icons.push_pin, size: 12, color: StellarColors.accentPurple), const SizedBox(width: 4), Text(stellarText(context, "Pinned"), style: const TextStyle(fontSize: 10, color: StellarColors.accentPurple))])),
+                  if (message.isDeleted)
+                    Text(stellarText(context, "This message was deleted"), style: const TextStyle(fontSize: 14, fontStyle: FontStyle.italic, color: StellarColors.textSecondary))
+                  else if (message.mediaBlobId != null)
                     _AttachmentPreview(
                       blobId: message.mediaBlobId!,
                       mimeType: message.mediaMimeType,
                       onLoadAttachment: onLoadAttachment,
                     )
-                  else
+                  else if (!message.isDeleted)
                     Text(
                       message.bodyPlaintext,
                       style: const TextStyle(fontSize: 15),
@@ -748,6 +758,7 @@ class MessageBubble extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (message.editRevision > 0) Text('${stellarText(context, "Edited")} · ', style: const TextStyle(fontSize: 10, color: StellarColors.textSecondary)),
                       Text(_formatTime(message.sentAt),
                           style: const TextStyle(fontSize: 10, color: StellarColors.textSecondary)),
                       const SizedBox(width: 6),
@@ -795,7 +806,7 @@ class MessageBubble extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Wrap(
+              if (!message.isDeleted) Wrap(
                 spacing: 16,
                 children: _quickReactions
                     .map(
@@ -814,6 +825,14 @@ class MessageBubble extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               const Divider(),
+              if (message.isPinned == false && !message.isDeleted)
+                ListTile(leading: const Icon(Icons.push_pin_outlined), title: Text(stellarText(context, "Pin message")), onTap: () { Navigator.pop(sheetContext); onTogglePin?.call(); }),
+              if (message.isPinned && !message.isDeleted)
+                ListTile(leading: const Icon(Icons.push_pin), title: Text(stellarText(context, "Unpin message")), onTap: () { Navigator.pop(sheetContext); onTogglePin?.call(); }),
+              if (isOutgoing && !message.isDeleted && message.mediaBlobId == null)
+                ListTile(leading: const Icon(Icons.edit_outlined), title: Text(stellarText(context, "Edit message")), onTap: () { Navigator.pop(sheetContext); onEdit?.call(); }),
+              if (isOutgoing && !message.isDeleted)
+                ListTile(leading: const Icon(Icons.delete_forever_outlined, color: StellarColors.danger), title: Text(stellarText(context, "Delete for everyone")), onTap: () { Navigator.pop(sheetContext); onDeleteForEveryone?.call(); }),
               ListTile(
                 leading: const Icon(Icons.forward, color: StellarColors.accentBlue),
                 title: Text(stellarText(context, "Forward message")),
@@ -822,12 +841,12 @@ class MessageBubble extends StatelessWidget {
                   onForward();
                 },
               ),
-              ListTile(
+              if (!message.isDeleted) ListTile(
                 leading: const Icon(
                   Icons.delete_outline,
                   color: StellarColors.danger,
                 ),
-                title: Text(stellarText(context, "Delete message")),
+                title: Text(stellarText(context, "Delete for me")),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   onDelete();

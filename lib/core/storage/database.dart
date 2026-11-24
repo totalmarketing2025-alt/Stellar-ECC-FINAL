@@ -74,6 +74,22 @@ class StellarDatabase {
     }
   }
 
+  static void _ensureMessageEnhancementColumns(Database db) {
+    final columns = db.select('PRAGMA table_info(message);');
+    final names = columns.map((row) => row['name']).toSet();
+    for (final entry in const {
+      'edited_at': 'INTEGER',
+      'edit_revision': 'INTEGER NOT NULL DEFAULT 0',
+      'is_deleted': 'INTEGER NOT NULL DEFAULT 0',
+      'is_mention': 'INTEGER NOT NULL DEFAULT 0',
+      'is_reply_to_me': 'INTEGER NOT NULL DEFAULT 0',
+    }.entries) {
+      if (!names.contains(entry.key)) {
+        db.execute('ALTER TABLE message ADD COLUMN ${entry.key} ${entry.value};');
+      }
+    }
+  }
+
   static void _ensureTransportOutboxSchema(Database db) {
     final columns = db.select('PRAGMA table_info(transport_outbox);');
     final hasTransportId =
@@ -171,6 +187,7 @@ class StellarDatabase {
     db.execute('CREATE INDEX IF NOT EXISTS idx_message_chat ON message(chat_id);');
 
     _ensureMessageDeliveryTokenColumn(db);
+    _ensureMessageEnhancementColumns(db);
 
     // Per-recipient delivery/read receipts for outgoing direct and group messages.
     // Existing message rows are preserved; tracking begins for newly sent messages.
@@ -209,6 +226,15 @@ class StellarDatabase {
       );
     ''');
 
+    db.execute('''
+      CREATE TABLE IF NOT EXISTS pinned_message (
+        chat_id TEXT NOT NULL REFERENCES chat(chat_id) ON DELETE CASCADE,
+        message_id TEXT NOT NULL REFERENCES message(message_id) ON DELETE CASCADE,
+        pinned_by TEXT NOT NULL,
+        pinned_at INTEGER NOT NULL,
+        PRIMARY KEY (chat_id, message_id)
+      );
+    ''');
     db.execute('''
       CREATE TABLE IF NOT EXISTS media_blob (
         blob_id    TEXT PRIMARY KEY,
@@ -574,6 +600,7 @@ class ChatDao {
         c.*,
         (
           SELECT CASE
+            WHEN m.is_deleted = 1 THEN 'STELLAR_DELETED_MESSAGE'
             WHEN m.body_plaintext LIKE 'STELLAR_CALL_EVENT_V1:%' THEN 'Call'
             ELSE m.body_plaintext
           END
@@ -596,14 +623,41 @@ class ChatDao {
           FROM message m
           WHERE m.chat_id = c.chat_id
             AND m.expires_at > ?
+            AND m.is_deleted = 0
             AND m.read_at IS NULL
             AND (? IS NULL OR LOWER(m.sender_id) != LOWER(?))
-        ) AS unread_count
+        ) AS unread_count,
+        (
+          SELECT COUNT(*)
+          FROM message m
+          WHERE m.chat_id = c.chat_id
+            AND m.expires_at > ?
+            AND m.read_at IS NULL
+            AND m.is_deleted = 0
+            AND m.is_mention = 1
+            AND (? IS NULL OR LOWER(m.sender_id) != LOWER(?))
+        ) AS unread_mention_count,
+        (
+          SELECT COUNT(*)
+          FROM message m
+          WHERE m.chat_id = c.chat_id
+            AND m.expires_at > ?
+            AND m.read_at IS NULL
+            AND m.is_deleted = 0
+            AND m.is_reply_to_me = 1
+            AND (? IS NULL OR LOWER(m.sender_id) != LOWER(?))
+        ) AS unread_reply_count
       FROM chat c
       ORDER BY (c.pinned_at IS NULL) ASC, c.pinned_at ASC, COALESCE(last_message_at, c.created_at) DESC
     ''', [
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      localNickname,
+      localNickname,
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      localNickname,
+      localNickname,
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       localNickname,
       localNickname,
@@ -726,6 +780,17 @@ class MessageDao {
     );
   }
 
+  Future<void> setMessageFlags({
+    required String messageId,
+    required bool isMention,
+    required bool isReplyToMe,
+  }) async {
+    _db.execute(
+      'UPDATE message SET is_mention = ?, is_reply_to_me = ? WHERE message_id = ?',
+      [isMention ? 1 : 0, isReplyToMe ? 1 : 0, messageId],
+    );
+  }
+
   Future<Map<String, Object?>?> byId(String messageId) async {
     final rows = _db.select(
       'SELECT * FROM message WHERE message_id = ? LIMIT 1',
@@ -750,7 +815,11 @@ class MessageDao {
                FROM media_blob mb
                WHERE mb.message_id = m.message_id
                LIMIT 1
-             ) AS media_mime_type
+             ) AS media_mime_type,
+             EXISTS(
+               SELECT 1 FROM pinned_message pm
+               WHERE pm.chat_id = m.chat_id AND pm.message_id = m.message_id
+             ) AS is_pinned
       FROM message m
       WHERE m.chat_id = ? AND m.expires_at > ?
       ORDER BY m.sent_at ASC
@@ -771,6 +840,128 @@ class MessageDao {
     final garbage = _randomGarbage(128);
     _db.execute('UPDATE message SET body_plaintext = ? WHERE message_id = ?', [garbage, messageId]);
     _db.execute('DELETE FROM message WHERE message_id = ?', [messageId]);
+  }
+
+  Future<void> updateEditedMessage({
+    required String messageId,
+    required String plaintext,
+    required int revision,
+  }) async {
+    _db.execute(
+      'UPDATE message SET body_plaintext = ?, edited_at = ?, edit_revision = ? '
+      'WHERE message_id = ? AND is_deleted = 0 AND edit_revision < ?',
+      [
+        plaintext,
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        revision,
+        messageId,
+        revision,
+      ],
+    );
+  }
+
+  Future<void> markDeletedForEveryone(String messageId) async {
+    final garbage = _randomGarbage(128);
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+      _db.execute(
+        'UPDATE message SET body_plaintext = ?, is_deleted = 1 '
+        'WHERE message_id = ?',
+        [garbage, messageId],
+      );
+      _db.execute('DELETE FROM reaction WHERE message_id = ?', [messageId]);
+      _db.execute('DELETE FROM pinned_message WHERE message_id = ?', [messageId]);
+      _db.execute(
+        'UPDATE message SET body_plaintext = ? WHERE message_id = ?',
+        ['', messageId],
+      );
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
+  }
+
+  Future<List<Map<String, Object?>>> searchInChat({
+    required String chatId,
+    required String query,
+  }) async {
+    final term = query.trim();
+    if (term.isEmpty) return const [];
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    return _db.select(
+      '''
+      SELECT m.*,
+             (SELECT blob_id FROM media_blob mb
+              WHERE mb.message_id = m.message_id LIMIT 1) AS media_blob_id,
+             (SELECT mime_type FROM media_blob mb
+              WHERE mb.message_id = m.message_id LIMIT 1) AS media_mime_type,
+             EXISTS(SELECT 1 FROM pinned_message pm
+                    WHERE pm.chat_id = m.chat_id
+                      AND pm.message_id = m.message_id) AS is_pinned
+      FROM message m
+      WHERE m.chat_id = ? AND m.expires_at > ?
+        AND m.is_deleted = 0
+        AND LOWER(COALESCE(m.body_plaintext, '')) LIKE LOWER(?)
+      ORDER BY m.sent_at DESC
+      LIMIT 100
+      ''',
+      [chatId, now, '%$term%'],
+    );
+  }
+
+  Future<void> setMessagePinned({
+    required String chatId,
+    required String messageId,
+    required String pinnedBy,
+    required bool pinned,
+  }) async {
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+      if (pinned) {
+        final target = _db.select(
+          'SELECT is_deleted, expires_at FROM message '
+          'WHERE message_id = ? AND chat_id = ?',
+          [messageId, chatId],
+        );
+        if (target.isEmpty ||
+            (target.first['is_deleted'] as int? ?? 0) == 1 ||
+            (target.first['expires_at'] as int) <=
+                DateTime.now().millisecondsSinceEpoch ~/ 1000) {
+          throw StateError('Cannot pin an expired or deleted message');
+        }
+        final existing = _db.select(
+          'SELECT 1 FROM pinned_message WHERE chat_id = ? AND message_id = ?',
+          [chatId, messageId],
+        );
+        final count = _db.select(
+          'SELECT COUNT(*) AS n FROM pinned_message WHERE chat_id = ?',
+          [chatId],
+        ).first['n'] as int;
+        if (existing.isEmpty && count >= 5) {
+          throw StateError('Maximum 5 pinned messages per chat');
+        }
+        _db.execute(
+          'INSERT OR REPLACE INTO pinned_message '
+          '(chat_id, message_id, pinned_by, pinned_at) VALUES (?, ?, ?, ?)',
+          [
+            chatId,
+            messageId,
+            pinnedBy,
+            DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          ],
+        );
+      } else {
+        _db.execute(
+          'DELETE FROM pinned_message WHERE chat_id = ? AND message_id = ?',
+          [chatId, messageId],
+        );
+      }
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
   }
 
   Future<void> updateStatus(String messageId, String status) async {

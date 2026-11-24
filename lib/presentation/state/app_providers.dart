@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -378,7 +379,62 @@ final localNicknameProvider =
       );
     });
 
-final chatRepositoryProvider = Provider<ChatRepository>((ref) {
+class ChatTypingIndicatorController
+    extends StateNotifier<Map<String, Set<String>>> {
+  ChatTypingIndicatorController() : super(const {});
+  final Map<String, Timer> _expiryTimers = <String, Timer>{};
+
+  void updateRemote(String chatId, String nickname, bool isTyping) {
+    final normalized = nickname.trim().toLowerCase();
+    if (chatId.isEmpty || normalized.isEmpty) return;
+    final key = '$chatId:$normalized';
+    _expiryTimers.remove(key)?.cancel();
+
+    final next = <String, Set<String>>{
+      for (final entry in state.entries)
+        entry.key: Set<String>.from(entry.value),
+    };
+    if (isTyping) {
+      final names = next.putIfAbsent(chatId, () => <String>{});
+      names.add(nickname.trim());
+      _expiryTimers[key] = Timer(const Duration(seconds: 5), () {
+        _remove(chatId, nickname, key);
+      });
+    } else {
+      next[chatId]?.removeWhere((name) => name.toLowerCase() == normalized);
+      if (next[chatId]?.isEmpty == true) next.remove(chatId);
+    }
+    state = next;
+  }
+
+  void _remove(String chatId, String nickname, String key) {
+    _expiryTimers.remove(key);
+    final next = <String, Set<String>>{
+      for (final entry in state.entries)
+        entry.key: Set<String>.from(entry.value),
+    };
+    next[chatId]?.removeWhere((name) => name.toLowerCase() == nickname.toLowerCase());
+    if (next[chatId]?.isEmpty == true) next.remove(chatId);
+    state = next;
+  }
+
+  @override
+  void dispose() {
+    for (final timer in _expiryTimers.values) {
+      timer.cancel();
+    }
+    _expiryTimers.clear();
+    super.dispose();
+  }
+}
+
+final chatTypingIndicatorProvider = StateNotifierProvider<
+    ChatTypingIndicatorController, Map<String, Set<String>>>(
+  (ref) => ChatTypingIndicatorController(),
+);
+
+final Provider<ChatRepository> chatRepositoryProvider =
+    Provider<ChatRepository>((ref) {
   final nickname = ref.watch(localNicknameProvider);
   if (nickname == null) {
     throw StateError(
@@ -394,6 +450,13 @@ final chatRepositoryProvider = Provider<ChatRepository>((ref) {
     localNickname: nickname,
     mediaService: ref.watch(mediaAttachmentServiceProvider),
     moderationClient: ref.watch(moderationClientProvider),
+    onTypingChanged: (chatId, nickname, isTyping) =>
+        ref.read(chatTypingIndicatorProvider.notifier)
+            .updateRemote(chatId, nickname, isTyping),
+    onChatChanged: (chatId) {
+      ref.invalidate(chatMessagesProvider(chatId));
+      ref.invalidate(chatListProvider);
+    },
   );
 
   ref.onDispose(repository.dispose);
@@ -404,13 +467,15 @@ final chatRepositoryProvider = Provider<ChatRepository>((ref) {
 /// Chat list — refreshed on demand via `ref.invalidate(chatListProvider)`
 /// after sends/receives/deletes, and on a periodic timer from the chat
 /// list screen so expiring previews/countdowns stay live.
-final chatListProvider = FutureProvider.autoDispose<List<Chat>>((ref) async {
+final AutoDisposeFutureProvider<List<Chat>> chatListProvider =
+    FutureProvider.autoDispose<List<Chat>>((ref) async {
   final repo = ref.watch(chatRepositoryProvider);
   return repo.loadChats();
 });
 
-final chatMessagesProvider = FutureProvider.autoDispose
-    .family<List<Message>, String>((ref, chatId) async {
+final AutoDisposeFutureProviderFamily<List<Message>, String>
+    chatMessagesProvider = FutureProvider.autoDispose
+        .family<List<Message>, String>((ref, chatId) async {
       final repo = ref.watch(chatRepositoryProvider);
       return repo.loadMessages(chatId);
     });

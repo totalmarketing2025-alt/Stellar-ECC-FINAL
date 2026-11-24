@@ -16,6 +16,7 @@ import '../../../domain/models/chat.dart';
 import '../../state/app_providers.dart';
 import '../../widgets/stellar_avatar.dart';
 import '../../widgets/message_bubble.dart';
+import '../../widgets/typing_indicator.dart';
 import '../../widgets/call_event_card.dart';
 import '../../widgets/ttl_picker_sheet.dart';
 import '../../widgets/attachment_picker_sheet.dart';
@@ -32,6 +33,11 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _composerController = TextEditingController();
   final _scrollController = ScrollController();
+  final _searchController = TextEditingController();
+  bool _searchMode = false;
+  Timer? _typingStopTimer;
+  Timer? _typingHeartbeatTimer;
+  bool _typingActive = false;
   Timer? _refreshTimer;
   Message? _replyingTo;
   int _perMessageTtlOverride = -1; // -1 = use chat default
@@ -62,6 +68,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _typingStopTimer?.cancel();
+    _typingHeartbeatTimer?.cancel();
+    if (_typingActive) _sendTypingSignal(false);
+    _searchController.dispose();
     _composerController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -122,6 +132,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ),
         actions: [
+          IconButton(
+            tooltip: stellarText(context, "Search messages"),
+            icon: Icon(_searchMode ? Icons.close : Icons.search),
+            onPressed: () => setState(() {
+              _searchMode = !_searchMode;
+              _searchController.clear();
+            }),
+          ),
           const _StellarConnectionIndicator(),
           IconButton(
             icon: const Icon(Icons.call_outlined),
@@ -149,6 +167,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ttlSeconds: chat?.defaultTtlSeconds ?? TtlPreset.oneHour,
             onTap: () => _showChatTtlPicker(chat),
           ),
+          if (_searchMode)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+              child: TextField(
+                controller: _searchController,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: stellarText(context, "Search messages"),
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => setState(() => _searchController.clear()),
+                  ),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
           Expanded(
             child: Stack(
               children: [
@@ -174,11 +209,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                     ),
                     data: (messages) {
-                      if (messages.isEmpty) {
-                        return const Center(
+                      final query = _searchController.text.trim().toLowerCase();
+                      final visibleMessages = query.isEmpty
+                          ? messages
+                          : messages.where((m) => !m.isDeleted && m.bodyPlaintext.toLowerCase().contains(query)).toList();
+                      if (visibleMessages.isEmpty) {
+                        return Center(
                           child: Text(
-                            'No messages yet — say hello 👋',
-                            style: TextStyle(
+                            _searchMode && query.isNotEmpty
+                                ? stellarText(context, "No matching messages")
+                                : 'No messages yet — say hello 👋',
+                            style: const TextStyle(
                               color: StellarColors.textSecondary,
                             ),
                           ),
@@ -188,7 +229,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         for (final entry in messages)
                           entry.messageId: entry,
                       };
-                      final timeline = _buildChatTimeline(messages);
+                      final timeline = _buildChatTimeline(visibleMessages);
                       return ListView.builder(
                         controller: _scrollController,
                         reverse: true,
@@ -238,6 +279,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 );
                               });
                             },
+                            onEdit: () => _editMessage(message),
+                            onDeleteForEveryone: () => _deleteForEveryone(message),
+                            onTogglePin: () async {
+                              try {
+                                await ref.read(chatRepositoryProvider).setMessagePinned(
+                                      message.messageId,
+                                      !message.isPinned,
+                                    );
+                                ref.invalidate(chatMessagesProvider(widget.chatId));
+                              } catch (error) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('$error')),
+                                  );
+                                }
+                              }
+                            },
                             onDelete: () async {
                               await ref
                                   .read(chatRepositoryProvider)
@@ -259,6 +317,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ],
             ),
           ),
+          ..._typingIndicatorWidgets(),
           if ((chat?.unreadCount ?? 0) > 0)
             _NewMessagesBanner(
               count: chat!.unreadCount,
@@ -282,6 +341,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             onSend: _handleSend,
             onVoice: _recordVoiceMessage,
             onAttach: _handleAttach,
+            onChanged: _handleComposerChanged,
           ),
         ],
       ),
@@ -625,7 +685,84 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  void _sendTypingSignal(bool isTyping) {
+    unawaited(
+      ref
+          .read(chatRepositoryProvider)
+          .sendTypingState(widget.chatId, isTyping)
+          .catchError((Object _) {}),
+    );
+  }
+
+  void _handleComposerChanged(String value) {
+    _typingStopTimer?.cancel();
+    if (value.trim().isEmpty) {
+      if (_typingActive) _sendTypingSignal(false);
+      _typingActive = false;
+      _typingHeartbeatTimer?.cancel();
+      return;
+    }
+    if (!_typingActive) {
+      _typingActive = true;
+      _sendTypingSignal(true);
+      _typingHeartbeatTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+        if (_typingActive) _sendTypingSignal(true);
+      });
+    }
+    _typingStopTimer = Timer(const Duration(milliseconds: 1600), () {
+      if (!_typingActive) return;
+      _typingActive = false;
+      _typingHeartbeatTimer?.cancel();
+      _sendTypingSignal(false);
+    });
+  }
+
+  List<Widget> _typingIndicatorWidgets() {
+    final names = ref.watch(chatTypingIndicatorProvider)[widget.chatId] ?? <String>{};
+    if (names.isEmpty) return const [];
+    final label = names.length == 1
+        ? '${names.first} ${stellarText(context, "is typing")}'
+        : '${names.take(2).join(', ')} ${stellarText(context, "are typing")}';
+    return [TypingIndicator(label: label)];
+  }
+
+  Future<void> _editMessage(Message message) async {
+    final controller = TextEditingController(text: message.bodyPlaintext);
+    final value = await showDialog<String>(context: context, builder: (dialogContext) => AlertDialog(
+      title: Text(stellarText(context, "Edit message")),
+      content: TextField(controller: controller, autofocus: true, maxLines: 5, maxLength: 4000),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text(stellarText(context, "Cancel"))),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text), child: Text(stellarText(context, "Save")))],
+    ));
+    controller.dispose();
+    if (value == null || value.trim().isEmpty) return;
+    try {
+      await ref.read(chatRepositoryProvider).editMessage(message.messageId, value);
+      ref.invalidate(chatMessagesProvider(widget.chatId));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
+  Future<void> _deleteForEveryone(Message message) async {
+    final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+      title: Text(stellarText(context, "Delete for everyone?")),
+      content: Text(stellarText(context, "This message will be removed for everyone when their devices receive the update.")),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: Text(stellarText(context, "Cancel"))),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: Text(stellarText(context, "Delete for everyone")))],
+    ));
+    if (confirmed != true) return;
+    try {
+      await ref.read(chatRepositoryProvider).deleteMessageForEveryone(message.messageId);
+      ref.invalidate(chatMessagesProvider(widget.chatId));
+      ref.invalidate(chatListProvider);
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
   Future<void> _handleSend() async {
+    if (_typingActive) { _typingActive = false; _typingStopTimer?.cancel(); _typingHeartbeatTimer?.cancel(); _sendTypingSignal(false); }
     final text = _composerController.text.trim();
     if (text.isEmpty) return;
 
@@ -877,11 +1014,12 @@ class _ReplyPreview extends StatelessWidget {
 }
 
 class _Composer extends StatelessWidget {
-  const _Composer({required this.controller, required this.onSend, required this.onVoice, required this.onAttach});
+  const _Composer({required this.controller, required this.onSend, required this.onVoice, required this.onAttach, required this.onChanged});
   final TextEditingController controller;
   final VoidCallback onSend;
   final VoidCallback onVoice;
   final VoidCallback onAttach;
+  final ValueChanged<String> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -904,6 +1042,7 @@ class _Composer extends StatelessWidget {
                 controller: controller,
                 minLines: 1,
                 maxLines: 5,
+                onChanged: onChanged,
                 decoration: InputDecoration(hintText: stellarText(context, "Message")),
               ),
             ),

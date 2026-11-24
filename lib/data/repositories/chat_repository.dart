@@ -33,6 +33,8 @@ class ChatRepository {
     required this.directoryClient,
     required this.localNickname,
     this.mediaService,
+    this.onTypingChanged,
+    this.onChatChanged,
     required this.moderationClient,
   }) {
     moderationOutbox = ModerationOutboxService(
@@ -60,6 +62,13 @@ class ChatRepository {
   final String localNickname;
   final MediaAttachmentService? mediaService;
   final ModerationClient moderationClient;
+  final void Function(String chatId, String nickname, bool isTyping)?
+      onTypingChanged;
+  final void Function(String chatId)? onChatChanged;
+
+  static const messageEditWindow = Duration(minutes: 15);
+  static const _typingSignalLifetime = Duration(seconds: 6);
+
 
   late final ModerationOutboxService moderationOutbox;
   late final OutgoingTransportOutboxService transportOutbox;
@@ -1281,6 +1290,122 @@ class ChatRepository {
       return null;
     }
 
+    const editPrefix = 'STELLAR_EDIT_V1:';
+    if (receiptText.startsWith(editPrefix)) {
+      final decoded = jsonDecode(receiptText.substring(editPrefix.length));
+      if (decoded is! Map<String, dynamic> ||
+          decoded['messageId'] is! String ||
+          decoded['revision'] is! int ||
+          decoded['text'] is! String ||
+          decoded['sentAt'] is! int) {
+        throw const FormatException('Invalid message edit control');
+      }
+      final messageId = (decoded['messageId'] as String).trim();
+      final revision = decoded['revision'] as int;
+      final text = decoded['text'] as String;
+      final target = await db.messageDao.byId(messageId);
+      if (target != null &&
+          target['chat_id'] == chatId &&
+          target['sender_id'].toString().toLowerCase() ==
+              senderNickname.toLowerCase() &&
+          (target['is_deleted'] as int? ?? 0) == 0 &&
+          (target['expires_at'] as int) >
+              DateTime.now().millisecondsSinceEpoch ~/ 1000 &&
+          DateTime.now().difference(
+                DateTime.fromMillisecondsSinceEpoch(
+                  (target['sent_at'] as int) * 1000,
+                ),
+              ) <=
+              messageEditWindow &&
+          text.trim().isNotEmpty &&
+          text.length <= 4000 &&
+          revision == (target['edit_revision'] as int? ?? 0) + 1 &&
+          await db.mediaBlobDao.byMessageId(messageId) == null) {
+        await db.messageDao.updateEditedMessage(
+          messageId: messageId,
+          plaintext: text,
+          revision: revision,
+        );
+        onChatChanged?.call(chatId);
+      }
+      return null;
+    }
+
+    const deletePrefix = 'STELLAR_DELETE_V1:';
+    if (receiptText.startsWith(deletePrefix)) {
+      final decoded = jsonDecode(receiptText.substring(deletePrefix.length));
+      if (decoded is! Map<String, dynamic> ||
+          decoded['messageId'] is! String) {
+        throw const FormatException('Invalid message delete control');
+      }
+      final messageId = (decoded['messageId'] as String).trim();
+      final target = await db.messageDao.byId(messageId);
+      if (target != null &&
+          target['chat_id'] == chatId &&
+          target['sender_id'].toString().toLowerCase() ==
+              senderNickname.toLowerCase() &&
+          (target['is_deleted'] as int? ?? 0) == 0 &&
+          (target['expires_at'] as int) >
+              DateTime.now().millisecondsSinceEpoch ~/ 1000 &&
+          DateTime.now().difference(
+                DateTime.fromMillisecondsSinceEpoch(
+                  (target['sent_at'] as int) * 1000,
+                ),
+              ) <=
+              messageEditWindow) {
+        await _eraseMessageAttachment(messageId);
+        await db.messageDao.markDeletedForEveryone(messageId);
+        onChatChanged?.call(chatId);
+      }
+      return null;
+    }
+
+    const pinPrefix = 'STELLAR_PIN_V1:';
+    if (receiptText.startsWith(pinPrefix)) {
+      final decoded = jsonDecode(receiptText.substring(pinPrefix.length));
+      if (decoded is! Map<String, dynamic> ||
+          decoded['messageId'] is! String ||
+          decoded['pinned'] is! bool) {
+        throw const FormatException('Invalid message pin control');
+      }
+      final messageId = (decoded['messageId'] as String).trim();
+      try {
+        await db.messageDao.setMessagePinned(
+          chatId: chatId,
+          messageId: messageId,
+          pinnedBy: senderNickname,
+          pinned: decoded['pinned'] as bool,
+        );
+        onChatChanged?.call(chatId);
+      } on StateError {
+        // Expired, deleted, unknown, or over-limit pins are safely ignored.
+      }
+      return null;
+    }
+
+    const typingPrefix = 'STELLAR_TYPING_V1:';
+    if (receiptText.startsWith(typingPrefix)) {
+      final decoded = jsonDecode(receiptText.substring(typingPrefix.length));
+      if (decoded is! Map<String, dynamic> ||
+          decoded['chatId'] is! String ||
+          decoded['isTyping'] is! bool ||
+          decoded['sentAt'] is! int) {
+        throw const FormatException('Invalid typing control');
+      }
+      final sentAt = decoded['sentAt'] as int;
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      if (decoded['chatId'] == chatId &&
+          sentAt <= now + 1 &&
+          now - sentAt <= _typingSignalLifetime.inSeconds) {
+        onTypingChanged?.call(
+          chatId,
+          senderNickname,
+          decoded['isTyping'] as bool,
+        );
+      }
+      return null;
+    }
+
     // Reactions are authenticated control messages. The sender identity
     // always comes from the decrypted Signal/Sender-Key envelope.
     const reactionPrefix = 'STELLAR_REACTION_V1:';
@@ -1424,6 +1549,22 @@ class ChatRepository {
       ttlSeconds: ttl,
       replyToId: replyToId,
       deliveryToken: envelope.deliveryToken,
+    );
+    final replyTarget = replyToId == null
+        ? null
+        : await db.messageDao.byId(replyToId);
+    final isReplyToMe = replyTarget != null &&
+        replyTarget['sender_id'].toString().toLowerCase() ==
+            localNickname.toLowerCase();
+    final isMention = chatRow['chat_type'] == 'group' &&
+        RegExp(
+          '(^|[^A-Za-z0-9_])@${RegExp.escape(localNickname)}(?![A-Za-z0-9_])',
+          caseSensitive: false,
+        ).hasMatch(plaintext);
+    await db.messageDao.setMessageFlags(
+      messageId: messageId,
+      isMention: isMention,
+      isReplyToMe: isReplyToMe,
     );
 
     if (attachment != null) {
@@ -1662,6 +1803,230 @@ class ChatRepository {
 
     // The durable transport worker retries failed relay deliveries.
     await transportOutbox.flush();
+  }
+
+  Future<void> _sendAuthenticatedControl({
+    required String chatId,
+    required Uint8List controlBytes,
+  }) async {
+    final chat = await db.chatDao.byId(chatId);
+    if (chat == null) throw StateError('Chat does not exist: $chatId');
+    final deliveryToken = Uint8List.fromList(
+      utf8.encode(_uuid.v4()).take(16).toList(),
+    );
+    final createdAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final routes = <({String nickname, int deviceId})>[];
+
+    if (chat['chat_type'] == 'group') {
+      final seen = <String>{};
+      for (final member in await db.chatDao.groupMembers(chatId)) {
+        final nickname = member['nickname'];
+        if (nickname is! String || nickname.trim().isEmpty) continue;
+        if (nickname.toLowerCase() == localNickname.toLowerCase()) continue;
+        if (seen.add(nickname.toLowerCase())) {
+          routes.add((nickname: nickname, deviceId: 1));
+        }
+      }
+      if (routes.isEmpty) return;
+      final senderKeyName = SenderKeyName(
+        chatId,
+        SignalProtocolAddress(localNickname, 1),
+      );
+      final groupPayload = Uint8List.fromList(
+        utf8.encode(
+          'STELLAR_GROUP_MESSAGE_V1:'
+          '${jsonEncode({
+            'groupId': chatId,
+            'payload': base64Encode(controlBytes),
+          })}',
+        ),
+      );
+      final encrypted = await groupCrypto.encryptGroupMessage(
+        senderKeyName,
+        groupPayload,
+      );
+      final outerCiphertext = Uint8List.fromList(
+        utf8.encode(
+          'STELLAR_GROUP_CIPHERTEXT_V1:'
+          '${jsonEncode({
+            'groupId': chatId,
+            'ciphertext': base64Encode(encrypted),
+          })}',
+        ),
+      );
+      for (final route in routes) {
+        final transportId = _uuid.v4();
+        final envelope = Envelope(
+          deliveryToken: deliveryToken,
+          recipientRoute: route.nickname,
+          ciphertext: outerCiphertext,
+        );
+        await db.transportOutboxDao.enqueue(
+          messageId: transportId,
+          transportId: transportId,
+          transportType: 'control',
+          deliveryToken: deliveryToken,
+          recipientRoute: route.nickname,
+          envelopeBytes: envelope.encode(),
+          createdAt: createdAt,
+        );
+      }
+    } else {
+      final peerName = chat['peer_name'] as String?;
+      final peerDeviceId = chat['peer_device_id'] as int?;
+      if (peerName == null || peerName.isEmpty || peerDeviceId == null) {
+        throw StateError('Direct chat peer mapping is missing: $chatId');
+      }
+      await _ensureDirectSession(
+        peerName: peerName,
+        peerDeviceId: peerDeviceId,
+      );
+      final address = SignalProtocolAddress(peerName, peerDeviceId);
+      final encrypted = await sessionManager.encryptForSend(
+        address,
+        controlBytes,
+      );
+      final transportId = _uuid.v4();
+      final envelope = Envelope(
+        deliveryToken: deliveryToken,
+        recipientRoute: peerName,
+        ciphertext: Uint8List.fromList(encrypted.serialize()),
+      );
+      await db.transportOutboxDao.enqueue(
+        messageId: transportId,
+        transportId: transportId,
+        transportType: 'control',
+        deliveryToken: deliveryToken,
+        recipientRoute: peerName,
+        envelopeBytes: envelope.encode(),
+        createdAt: createdAt,
+      );
+    }
+
+    // Control envelopes contain ciphertext only and retry through the durable
+    // outbox. A queued offline event remains recoverable.
+    await transportOutbox.flush();
+  }
+
+  Future<void> _eraseMessageAttachment(String messageId) async {
+    final blob = await db.mediaBlobDao.byMessageId(messageId);
+    if (blob == null) return;
+    final blobId = blob['blob_id'] as String;
+    final path = blob['file_path'] as String;
+    if (mediaService != null) {
+      await mediaService!.wipeAttachmentKey(blobId);
+    }
+    if (path.isNotEmpty) {
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+    }
+    await db.mediaBlobDao.delete(blobId);
+  }
+
+  Future<void> editMessage(String messageId, String newText) async {
+    final text = newText.trim();
+    if (text.isEmpty || text.length > 4000) {
+      throw ArgumentError('Message text must contain 1–4000 characters');
+    }
+    final row = await db.messageDao.byId(messageId);
+    if (row == null ||
+        row['sender_id'].toString().toLowerCase() !=
+            localNickname.toLowerCase() ||
+        (row['is_deleted'] as int? ?? 0) == 1) {
+      throw StateError('Only your active messages can be edited');
+    }
+    if (DateTime.now().difference(
+          DateTime.fromMillisecondsSinceEpoch((row['sent_at'] as int) * 1000),
+        ) >
+        messageEditWindow) {
+      throw StateError('The message edit window has expired');
+    }
+    if (await db.mediaBlobDao.byMessageId(messageId) != null) {
+      throw StateError('Attachments cannot be edited');
+    }
+    final revision = (row['edit_revision'] as int? ?? 0) + 1;
+    final chatId = row['chat_id'] as String;
+    final control = Uint8List.fromList(
+      utf8.encode(
+        'STELLAR_EDIT_V1:'
+        '${jsonEncode({
+          'messageId': messageId,
+          'revision': revision,
+          'text': text,
+          'sentAt': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        })}',
+      ),
+    );
+    await _sendAuthenticatedControl(chatId: chatId, controlBytes: control);
+    await db.messageDao.updateEditedMessage(
+      messageId: messageId,
+      plaintext: text,
+      revision: revision,
+    );
+  }
+
+  Future<void> deleteMessageForEveryone(String messageId) async {
+    final row = await db.messageDao.byId(messageId);
+    if (row == null ||
+        row['sender_id'].toString().toLowerCase() !=
+            localNickname.toLowerCase() ||
+        (row['is_deleted'] as int? ?? 0) == 1) {
+      throw StateError('Only your active messages can be deleted for everyone');
+    }
+    if (DateTime.now().difference(
+          DateTime.fromMillisecondsSinceEpoch((row['sent_at'] as int) * 1000),
+        ) >
+        messageEditWindow) {
+      throw StateError('The message delete window has expired');
+    }
+    final chatId = row['chat_id'] as String;
+    final control = Uint8List.fromList(
+      utf8.encode(
+        'STELLAR_DELETE_V1:'
+        '${jsonEncode({'messageId': messageId})}',
+      ),
+    );
+    await _sendAuthenticatedControl(chatId: chatId, controlBytes: control);
+    await _eraseMessageAttachment(messageId);
+    await db.messageDao.markDeletedForEveryone(messageId);
+  }
+
+  Future<void> setMessagePinned(String messageId, bool pinned) async {
+    final row = await db.messageDao.byId(messageId);
+    if (row == null || (row['is_deleted'] as int? ?? 0) == 1) {
+      throw StateError('Cannot pin a missing or deleted message');
+    }
+    final chatId = row['chat_id'] as String;
+    final control = Uint8List.fromList(
+      utf8.encode(
+        'STELLAR_PIN_V1:'
+        '${jsonEncode({
+          'messageId': messageId,
+          'pinned': pinned,
+        })}',
+      ),
+    );
+    await db.messageDao.setMessagePinned(
+      chatId: chatId,
+      messageId: messageId,
+      pinnedBy: localNickname,
+      pinned: pinned,
+    );
+    await _sendAuthenticatedControl(chatId: chatId, controlBytes: control);
+  }
+
+  Future<void> sendTypingState(String chatId, bool isTyping) async {
+    final control = Uint8List.fromList(
+      utf8.encode(
+        'STELLAR_TYPING_V1:'
+        '${jsonEncode({
+          'chatId': chatId,
+          'isTyping': isTyping,
+          'sentAt': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        })}',
+      ),
+    );
+    await _sendAuthenticatedControl(chatId: chatId, controlBytes: control);
   }
 
   Future<void> updateChatTtl(String chatId, int ttlSeconds) async {

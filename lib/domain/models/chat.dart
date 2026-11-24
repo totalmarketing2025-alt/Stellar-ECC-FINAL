@@ -15,6 +15,8 @@ class Chat {
     this.peerName,
     this.peerDeviceId,
     this.pinnedAt,
+    this.unreadMentionCount = 0,
+    this.unreadReplyCount = 0,
   });
 
   final String chatId;
@@ -30,6 +32,8 @@ class Chat {
   final String? peerName;
   final int? peerDeviceId;
   final int? pinnedAt;
+  final int unreadMentionCount;
+  final int unreadReplyCount;
   bool get isPinned => pinnedAt != null;
 
   factory Chat.fromRow(Map<String, Object?> row) {
@@ -49,6 +53,8 @@ class Chat {
       peerName: row['peer_name'] as String?,
       peerDeviceId: row['peer_device_id'] as int?,
       pinnedAt: row['pinned_at'] as int?,
+      unreadMentionCount: row['unread_mention_count'] as int? ?? 0,
+      unreadReplyCount: row['unread_reply_count'] as int? ?? 0,
     );
   }
 
@@ -57,6 +63,8 @@ class Chat {
     DateTime? lastMessageAt,
     int? unreadCount,
     DateTime? oldestVisibleExpiry,
+    int? unreadMentionCount,
+    int? unreadReplyCount,
   }) {
     return Chat(
       chatId: chatId,
@@ -72,6 +80,8 @@ class Chat {
       peerName: peerName,
       peerDeviceId: peerDeviceId,
       pinnedAt: pinnedAt,
+      unreadMentionCount: unreadMentionCount ?? this.unreadMentionCount,
+      unreadReplyCount: unreadReplyCount ?? this.unreadReplyCount,
     );
   }
 }

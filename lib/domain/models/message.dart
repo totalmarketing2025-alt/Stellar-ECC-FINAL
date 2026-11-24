@@ -17,6 +17,10 @@ class Message {
     this.reactions = const [],
     this.mediaBlobId,
     this.mediaMimeType,
+    this.editedAt,
+    this.editRevision = 0,
+    this.isDeleted = false,
+    this.isPinned = false,
   });
 
   final String messageId;
@@ -32,6 +36,10 @@ class Message {
   final List<Reaction> reactions;
   final String? mediaBlobId;
   final String? mediaMimeType;
+  final DateTime? editedAt;
+  final int editRevision;
+  final bool isDeleted;
+  final bool isPinned;
 
   Duration get timeUntilExpiry => expiresAt.difference(DateTime.now());
   bool get isExpired => timeUntilExpiry.isNegative;
@@ -41,6 +49,10 @@ class Message {
     DateTime? deliveredAt,
     DateTime? readAt,
     List<Reaction>? reactions,
+    DateTime? editedAt,
+    int? editRevision,
+    bool? isDeleted,
+    bool? isPinned,
   }) {
     return Message(
       messageId: messageId,
@@ -56,6 +68,10 @@ class Message {
       reactions: reactions ?? this.reactions,
       mediaBlobId: mediaBlobId,
       mediaMimeType: mediaMimeType,
+      editedAt: editedAt ?? this.editedAt,
+      editRevision: editRevision ?? this.editRevision,
+      isDeleted: isDeleted ?? this.isDeleted,
+      isPinned: isPinned ?? this.isPinned,
     );
   }
 
@@ -76,6 +92,12 @@ class Message {
       replyToId: row['reply_to_id'] as String?,
       mediaBlobId: row['media_blob_id'] as String?,
       mediaMimeType: row['media_mime_type'] as String?,
+      editedAt: row['edited_at'] == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch((row['edited_at'] as int) * 1000),
+      editRevision: row['edit_revision'] as int? ?? 0,
+      isDeleted: (row['is_deleted'] as int? ?? 0) == 1,
+      isPinned: (row['is_pinned'] as int? ?? 0) == 1,
       status: MessageStatus.values.firstWhere(
         (s) => s.name == row['status'],
         orElse: () => MessageStatus.sent,
