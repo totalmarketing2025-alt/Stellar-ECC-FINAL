@@ -846,7 +846,7 @@ class MessageBubble extends StatelessWidget {
                   Icons.delete_outline,
                   color: StellarColors.danger,
                 ),
-                title: Text(stellarText(context, "Delete message")),
+                title: Text(stellarText(context, "Delete for me")),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   onDelete();
