@@ -27,7 +27,8 @@ void main() {
   test('Android CallStyle owns the two buttons on API 31+', () {
     expect(notification, contains('if (Build.VERSION.SDK_INT < 31) {'));
     expect(notification, contains('Notification.CallStyle.forIncomingCall('));
-    expect(notification, contains('"Reject", rejectPending'));
+    expect(notification, contains('context.getString(R.string.notification_reject), rejectPending'));
+    expect(notification, contains('context.getString(R.string.notification_answer), answerPending'));
   });
 
   test('PIN unlock restores matching live call before chats', () {
