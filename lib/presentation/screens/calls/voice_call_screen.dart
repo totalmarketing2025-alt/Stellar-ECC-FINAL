@@ -412,13 +412,13 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: StellarColors.bgElevated,
-        title: Text(stellarText(context, stellarText(context, "Safety Number"))),
+        title: Text(stellarText(context, "Safety Number")),
         content: const Text(
           'Compare this number with your contact in person or over a separate '
           'trusted channel to confirm no one is intercepting your conversation.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text(stellarText(context, stellarText(context, "Close")))),
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text(stellarText(context, "Close"))),
         ],
       ),
     );

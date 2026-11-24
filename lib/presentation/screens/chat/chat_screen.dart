@@ -81,7 +81,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         automaticallyImplyLeading: false,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          tooltip: stellarText(context, stellarText(context, "Back")),
+          tooltip: stellarText(context, "Back"),
           onPressed: () {
             if (context.canPop()) {
               context.pop();
@@ -125,7 +125,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           const _StellarConnectionIndicator(),
           IconButton(
             icon: const Icon(Icons.call_outlined),
-            tooltip: stellarText(context, stellarText(context, "Voice call")),
+            tooltip: stellarText(context, "Voice call"),
             onPressed: chat?.chatType == ChatType.direct
                 ? () => context.push('/call/voice/${widget.chatId}')
                 : chat?.chatType == ChatType.group
@@ -134,7 +134,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.videocam_outlined),
-            tooltip: stellarText(context, stellarText(context, "Video call")),
+            tooltip: stellarText(context, "Video call"),
             onPressed: chat?.chatType == ChatType.direct
                 ? () => context.push('/call/video/${widget.chatId}')
                 : chat?.chatType == ChatType.group
@@ -321,7 +321,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     if (chats.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(stellarText(context, stellarText(context, "No other chats available to forward to.")))),
+        SnackBar(content: Text(stellarText(context, "No other chats available to forward to."))),
       );
       return;
     }
@@ -337,7 +337,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           shrinkWrap: true,
           children: [
             const ListTile(
-              title: Text(stellarText(context, stellarText(context, "Forward to chat")), style: TextStyle(fontWeight: FontWeight.w600)),
+              title: Text(stellarText(context, "Forward to chat"), style: TextStyle(fontWeight: FontWeight.w600)),
             ),
             for (final chat in chats)
               ListTile(
@@ -347,7 +347,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   size: 38,
                 ),
                 title: Text(chat.displayName),
-                subtitle: Text(chat.chatType == ChatType.group ? stellarText(context, stellarText(context, "Group")) : stellarText(context, stellarText(context, "Direct chat"))),
+                subtitle: Text(chat.chatType == ChatType.group ? stellarText(context, "Group") : stellarText(context, "Direct chat")),
                 onTap: () => Navigator.pop(sheetContext, chat),
               ),
           ],
@@ -416,7 +416,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (fileLength > AttachmentPayload.maxBytes) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text('Attachment is too large. Maximum size is 8 MB.'),
             duration: Duration(seconds: 4),
           ),
@@ -474,7 +474,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (!hasPermission) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text(stellarText(context, stellarText(context, "Microphone permission is required.")))),
+            SnackBar(content: Text(stellarText(context, "Microphone permission is required."))),
           );
         }
         return;
@@ -500,7 +500,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         context: context,
         barrierDismissible: false,
         builder: (dialogContext) => AlertDialog(
-          title: Text(stellarText(context, stellarText(context, "Voice message"))),
+          title: Text(stellarText(context, "Voice message")),
           content: const Text(
             'Recording is in progress. Press Stop & Send when finished, '
             'or Cancel to discard the recording.',
@@ -508,12 +508,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text(stellarText(context, stellarText(context, "Cancel"))),
+              child: Text(stellarText(context, "Cancel")),
             ),
             FilledButton.icon(
               onPressed: () => Navigator.of(dialogContext).pop(true),
               icon: const Icon(Icons.stop),
-              label: Text(stellarText(context, stellarText(context, "Stop & Send"))),
+              label: Text(stellarText(context, "Stop & Send")),
             ),
           ],
         ),
@@ -537,7 +537,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (length > AttachmentPayload.maxBytes) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               content: Text('Voice message exceeds the 8 MB limit.'),
             ),
           );
@@ -670,7 +670,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final selected = await showModalBottomSheet<int>(
       context: context,
       backgroundColor: StellarColors.bgElevated,
-      builder: (_) => TtlPickerSheet(current: chat.defaultTtlSeconds, title: stellarText(context, stellarText(context, "Default disappearing timer"))),
+      builder: (_) => TtlPickerSheet(current: chat.defaultTtlSeconds, title: stellarText(context, "Default disappearing timer")),
     );
     if (selected != null) {
       await ref.read(chatRepositoryProvider).updateChatTtl(widget.chatId, selected);
@@ -684,7 +684,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       backgroundColor: StellarColors.bgElevated,
       builder: (_) => TtlPickerSheet(
         current: _perMessageTtlOverride >= 0 ? _perMessageTtlOverride : (chat?.defaultTtlSeconds ?? TtlPreset.oneHour),
-        title: stellarText(context, stellarText(context, "This message disappears after")),
+        title: stellarText(context, "This message disappears after"),
       ),
     );
     if (selected != null) setState(() => _perMessageTtlOverride = selected);
@@ -895,7 +895,7 @@ class _Composer extends StatelessWidget {
               onPressed: onAttach,
             ),
             IconButton(
-              tooltip: stellarText(context, stellarText(context, "Voice message")),
+              tooltip: stellarText(context, "Voice message"),
               icon: const Icon(Icons.mic_none_outlined, color: StellarColors.textSecondary),
               onPressed: onVoice,
             ),
@@ -904,7 +904,7 @@ class _Composer extends StatelessWidget {
                 controller: controller,
                 minLines: 1,
                 maxLines: 5,
-                decoration: const InputDecoration(hintText: stellarText(context, stellarText(context, "Message"))),
+                decoration: InputDecoration(hintText: stellarText(context, "Message")),
               ),
             ),
             const SizedBox(width: 4),

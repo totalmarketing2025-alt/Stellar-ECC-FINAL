@@ -164,7 +164,7 @@ class _ChooseNicknameScreenState
                 },
                 decoration: InputDecoration(
                   prefixText: '@',
-                  hintText: stellarText(context, stellarText(context, "nickname")),
+                  hintText: stellarText(context, "nickname"),
                   errorText: _error,
                   border: const OutlineInputBorder(),
                 ),
@@ -188,7 +188,7 @@ class _ChooseNicknameScreenState
                             color: Colors.white,
                           ),
                         )
-                      : Text(stellarText(context, stellarText(context, "Continue"))),
+                      : Text(stellarText(context, "Continue")),
                 ),
               ),
             ],

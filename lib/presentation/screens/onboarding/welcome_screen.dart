@@ -15,14 +15,13 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   final _controller = PageController();
   int _page = 0;
 
-  static const _cards = [
-    _ValueProp(icon: Icons.shield_outlined, title: stellarText(context, stellarText(context, "Private")), body: stellarText(context, stellarText(context, "No phone number required. No permanent servers holding your messages."))),
-    _ValueProp(icon: Icons.timer_outlined, title: stellarText(context, stellarText(context, "Ephemeral")), body: stellarText(context, stellarText(context, "Messages disappear automatically — nothing lingers after your chat."))),
-    _ValueProp(icon: Icons.flash_on_outlined, title: stellarText(context, stellarText(context, "Fast")), body: stellarText(context, stellarText(context, "A lightweight relay and modern encryption keep things quick and responsive."))),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final cards = <_ValueProp>[
+      _ValueProp(icon: Icons.shield_outlined, title: stellarText(context, "Private"), body: stellarText(context, "No phone number required. No permanent servers holding your messages.")),
+      _ValueProp(icon: Icons.timer_outlined, title: stellarText(context, "Ephemeral"), body: stellarText(context, "Messages disappear automatically — nothing lingers after your chat.")),
+      _ValueProp(icon: Icons.flash_on_outlined, title: stellarText(context, "Fast"), body: stellarText(context, "A lightweight relay and modern encryption keep things quick and responsive.")),
+    ];
     return Scaffold(
       body: Stack(
         fit: StackFit.expand,
@@ -41,14 +40,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               child: PageView.builder(
                 controller: _controller,
                 onPageChanged: (i) => setState(() => _page = i),
-                itemCount: _cards.length,
-                itemBuilder: (context, i) => _cards[i],
+                itemCount: cards.length,
+                itemBuilder: (context, i) => cards[i],
               ),
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: List.generate(
-                _cards.length,
+                cards.length,
                 (i) => AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   margin: const EdgeInsets.symmetric(horizontal: 4),
@@ -67,7 +66,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () => context.go('/onboarding/identity'),
-                  child: Text(stellarText(context, stellarText(context, "Get Started"))),
+                  child: Text(stellarText(context, "Get Started")),
                 ),
               ),
             ),

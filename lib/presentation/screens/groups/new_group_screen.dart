@@ -23,11 +23,11 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(stellarText(context, stellarText(context, "New Group"))),
+        title: Text(stellarText(context, "New Group")),
         actions: [
           TextButton(
             onPressed: _members.isEmpty || _nameController.text.trim().isEmpty ? null : _createGroup,
-            child: Text(stellarText(context, stellarText(context, "Create"))),
+            child: Text(stellarText(context, "Create")),
           ),
         ],
       ),
@@ -38,7 +38,7 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
           children: [
             TextField(
               controller: _nameController,
-              decoration: const InputDecoration(hintText: stellarText(context, stellarText(context, "Group name"))),
+              decoration: InputDecoration(hintText: stellarText(context, "Group name")),
               onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 16),
@@ -47,7 +47,7 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
                 Expanded(
                   child: TextField(
                     controller: _memberController,
-                    decoration: const InputDecoration(hintText: stellarText(context, stellarText(context, "Add @nickname"))),
+                    decoration: InputDecoration(hintText: stellarText(context, "Add @nickname")),
                     onSubmitted: (_) => _addMember(),
                   ),
                 ),

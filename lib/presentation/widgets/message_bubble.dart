@@ -53,7 +53,7 @@ class _AudioAttachmentPlayerState extends State<_AudioAttachmentPlayer> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(stellarText(context, stellarText(context, "Unable to play voice message")))),
+        SnackBar(content: Text(stellarText(context, "Unable to play voice message"))),
       );
     }
   }
@@ -83,7 +83,7 @@ class _AudioAttachmentPlayerState extends State<_AudioAttachmentPlayer> {
             children: [
               Icon(Icons.broken_image, size: 22),
               SizedBox(width: 6),
-              Text(stellarText(context, stellarText(context, "Audio unavailable"))),
+              Text(stellarText(context, "Audio unavailable")),
             ],
           );
         }
@@ -101,7 +101,7 @@ class _AudioAttachmentPlayerState extends State<_AudioAttachmentPlayer> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
-                  tooltip: playing ? stellarText(context, stellarText(context, "Pause voice message")) : stellarText(context, stellarText(context, "Play voice message")),
+                  tooltip: playing ? stellarText(context, "Pause voice message") : stellarText(context, "Play voice message"),
                   onPressed: () => _toggle(bytes, state),
                   icon: Icon(
                     playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
@@ -155,7 +155,7 @@ void _openImageFullscreen(BuildContext context, Uint8List bytes) {
               right: 12,
               child: SafeArea(
                 child: IconButton(
-                  tooltip: stellarText(context, stellarText(context, "Close image")),
+                  tooltip: stellarText(context, "Close image"),
                   onPressed: () => Navigator.of(dialogContext).pop(),
                   icon: const Icon(
                     Icons.close,
@@ -286,7 +286,7 @@ class _VideoAttachmentPlayerState extends State<_VideoAttachmentPlayer> {
       height: 135,
       child: Center(
         child: _failed
-            ? Text(stellarText(context, stellarText(context, "Unable to load video")))
+            ? Text(stellarText(context, "Unable to load video"))
             : const CircularProgressIndicator(strokeWidth: 2),
       ),
     );
@@ -459,7 +459,7 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
     final fileName = 'attachment_${widget.blobId}.$extension';
 
     await FilePicker.platform.saveFile(
-      dialogTitle: stellarText(context, stellarText(context, "Save attachment")),
+      dialogTitle: stellarText(context, "Save attachment"),
       fileName: fileName,
       bytes: bytes,
     );
@@ -467,7 +467,7 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
 
   Widget _saveButton(BuildContext context) {
     return IconButton(
-      tooltip: stellarText(context, stellarText(context, "Save attachment")),
+      tooltip: stellarText(context, "Save attachment"),
       icon: const Icon(Icons.download),
       onPressed: () async {
         try {
@@ -475,8 +475,8 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
         } catch (_) {
           if (!context.mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(stellarText(context, stellarText(context, "Unable to save attachment"))),
+            SnackBar(
+              content: Text(stellarText(context, "Unable to save attachment")),
             ),
           );
         }
@@ -598,7 +598,7 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
                         children: [
                           Icon(Icons.broken_image, size: 22),
                           SizedBox(width: 8),
-                          Text(stellarText(context, stellarText(context, "Attachment unavailable"))),
+                          Text(stellarText(context, "Attachment unavailable")),
                         ],
                       ),
                     ),
@@ -620,7 +620,7 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
             children: [
               Icon(Icons.broken_image, size: 22),
               SizedBox(width: 8),
-              Text(stellarText(context, stellarText(context, "Attachment unavailable"))),
+              Text(stellarText(context, "Attachment unavailable")),
             ],
           ),
         );
@@ -816,7 +816,7 @@ class MessageBubble extends StatelessWidget {
               const Divider(),
               ListTile(
                 leading: const Icon(Icons.forward, color: StellarColors.accentBlue),
-                title: Text(stellarText(context, stellarText(context, "Forward message"))),
+                title: Text(stellarText(context, "Forward message")),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   onForward();
@@ -827,7 +827,7 @@ class MessageBubble extends StatelessWidget {
                   Icons.delete_outline,
                   color: StellarColors.danger,
                 ),
-                title: Text(stellarText(context, stellarText(context, "Delete message"))),
+                title: Text(stellarText(context, "Delete message")),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   onDelete();

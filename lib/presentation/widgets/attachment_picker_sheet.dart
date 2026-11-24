@@ -17,7 +17,7 @@ class AttachmentPickerSheet extends StatelessWidget {
         children: [
           _AttachmentOption(
             icon: Icons.camera_alt_outlined,
-            label: stellarText(context, stellarText(context, "Camera")),
+            label: stellarText(context, "Camera"),
             color: StellarColors.accentBlue,
             onTap: () async {
               final picker = ImagePicker();
@@ -33,7 +33,7 @@ class AttachmentPickerSheet extends StatelessWidget {
           ),
           _AttachmentOption(
             icon: Icons.photo_outlined,
-            label: stellarText(context, stellarText(context, "Gallery")),
+            label: stellarText(context, "Gallery"),
             color: StellarColors.accentPurple,
             onTap: () async {
               final picker = ImagePicker();
@@ -43,7 +43,7 @@ class AttachmentPickerSheet extends StatelessWidget {
           ),
           _AttachmentOption(
             icon: Icons.insert_drive_file_outlined,
-            label: stellarText(context, stellarText(context, "File")),
+            label: stellarText(context, "File"),
             color: StellarColors.success,
             onTap: () async {
               final result = await FilePicker.platform.pickFiles();
@@ -52,7 +52,7 @@ class AttachmentPickerSheet extends StatelessWidget {
           ),
           _AttachmentOption(
             icon: Icons.timer_outlined,
-            label: stellarText(context, stellarText(context, "Message timer")),
+            label: stellarText(context, "Message timer"),
             color: StellarColors.accentPurple,
             onTap: () {
               Navigator.pop(context, 'ttl');

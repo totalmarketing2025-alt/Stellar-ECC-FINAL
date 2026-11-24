@@ -148,7 +148,7 @@ class _PinUnlockScreenState extends ConsumerState<PinUnlockScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _checking ? null : _unlock,
-                  child: Text(_checking ? stellarText(context, stellarText(context, "Checking...")) : stellarText(context, stellarText(context, "Unlock"))),
+                  child: Text(_checking ? stellarText(context, "Checking...") : stellarText(context, "Unlock")),
                 ),
               ),
               const Spacer(),

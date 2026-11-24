@@ -67,14 +67,14 @@ class RecoverySetupScreen extends ConsumerWidget {
                 child: OutlinedButton(
                   onPressed: () {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
+                      SnackBar(
                         content: Text(
                           'Recovery setup will be available in the next module.',
                         ),
                       ),
                     );
                   },
-                  child: Text(stellarText(context, stellarText(context, "Set up recovery"))),
+                  child: Text(stellarText(context, "Set up recovery")),
                 ),
               ),
               const SizedBox(height: 12),
@@ -84,7 +84,7 @@ class RecoverySetupScreen extends ConsumerWidget {
                   onPressed: () {
                     context.go('/onboarding/app-lock');
                   },
-                  child: Text(stellarText(context, stellarText(context, "Skip for now"))),
+                  child: Text(stellarText(context, "Skip for now")),
                 ),
               ),
             ],

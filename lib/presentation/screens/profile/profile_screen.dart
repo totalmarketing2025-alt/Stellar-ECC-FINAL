@@ -87,7 +87,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         context: context,
         builder: (dialogContext) => AlertDialog(
           backgroundColor: StellarColors.bgElevated,
-          title: Text(stellarText(context, stellarText(context, "Use this profile photo?"))),
+          title: Text(stellarText(context, "Use this profile photo?")),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -116,11 +116,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
-              child: Text(stellarText(context, stellarText(context, "Cancel"))),
+              child: Text(stellarText(context, "Cancel")),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(dialogContext, true),
-              child: Text(stellarText(context, stellarText(context, "Save photo"))),
+              child: Text(stellarText(context, "Save photo")),
             ),
           ],
         ),
@@ -193,7 +193,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: StellarColors.bgElevated,
-        title: Text(stellarText(context, stellarText(context, "Remove profile photo?"))),
+        title: Text(stellarText(context, "Remove profile photo?")),
         content: const Text(
           'Your local photo will be removed. For your own profile, '
           'the directory copy will also be deleted.',
@@ -201,11 +201,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(stellarText(context, stellarText(context, "Cancel"))),
+            child: Text(stellarText(context, "Cancel")),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(stellarText(context, stellarText(context, "Remove"))),
+            child: Text(stellarText(context, "Remove")),
           ),
         ],
       ),
@@ -335,7 +335,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(stellarText(context, stellarText(context, "Why are you reporting this profile?"))),
+                Text(stellarText(context, "Why are you reporting this profile?")),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   value: selectedReason,
@@ -357,9 +357,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   controller: descriptionController,
                   maxLength: 2000,
                   maxLines: 4,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Additional details (optional)',
-                    hintText: stellarText(context, stellarText(context, "Describe what happened")),
+                    hintText: stellarText(context, "Describe what happened"),
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -373,11 +373,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
-              child: Text(stellarText(context, stellarText(context, "Cancel"))),
+              child: Text(stellarText(context, "Cancel")),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(dialogContext, true),
-              child: Text(stellarText(context, stellarText(context, "Submit report"))),
+              child: Text(stellarText(context, "Submit report")),
             ),
           ],
         ),
@@ -418,7 +418,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isSelf ? stellarText(context, stellarText(context, "Your Profile")) : stellarText(context, stellarText(context, "Profile"))),
+        title: Text(isSelf ? stellarText(context, "Your Profile") : stellarText(context, "Profile")),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -477,7 +477,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         color: StellarColors.danger,
                       ),
                       label: const Text(
-                        stellarText(context, stellarText(context, "Remove")),
+                        stellarText(context, "Remove"),
                         style: TextStyle(color: StellarColors.danger),
                       ),
                     ),
@@ -529,7 +529,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 Icons.qr_code,
                 color: StellarColors.accentBlue,
               ),
-              title: Text(stellarText(context, stellarText(context, "Safety number / QR code"))),
+              title: Text(stellarText(context, "Safety number / QR code")),
               onTap: () {},
             ),
             ListTile(
@@ -549,7 +549,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 Icons.verified_user_outlined,
                 color: StellarColors.accentBlue,
               ),
-              title: Text(stellarText(context, stellarText(context, "Verify safety number"))),
+              title: Text(stellarText(context, "Verify safety number")),
               subtitle: const Text(
                 'Compare fingerprints to confirm no one is intercepting this chat',
               ),
@@ -560,14 +560,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 Icons.timer_outlined,
                 color: StellarColors.accentPurple,
               ),
-              title: Text(stellarText(context, stellarText(context, "Chat disappearing timer"))),
+              title: Text(stellarText(context, "Chat disappearing timer")),
               onTap: () async {
                 await showModalBottomSheet<int>(
                   context: context,
                   backgroundColor: StellarColors.bgElevated,
                   builder: (_) => TtlPickerSheet(
                     current: TtlPreset.oneHour,
-                    title: stellarText(context, stellarText(context, "Disappearing timer")),
+                    title: stellarText(context, "Disappearing timer"),
                   ),
                 );
               },
@@ -582,7 +582,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 'Report',
                 style: TextStyle(color: StellarColors.danger),
               ),
-              subtitle: Text(stellarText(context, stellarText(context, "Report this profile to Stellar Moderator"))),
+              subtitle: Text(stellarText(context, "Report this profile to Stellar Moderator")),
               onTap: _showReportDialog,
             ),
           ],

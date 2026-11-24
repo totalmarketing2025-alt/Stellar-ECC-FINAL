@@ -290,7 +290,7 @@ class _ModerationRoomScreenState
                     controller: _secretController,
                     obscureText: true,
                     enabled: !_loading,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: "Admin secret",
                       border: OutlineInputBorder(),
                     ),
