@@ -610,8 +610,9 @@ class GroupCallCoordinator {
       case 'group-reject':
       case 'group-leave':
         if (_directUpgradeRoomId == roomId) {
-          // A failed upgrade must leave the original 1:1 call and capture intact.
-          await _closeRoom(roomId);
+          // A failed upgrade must leave the original 1:1 call intact and
+          // tell every other invitee to leave the temporary mesh.
+          await leaveRoom();
           return;
         }
         final joined = {..._room!.joined}..remove(remote);
