@@ -36,6 +36,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _searchController = TextEditingController();
   bool _searchMode = false;
   Timer? _typingStopTimer;
+  Timer? _typingHeartbeatTimer;
   bool _typingActive = false;
   Timer? _refreshTimer;
   Message? _replyingTo;
@@ -68,6 +69,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void dispose() {
     _refreshTimer?.cancel();
     _typingStopTimer?.cancel();
+    _typingHeartbeatTimer?.cancel();
     if (_typingActive) unawaited(ref.read(chatRepositoryProvider).sendTypingState(widget.chatId, false));
     _searchController.dispose();
     _composerController.dispose();
@@ -675,15 +677,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (value.trim().isEmpty) {
       if (_typingActive) unawaited(ref.read(chatRepositoryProvider).sendTypingState(widget.chatId, false));
       _typingActive = false;
+      _typingHeartbeatTimer?.cancel();
       return;
     }
     if (!_typingActive) {
       _typingActive = true;
       unawaited(ref.read(chatRepositoryProvider).sendTypingState(widget.chatId, true));
+      _typingHeartbeatTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+        if (_typingActive) unawaited(ref.read(chatRepositoryProvider).sendTypingState(widget.chatId, true));
+      });
     }
     _typingStopTimer = Timer(const Duration(milliseconds: 1600), () {
       if (!_typingActive) return;
       _typingActive = false;
+      _typingHeartbeatTimer?.cancel();
       unawaited(ref.read(chatRepositoryProvider).sendTypingState(widget.chatId, false));
     });
   }
@@ -733,7 +740,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _handleSend() async {
-    if (_typingActive) { _typingActive = false; _typingStopTimer?.cancel(); unawaited(ref.read(chatRepositoryProvider).sendTypingState(widget.chatId, false)); }
+    if (_typingActive) { _typingActive = false; _typingStopTimer?.cancel(); _typingHeartbeatTimer?.cancel(); unawaited(ref.read(chatRepositoryProvider).sendTypingState(widget.chatId, false)); }
     final text = _composerController.text.trim();
     if (text.isEmpty) return;
 
