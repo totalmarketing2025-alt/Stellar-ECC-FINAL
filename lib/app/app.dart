@@ -18,6 +18,8 @@ import '../core/calls/group_call_coordinator.dart';
 import '../core/calls/call_platform_bridge.dart';
 import '../domain/models/call_session.dart';
 import '../domain/models/group_call_room.dart';
+import '../core/sharing/share_intent_bridge.dart';
+import '../core/sharing/shared_content_item.dart';
 
 class StellarEccApp extends ConsumerStatefulWidget {
   const StellarEccApp({super.key});
@@ -35,6 +37,9 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
   bool _pendingNativeActionScheduled = false;
   StreamSubscription<CallSession?>? _callSessionSubscription;
   StreamSubscription<GroupCallRoom?>? _groupCallSubscription;
+  StreamSubscription<List<SharedContentItem>>? _sharedContentSubscription;
+  List<SharedContentItem>? _pendingSharedContent;
+  bool _sharedContentNavigationScheduled = false;
   final Set<String> _incomingNavigationPendingCallIds = <String>{};
 
   static const MethodChannel _wantedModeNavigationChannel =
@@ -46,6 +51,9 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _sharedContentSubscription =
+        ShareIntentBridge.instance.sharedContent.listen(_onSharedContent);
+    unawaited(ShareIntentBridge.instance.initialize());
     _guardAccountTimer = Timer.periodic(const Duration(minutes: 2), (_) {
       unawaited(_checkGuardAccountRevocation());
     });
@@ -78,7 +86,29 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_checkGuardAccountRevocation());
+      _scheduleSharedContentNavigation();
     }
+  }
+
+  void _onSharedContent(List<SharedContentItem> items) {
+    if (items.isEmpty) return;
+    _pendingSharedContent = [...?_pendingSharedContent, ...items];
+    _scheduleSharedContentNavigation();
+  }
+
+  void _scheduleSharedContentNavigation() {
+    if (_pendingSharedContent == null || _sharedContentNavigationScheduled) {
+      return;
+    }
+    _sharedContentNavigationScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _sharedContentNavigationScheduled = false;
+      if (!mounted || !ref.read(isUnlockedProvider)) return;
+      final items = _pendingSharedContent;
+      if (items == null || items.isEmpty) return;
+      _pendingSharedContent = null;
+      ref.read(appRouterProvider).go('/share', extra: items);
+    });
   }
 
   Future<void> _checkGuardAccountRevocation() async {
@@ -325,6 +355,7 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
     _callActionSubscription?.cancel();
     _callSessionSubscription?.cancel();
     _groupCallSubscription?.cancel();
+    _sharedContentSubscription?.cancel();
     super.dispose();
   }
 
@@ -354,6 +385,7 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
             _scheduleGroupInvitationNavigation(groupRoom!);
           }
           unawaited(_consumePendingWantedSecurityNavigation());
+          _scheduleSharedContentNavigation();
         });
       }
     });
