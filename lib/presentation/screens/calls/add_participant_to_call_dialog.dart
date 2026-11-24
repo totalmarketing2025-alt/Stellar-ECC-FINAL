@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../../l10n/stellar_translations.dart';
 import '../../../domain/models/call_session.dart';
 import '../../state/app_providers.dart';
 
@@ -123,7 +124,7 @@ Future<void> addParticipantToActiveCall({
   } catch (error) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Could not add participant: $error')),
+      SnackBar(content: Text('${stellarText(context, 'Could not add participant:')} $error')),
     );
   }
 }

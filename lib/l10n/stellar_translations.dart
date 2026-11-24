@@ -241,6 +241,7 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "Could not switch camera:": "Промената на камерата не успеа:",
     "Could not update camera:": "Камерата не може да се ажурира:",
     "Connecting…": "Се поврзува…",
+    "Could not add participant:": "Не може да се додаде учесник:",
     "Disabled": "Оневозможено"
   },
   "sq": {
@@ -482,6 +483,7 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "Could not switch camera:": "Ndërrimi i kamerës dështoi:",
     "Could not update camera:": "Kamera nuk mund të përditësohej:",
     "Connecting…": "Po lidhet…",
+    "Could not add participant:": "Nuk mund të shtohet pjesëmarrësi:",
     "Disabled": "Çaktivizuar"
   },
   "ru": {
@@ -723,6 +725,7 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "Could not switch camera:": "Не удалось переключить камеру:",
     "Could not update camera:": "Не удалось обновить камеру:",
     "Connecting…": "Подключение…",
+    "Could not add participant:": "Не удалось добавить участника:",
     "Disabled": "Выключено"
   }
 };
