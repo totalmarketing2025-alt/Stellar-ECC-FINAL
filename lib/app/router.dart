@@ -22,6 +22,8 @@ import '../presentation/screens/groups/new_group_screen.dart';
 import '../presentation/screens/security/security_center_screen.dart';
 import '../presentation/screens/moderation/moderation_room_screen.dart';
 import '../presentation/screens/moderation/broadcast_inbox_screen.dart';
+import '../presentation/screens/share/share_target_screen.dart';
+import '../core/sharing/shared_content_item.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final router = GoRouter(
@@ -92,6 +94,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/onboarding/app-lock', builder: (c, s) => const AppLockSetupScreen()),
       GoRoute(path: '/unlock', builder: (c, s) => const PinUnlockScreen()),
       GoRoute(path: '/chats', builder: (c, s) => const ChatListScreen()),
+      GoRoute(
+        path: '/share',
+        builder: (c, s) => ShareTargetScreen(
+          items: s.extra is List<SharedContentItem>
+              ? s.extra as List<SharedContentItem>
+              : const <SharedContentItem>[],
+        ),
+      ),
       GoRoute(
         path: '/chat/:chatId',
         builder: (c, s) => ChatScreen(chatId: s.pathParameters['chatId']!),
