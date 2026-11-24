@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 const Map<String, Map<String, String>> _stellarTranslations = {
   "en": {},
   "mk": {
+    "Delete for me": "Избриши за мене",
     "Search messages": "Пребарај пораки",
     "No matching messages": "Нема пораки што одговараат",
     "Edit message": "Уреди порака",
@@ -324,6 +325,7 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "Disabled": "Оневозможено"
   },
   "sq": {
+    "Delete for me": "Fshije për mua",
     "Search messages": "Kërko mesazhe",
     "No matching messages": "Nuk u gjetën mesazhe",
     "Edit message": "Ndrysho mesazhin",
@@ -645,6 +647,7 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "Disabled": "Çaktivizuar"
   },
   "ru": {
+    "Delete for me": "Удалить у меня",
     "Search messages": "Поиск сообщений",
     "No matching messages": "Совпадений не найдено",
     "Edit message": "Изменить сообщение",
