@@ -178,7 +178,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('reviewed by a moderator'), findsOneWidget);
     expect(fake.submissions, 0);
-    await tester.tap(find.text('Submit theft report'));
+    await tester.tap(find.text('Submit for review'));
     await tester.pumpAndSettle();
     expect(fake.latestReason, 'theft');
     expect(fake.submissions, 1);
