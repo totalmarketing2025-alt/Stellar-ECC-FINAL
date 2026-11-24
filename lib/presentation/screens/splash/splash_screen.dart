@@ -31,9 +31,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   }
 
   Future<void> _resolveDestination() async {
-    final identityStore = ref.read(identityKeyStoreProvider);
-    await identityStore.initializeIfAbsent();
-
     await ref.read(localNicknameProvider.notifier).load();
     final nickname = ref.read(localNicknameProvider);
 
@@ -45,6 +42,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       context.go('/onboarding/welcome');
       return;
     }
+
+    final identityStore = ref.read(identityKeyStoreProvider);
+    await identityStore.initializeIfAbsent();
 
     final keyStore = ref.read(platformKeyStoreProvider);
     final hasPin = await keyStore.hasPin();

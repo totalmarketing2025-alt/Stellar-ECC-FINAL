@@ -238,6 +238,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             title: Text(stellarText(context, "Cloud backups")),
             subtitle: Text(stellarText(context, "Off — app data is excluded from device backups by design")),
           ),
+          ListTile(
+            leading: const Icon(Icons.key_outlined, color: StellarColors.accentPurple),
+            title: Text(stellarText(context, 'Account and Story recovery')),
+            subtitle: Text(stellarText(context, 'Create or replace an encrypted recovery file')),
+            trailing: const Icon(Icons.chevron_right, color: StellarColors.textSecondary),
+            onTap: () => context.push('/settings/recovery'),
+          ),
 
           _SectionHeader(l10n.chatsSection),
           ListTile(

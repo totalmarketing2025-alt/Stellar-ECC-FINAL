@@ -64,9 +64,21 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               padding: const EdgeInsets.all(24),
               child: SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => context.go('/onboarding/identity'),
-                  child: Text(stellarText(context, "Get Started")),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => context.go('/onboarding/identity'),
+                        child: Text(stellarText(context, "Get Started")),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => context.go('/onboarding/restore'),
+                      child: Text(stellarText(context, 'Restore account')),
+                    ),
+                  ],
                 ),
               ),
             ),

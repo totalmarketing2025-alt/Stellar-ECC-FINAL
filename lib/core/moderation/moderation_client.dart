@@ -621,6 +621,29 @@ class ModerationClient {
     }
   }
 
+  Future<void> setStoryRecoveryEnvelope({
+    required String nickname,
+    required String storyId,
+    required String envelope,
+  }) async {
+    await _ensureAuthenticated(nickname);
+    final request = await _client.openUrl(
+      'PUT',
+      Uri.parse('$baseUrl/v1/stories/${Uri.encodeComponent(storyId)}/recovery'),
+    );
+    request.headers.contentType = ContentType.json;
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_sessionToken');
+    request.write(jsonEncode({'ownerRecoveryEnvelope': envelope}));
+    final response = await request.close().timeout(const Duration(seconds: 15));
+    final body = await utf8.decoder.bind(response).join();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ModerationException(
+        body.isEmpty ? 'Story recovery update failed' : body,
+        response.statusCode,
+      );
+    }
+  }
+
   Future<void> setWantedMode({
     required bool enabled,
     required String nickname,

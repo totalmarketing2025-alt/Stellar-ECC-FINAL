@@ -73,6 +73,9 @@ function createHarness() {
       if (/^ALTER TABLE moderation_messages /.test(normalized)) {
         throw new Error("duplicate column name: attachment_mime_type");
       }
+      if (/^ALTER TABLE stellar_stories /.test(normalized)) {
+        throw new Error("duplicate column name: owner_recovery_envelope");
+      }
 
       if (/^SELECT broadcast_id FROM moderation_broadcasts$/i.test(normalized)) {
         const rows = [...broadcasts.values()].map((row) => ({

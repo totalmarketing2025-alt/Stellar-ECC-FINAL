@@ -104,6 +104,9 @@ function createHarness() {
       if (/^ALTER TABLE moderation_messages /i.test(normalized)) {
         throw new Error("duplicate column name: attachment_mime_type");
       }
+      if (/^ALTER TABLE stellar_stories /i.test(normalized)) {
+        throw new Error("duplicate column name: owner_recovery_envelope");
+      }
 
       if (/^SELECT message_id, sender, recipient, chat_id, created_at,/i.test(normalized)) {
         const [cutoff, nickname1, nickname2] = params;

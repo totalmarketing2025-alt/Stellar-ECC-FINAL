@@ -10,6 +10,7 @@ import '../crypto/session_manager.dart';
 import '../moderation/moderation_client.dart';
 import '../network/directory_client.dart';
 import '../security/platform_key_store.dart';
+import '../security/account_recovery.dart';
 
 class StellarStory {
   const StellarStory({
@@ -23,6 +24,7 @@ class StellarStory {
     required this.reactionCounts,
     required this.videoExtension,
     this.wrappedKey,
+    this.ownerRecoveryEnvelope,
   });
 
   final String id;
@@ -35,6 +37,7 @@ class StellarStory {
   final Map<String, int> reactionCounts;
   final String videoExtension;
   final String? wrappedKey;
+  final String? ownerRecoveryEnvelope;
 
   factory StellarStory.fromJson(Map<String, dynamic> json) {
     final counts = <String, int>{};
@@ -57,6 +60,7 @@ class StellarStory {
       videoExtension: (json['video_extension'] as String?) ?? 'mp4',
       reactionCounts: counts,
       wrappedKey: json['wrapped_key'] as String?,
+      ownerRecoveryEnvelope: json['owner_recovery_envelope'] as String?,
     );
   }
 }
@@ -151,6 +155,14 @@ class StoriesService {
           }),
         });
       }
+      final recoveryKey = await keyStore.readSecret(accountRecoveryKeyAlias);
+      final ownerRecoveryEnvelope = recoveryKey == null ? null :
+          await AccountRecoveryService.wrapStoryKey(
+            owner: owner,
+            storyId: storyId,
+            storyKey: keyBytes,
+            recoveryKey: recoveryKey,
+          );
       await moderationClient.createStory(
         nickname: owner,
         encryptedMedia: encryptedMedia,
@@ -161,6 +173,7 @@ class StoriesService {
           'videoExtension': mediaType == 'video' ? videoExtension : '',
           'mediaSize': encryptedMedia.length,
           'audience': wrappedKeys,
+          'ownerRecoveryEnvelope': ownerRecoveryEnvelope,
         },
       );
     } catch (_) {
@@ -187,7 +200,19 @@ class StoriesService {
     final ownerStory = story.owner.toLowerCase() == nickname.trim().toLowerCase();
     Uint8List? keyBytes = await keyStore.readSecret(_keyAlias(story.id));
     if (keyBytes == null && ownerStory) {
-      throw StateError('The key for this Story is not available on this device.');
+      final recoveryKey = await keyStore.readSecret(accountRecoveryKeyAlias);
+      final envelope = story.ownerRecoveryEnvelope;
+      if (recoveryKey == null || envelope == null) {
+        throw StateError('This Story has no recovery copy. Restore the account with its recovery file.');
+      }
+      keyBytes = await AccountRecoveryService.unwrapStoryKey(
+        owner: story.owner,
+        storyId: story.id,
+        envelope: envelope,
+        recoveryKey: recoveryKey,
+      );
+      await keyStore.writeSecret(_keyAlias(story.id), keyBytes);
+      await keyStore.writeSecretText(_expiryAlias(story.id), story.expiresAt.toString());
     }
     if (keyBytes == null) {
       final wrapped = story.wrappedKey;
@@ -240,6 +265,35 @@ class StoriesService {
 
   Future<void> react({required String nickname, required StellarStory story, required String emoji}) =>
       moderationClient.reactToStory(nickname: nickname, storyId: story.id, emoji: emoji);
+
+  Future<void> backfillOwnerRecovery({
+    required String nickname,
+    required Uint8List recoveryKey,
+  }) async {
+    final owner = nickname.trim().toLowerCase();
+    if (recoveryKey.length != 32) {
+      throw ArgumentError('Story recovery key must be 256 bits.');
+    }
+    final stories = await load(nickname: owner);
+    for (final story in stories) {
+      if (story.owner.toLowerCase() != owner) continue;
+      final storyKey = await keyStore.readSecret(_keyAlias(story.id));
+      if (storyKey == null) {
+        throw StateError('A local key is missing for Story ${story.id}.');
+      }
+      final envelope = await AccountRecoveryService.wrapStoryKey(
+        owner: owner,
+        storyId: story.id,
+        storyKey: storyKey,
+        recoveryKey: recoveryKey,
+      );
+      await moderationClient.setStoryRecoveryEnvelope(
+        nickname: owner,
+        storyId: story.id,
+        envelope: envelope,
+      );
+    }
+  }
 
   Future<void> delete({required String nickname, required String storyId}) async {
     await moderationClient.deleteStory(nickname: nickname, storyId: storyId);

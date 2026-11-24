@@ -34,15 +34,16 @@ function createHarness() {
       const sqlText = statement.replace(/\s+/g, " ").trim();
       if (sqlText.startsWith("CREATE TABLE IF NOT EXISTS ")) return { toArray: () => [], one: () => null };
       if (sqlText.startsWith("ALTER TABLE moderation_messages")) throw new Error("duplicate column name: attachment_mime_type");
+      if (sqlText.startsWith("ALTER TABLE stellar_stories")) throw new Error("duplicate column name: owner_recovery_envelope");
       if (sqlText.startsWith("SELECT COUNT(*) AS count FROM stellar_stories")) {
         const count = [...stories.values()].filter((row) => row.owner === params[0] && row.expires_at > params[1]).length;
         return { one: () => ({ count }), toArray: () => [{ count }] };
       }
       if (sqlText.startsWith("INSERT INTO stellar_stories")) {
-        const [id, owner, type, extension, duration, created, expires, size] = params;
+        const [id, owner, type, extension, duration, created, expires, size, recoveryEnvelope] = params;
         stories.set(id, { story_id: id, owner, media_type: type, video_extension: extension,
           duration_ms: duration, created_at: created, expires_at: expires, media_size: size,
-          media_uploaded: 0 });
+          media_uploaded: 0, owner_recovery_envelope: recoveryEnvelope });
         return { one: () => null, toArray: () => [] };
       }
       if (sqlText.startsWith("INSERT INTO stellar_story_audience")) {
@@ -60,7 +61,9 @@ function createHarness() {
         const rows = [...stories.values()].filter((row) => row.expires_at > now &&
           (row.owner === nickname || audiences.has(`${row.story_id}:${nickname}`)))
           .sort((a, b) => b.created_at - a.created_at)
-          .map((row) => ({ ...row, wrapped_key: audiences.get(`${row.story_id}:${nickname}`)?.wrapped_key ?? null }));
+          .map((row) => ({ ...row,
+            owner_recovery_envelope: row.owner === nickname ? row.owner_recovery_envelope : undefined,
+            wrapped_key: audiences.get(`${row.story_id}:${nickname}`)?.wrapped_key ?? null }));
         return { toArray: () => rows, one: () => rows[0] ?? null };
       }
       if (sqlText.startsWith("SELECT emoji, COUNT(*) AS count FROM stellar_story_reactions")) {
@@ -75,6 +78,18 @@ function createHarness() {
         const row = stories.get(id);
         const result = row?.owner === owner && row.expires_at > now ? { media_size: row.media_size } : null;
         return { one: () => result, toArray: () => result ? [result] : [] };
+      }
+      if (sqlText.startsWith("SELECT story_id FROM stellar_stories WHERE story_id = ? AND owner = ? AND expires_at > ?")) {
+        const [id, owner, now] = params;
+        const row = stories.get(id);
+        const allowed = row?.owner === owner && row.expires_at > now && row.media_uploaded === 1;
+        return { one: () => allowed ? { story_id: id } : null, toArray: () => allowed ? [{ story_id: id }] : [] };
+      }
+      if (sqlText.startsWith("UPDATE stellar_stories SET owner_recovery_envelope = ?")) {
+        const [envelope, id, owner] = params;
+        const row = stories.get(id);
+        if (row?.owner === owner) row.owner_recovery_envelope = envelope;
+        return { one: () => null, toArray: () => [] };
       }
       if (sqlText.startsWith("SELECT owner FROM stellar_stories")) {
         const [id, now] = params;
@@ -192,6 +207,16 @@ test("Stories enforce the 15-second limit and reject invalid key envelopes", asy
   assert.equal(invalidKey.status, 400);
 });
 
+test("Stories reject malformed owner recovery envelopes", async () => {
+  const { room, stories } = createHarness();
+  const response = await room.fetch(request("/v1/stories", {
+    method: "POST", token: "alice-token",
+    body: JSON.stringify(metadata({ ownerRecoveryEnvelope: JSON.stringify({ version: 1, nonce: "bad" }) })),
+  }));
+  assert.equal(response.status, 400);
+  assert.equal(stories.size, 0);
+});
+
 test("Stories require authentication and reject media size mismatches", async () => {
   const { room, stories } = createHarness();
   const unauthorized = await room.fetch(request("/v1/stories", {
@@ -244,6 +269,54 @@ test("Stories expose encrypted media only to audience, accept reactions, and ret
   assert.deepEqual(viewerPayload.stories[0].reaction_counts, []);
   assert.equal("viewers" in viewerPayload.stories[0], false);
   assert.equal(stories.size, 1);
+});
+
+test("only the author receives the encrypted Story recovery envelope", async () => {
+  const envelope = JSON.stringify({
+    version: 1,
+    nonce: "AAAAAAAAAAAAAAAA",
+    ciphertext: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    mac: "AAAAAAAAAAAAAAAAAAAAAA==",
+  });
+  const { room } = createHarness();
+  await room.fetch(request("/v1/stories", {
+    method: "POST", token: "alice-token",
+    body: JSON.stringify(metadata({ ownerRecoveryEnvelope: envelope })),
+  }));
+  await room.fetch(request(`/v1/stories/${storyId}/media`, {
+    method: "POST", token: "alice-token", body: new Uint8Array([1, 2, 3, 4]),
+  }));
+  const owner = await (await room.fetch(request("/v1/stories", { token: "alice-token" }))).json();
+  const recipient = await (await room.fetch(request("/v1/stories", { token: "bob-token" }))).json();
+  assert.equal(owner.stories[0].owner_recovery_envelope, envelope);
+  assert.equal("owner_recovery_envelope" in recipient.stories[0], false);
+});
+
+test("authors can add Story recovery envelopes later, but other users cannot", async () => {
+  const envelope = JSON.stringify({
+    version: 1,
+    nonce: "AAAAAAAAAAAAAAAA",
+    ciphertext: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    mac: "AAAAAAAAAAAAAAAAAAAAAA==",
+  });
+  const { room } = createHarness();
+  await room.fetch(request("/v1/stories", {
+    method: "POST", token: "alice-token", body: JSON.stringify(metadata()),
+  }));
+  await room.fetch(request(`/v1/stories/${storyId}/media`, {
+    method: "POST", token: "alice-token", body: new Uint8Array([1, 2, 3, 4]),
+  }));
+
+  const denied = await room.fetch(request(`/v1/stories/${storyId}/recovery`, {
+    method: "PUT", token: "bob-token", body: JSON.stringify({ ownerRecoveryEnvelope: envelope }),
+  }));
+  assert.equal(denied.status, 404);
+  const saved = await room.fetch(request(`/v1/stories/${storyId}/recovery`, {
+    method: "PUT", token: "alice-token", body: JSON.stringify({ ownerRecoveryEnvelope: envelope }),
+  }));
+  assert.equal(saved.status, 200);
+  const listed = await room.fetch(request("/v1/stories", { token: "alice-token" }));
+  assert.equal((await listed.json()).stories[0].owner_recovery_envelope, envelope);
 });
 
 test("Only the author can delete a Story and deletion removes media and metadata", async () => {

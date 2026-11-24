@@ -87,6 +87,27 @@ class StellarIdentityKeyStore implements IdentityKeyStore {
     return _bytesToInt(raw);
   }
 
+  Future<Uint8List> exportIdentityKeyPair() async =>
+      (await getIdentityKeyPair()).serialize();
+
+  /// Installs a passphrase-authenticated recovery identity before publishing
+  /// refreshed prekeys. Existing directory identities must match this key.
+  Future<void> restoreRecoveryIdentity({
+    required Uint8List serializedIdentity,
+    required int registrationId,
+  }) async {
+    if (registrationId < 1 || registrationId > 0x7fffffff) {
+      throw ArgumentError.value(registrationId, 'registrationId');
+    }
+    final identity = IdentityKeyPair.fromSerialized(serializedIdentity);
+    await _keyStore.writeSecret(_identityKeyAlias, serializedIdentity);
+    await _keyStore.writeSecret(
+      _registrationIdAlias,
+      Uint8List.fromList(_intTo4Bytes(registrationId)),
+    );
+    _cachedIdentity = identity;
+  }
+
   @override
   Future<bool> saveIdentity(
     SignalProtocolAddress address,
