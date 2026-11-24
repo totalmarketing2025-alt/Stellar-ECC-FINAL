@@ -706,7 +706,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _typingActive = true;
       _sendTypingSignal(true);
       _typingHeartbeatTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-        if (_typingActive) unawaited(ref.read(chatRepositoryProvider).sendTypingState(widget.chatId, true));
+        if (_typingActive) _sendTypingSignal(true);
       });
     }
     _typingStopTimer = Timer(const Duration(milliseconds: 1600), () {
@@ -762,7 +762,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _handleSend() async {
-    if (_typingActive) { _typingActive = false; _typingStopTimer?.cancel(); _typingHeartbeatTimer?.cancel(); unawaited(ref.read(chatRepositoryProvider).sendTypingState(widget.chatId, false)); }
+    if (_typingActive) { _typingActive = false; _typingStopTimer?.cancel(); _typingHeartbeatTimer?.cancel(); _sendTypingSignal(false); }
     final text = _composerController.text.trim();
     if (text.isEmpty) return;
 
