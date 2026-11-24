@@ -19,6 +19,8 @@ jobs:
           flutter-version: '3.27.4'
           channel: stable
       - run: flutter pub get
+      - name: Generate localizations
+        run: flutter gen-l10n
       - name: Flutter analyzer
         run: flutter analyze --no-fatal-infos
       - name: Automated tests
