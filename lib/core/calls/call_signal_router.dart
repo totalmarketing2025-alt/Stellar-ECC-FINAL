@@ -48,6 +48,7 @@ class CallSignalRouter {
       'end',
       'busy',
       'media-state',
+      'group-upgrade-complete',
     };
 
     if (type is! String ||
