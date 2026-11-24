@@ -853,24 +853,22 @@ class CallService {
     await end();
   }
 
-  Future<void> endForGroupUpgrade({
+  Future<bool> signalGroupUpgradeReady({
     required String remoteNickname,
     required String groupRoomId,
   }) async {
     final callId = _callId;
-    if (callId == null || callId.isEmpty || remoteNickname.isEmpty) {
-      await end(preserveMedia: true);
-      return;
-    }
+    if (callId == null || callId.isEmpty || remoteNickname.isEmpty) return false;
     try {
       await _sendSignal(remoteNickname, {
         'type': 'group-upgrade-complete',
         'groupRoomId': groupRoomId,
       }).timeout(const Duration(seconds: 3));
+      return true;
     } catch (error) {
       print('CALL_GROUP_UPGRADE_SIGNAL_FAILED: $error');
+      return false;
     }
-    await end(expectedCallId: callId, preserveMedia: true);
   }
 
   Future<void> end({
