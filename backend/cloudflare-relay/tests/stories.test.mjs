@@ -86,6 +86,17 @@ function createHarness() {
         const row = audiences.get(`${params[0]}:${params[1]}`);
         return { one: () => row ? { story_id: row.story_id } : null, toArray: () => row ? [row] : [] };
       }
+      if (sqlText.startsWith("SELECT story_id FROM stellar_stories WHERE expires_at <= ?")) {
+        const rows = [...stories.values()].filter((row) => row.expires_at <= params[0])
+          .map((row) => ({ story_id: row.story_id }));
+        return { toArray: () => rows, one: () => rows[0] ?? null };
+      }
+      if (sqlText.startsWith("SELECT message_id FROM moderation_messages WHERE expires_at <= ?")) {
+        return { toArray: () => [], one: () => null };
+      }
+      if (sqlText.startsWith("DELETE FROM moderation_messages WHERE expires_at <= ?")) {
+        return { one: () => null, toArray: () => [] };
+      }
       if (sqlText.startsWith("INSERT INTO stellar_story_reactions")) {
         const [id, nickname, emoji, updated] = params;
         reactions.set(`${id}:${nickname}`, { story_id: id, nickname, emoji, updated_at: updated });
@@ -102,6 +113,22 @@ function createHarness() {
       }
       if (sqlText.startsWith("DELETE FROM stellar_story_reactions WHERE story_id = ?")) {
         for (const [key, row] of reactions) if (row.story_id === params[0]) reactions.delete(key);
+        return { one: () => null, toArray: () => [] };
+      }
+      if (sqlText.startsWith("DELETE FROM stellar_story_audience WHERE story_id IN")) {
+        const expired = new Set([...stories.values()].filter((row) => row.expires_at <= params[0])
+          .map((row) => row.story_id));
+        for (const [key, row] of audiences) if (expired.has(row.story_id)) audiences.delete(key);
+        return { one: () => null, toArray: () => [] };
+      }
+      if (sqlText.startsWith("DELETE FROM stellar_story_reactions WHERE story_id IN")) {
+        const expired = new Set([...stories.values()].filter((row) => row.expires_at <= params[0])
+          .map((row) => row.story_id));
+        for (const [key, row] of reactions) if (expired.has(row.story_id)) reactions.delete(key);
+        return { one: () => null, toArray: () => [] };
+      }
+      if (sqlText.startsWith("DELETE FROM stellar_stories WHERE expires_at <= ?")) {
+        for (const [id, row] of stories) if (row.expires_at <= params[0]) stories.delete(id);
         return { one: () => null, toArray: () => [] };
       }
       if (sqlText.startsWith("DELETE FROM stellar_stories WHERE story_id = ?")) {
@@ -165,6 +192,24 @@ test("Stories enforce the 15-second limit and reject invalid key envelopes", asy
   assert.equal(invalidKey.status, 400);
 });
 
+test("Stories require authentication and reject media size mismatches", async () => {
+  const { room, stories } = createHarness();
+  const unauthorized = await room.fetch(request("/v1/stories", {
+    method: "POST", body: JSON.stringify(metadata()),
+  }));
+  assert.equal(unauthorized.status, 401);
+  assert.equal(stories.size, 0);
+
+  await room.fetch(request("/v1/stories", {
+    method: "POST", token: "alice-token", body: JSON.stringify(metadata()),
+  }));
+  const mismatch = await room.fetch(request(`/v1/stories/${storyId}/media`, {
+    method: "POST", token: "alice-token", body: new Uint8Array([1, 2, 3]),
+  }));
+  assert.equal(mismatch.status, 400);
+  assert.equal(stories.get(storyId).media_uploaded, 0);
+});
+
 test("Stories expose encrypted media only to audience, accept reactions, and return no viewer list", async () => {
   const { room, stories, objects } = createHarness();
   const created = await room.fetch(request("/v1/stories", {
@@ -199,4 +244,49 @@ test("Stories expose encrypted media only to audience, accept reactions, and ret
   assert.deepEqual(viewerPayload.stories[0].reaction_counts, []);
   assert.equal("viewers" in viewerPayload.stories[0], false);
   assert.equal(stories.size, 1);
+});
+
+test("Only the author can delete a Story and deletion removes media and metadata", async () => {
+  const { room, stories, audiences, objects } = createHarness();
+  await room.fetch(request("/v1/stories", {
+    method: "POST", token: "alice-token", body: JSON.stringify(metadata()),
+  }));
+  await room.fetch(request(`/v1/stories/${storyId}/media`, {
+    method: "POST", token: "alice-token", body: new Uint8Array([1, 2, 3, 4]),
+  }));
+
+  const denied = await room.fetch(request(`/v1/stories/${storyId}`, {
+    method: "DELETE", token: "bob-token",
+  }));
+  assert.equal(denied.status, 404);
+  assert.equal(stories.size, 1);
+
+  const deleted = await room.fetch(request(`/v1/stories/${storyId}`, {
+    method: "DELETE", token: "alice-token",
+  }));
+  assert.equal(deleted.status, 200);
+  assert.equal(stories.size, 0);
+  assert.equal(audiences.size, 0);
+  assert.equal(objects.size, 0);
+});
+
+test("expired Stories and their media, audience keys and reactions are removed", async () => {
+  const { room, stories, audiences, reactions, objects } = createHarness();
+  await room.fetch(request("/v1/stories", {
+    method: "POST", token: "alice-token", body: JSON.stringify(metadata()),
+  }));
+  await room.fetch(request(`/v1/stories/${storyId}/media`, {
+    method: "POST", token: "alice-token", body: new Uint8Array([1, 2, 3, 4]),
+  }));
+  await room.fetch(request(`/v1/stories/${storyId}/reactions`, {
+    method: "POST", token: "bob-token", body: JSON.stringify({ emoji: "❤️" }),
+  }));
+  stories.get(storyId).expires_at = Date.now() - 1;
+
+  await room.alarm();
+
+  assert.equal(stories.size, 0);
+  assert.equal(audiences.size, 0);
+  assert.equal(reactions.size, 0);
+  assert.equal(objects.size, 0);
 });

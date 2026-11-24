@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:io';
 import 'core/network/push_background_handler.dart';
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'core/security/platform_key_store.dart';
+import 'core/stories/story_temp_files.dart';
 import 'app/app.dart';
 import 'app/firebase_options.dart';
 import 'core/storage/database.dart';
@@ -55,6 +57,18 @@ Future<void> main() async {
     await _wipeLocalFilesAndKeys();
     await _wantedWipeChannel.invokeMethod<bool>('completeLocalWipe');
     return;
+  }
+
+  // Clear any decrypted Story video left by a previous force-stop or crash.
+  try {
+    await cleanupStoryTemporaryFiles();
+  } on FileSystemException catch (error, stackTrace) {
+    developer.log(
+      'Could not remove a leftover Story video during startup.',
+      name: 'stellar_ecc.stories',
+      error: error,
+      stackTrace: stackTrace,
+    );
   }
 
   // Push notifications: FCM (Android) / APNs bridge (iOS). Payloads are

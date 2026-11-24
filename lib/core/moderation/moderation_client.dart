@@ -538,18 +538,27 @@ class ModerationClient {
       throw ModerationException(body.isEmpty ? 'Story creation failed' : body, response.statusCode);
     }
     final storyId = metadata['storyId'];
-    final upload = await _client.postUrl(Uri.parse(
-      '$baseUrl/v1/stories/${Uri.encodeComponent(storyId as String)}/media',
-    ));
-    upload.headers.contentType = ContentType.binary;
-    upload.headers.contentLength = encryptedMedia.length;
-    upload.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_sessionToken');
-    upload.add(encryptedMedia);
-    final uploadResponse = await upload.close().timeout(const Duration(seconds: 45));
-    final uploadBody = await utf8.decoder.bind(uploadResponse).join();
-    if (uploadResponse.statusCode < 200 || uploadResponse.statusCode >= 300) {
-      try { await deleteStory(nickname: nickname, storyId: storyId); } catch (_) {}
-      throw ModerationException(uploadBody.isEmpty ? 'Story media upload failed' : uploadBody, uploadResponse.statusCode);
+    try {
+      final upload = await _client.postUrl(Uri.parse(
+        '$baseUrl/v1/stories/${Uri.encodeComponent(storyId as String)}/media',
+      ));
+      upload.headers.contentType = ContentType.binary;
+      upload.headers.contentLength = encryptedMedia.length;
+      upload.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_sessionToken');
+      upload.add(encryptedMedia);
+      final uploadResponse = await upload.close().timeout(const Duration(seconds: 45));
+      final uploadBody = await utf8.decoder.bind(uploadResponse).join();
+      if (uploadResponse.statusCode < 200 || uploadResponse.statusCode >= 300) {
+        throw ModerationException(
+          uploadBody.isEmpty ? 'Story media upload failed' : uploadBody,
+          uploadResponse.statusCode,
+        );
+      }
+    } catch (_) {
+      // A timeout or socket failure can leave metadata without media. Remove
+      // that partial Story so it does not occupy the owner's active Story cap.
+      try { await deleteStory(nickname: nickname, storyId: storyId as String); } catch (_) {}
+      rethrow;
     }
   }
 

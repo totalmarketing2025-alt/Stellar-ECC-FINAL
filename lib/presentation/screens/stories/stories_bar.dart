@@ -9,6 +9,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/stories/stories_service.dart';
+import '../../../core/stories/story_temp_files.dart';
+import '../../../core/stories/stories_timeline.dart';
 import '../../../core/theme/stellar_theme.dart';
 import '../../../domain/models/chat.dart';
 import '../../../l10n/stellar_translations.dart';
@@ -64,13 +66,8 @@ class _StoriesBarState extends ConsumerState<StoriesBar> {
     final chats = ref.watch(chatListProvider).valueOrNull ?? const <Chat>[];
     final now = DateTime.now().millisecondsSinceEpoch;
     final activeStories = _stories.where((story) => story.expiresAt > now).toList();
-    final own = activeStories.where((story) => story.owner.toLowerCase() == nickname.toLowerCase()).toList();
-    final latestByOwner = <String, StellarStory>{};
-    for (final story in activeStories) {
-      if (story.owner.toLowerCase() != nickname.toLowerCase()) {
-        latestByOwner.putIfAbsent(story.owner.toLowerCase(), () => story);
-      }
-    }
+    final storiesByOwner = groupStoriesByOwner(activeStories);
+    final own = storiesByOwner.remove(nickname.toLowerCase()) ?? <StellarStory>[];
     return SizedBox(
       height: 112,
       child: Column(
@@ -92,15 +89,15 @@ class _StoriesBarState extends ConsumerState<StoriesBar> {
                   hasStory: own.isNotEmpty,
                   onTap: own.isEmpty
                       ? () => _composeStory(chats)
-                      : () => _openStory(own.first),
+                      : () => _openStories(own),
                   onAdd: _working ? null : () => _composeStory(chats),
                 ),
-                for (final story in latestByOwner.values)
+                for (final entry in storiesByOwner.entries)
                   _StoryCircle(
-                    label: story.owner,
+                    label: entry.value.first.owner,
                     icon: Icons.person_outline,
                     hasStory: true,
-                    onTap: () => _openStory(story),
+                    onTap: () => _openStories(entry.value),
                   ),
                 if (_loading)
                   const Padding(
@@ -236,9 +233,9 @@ class _StoriesBarState extends ConsumerState<StoriesBar> {
     );
   }
 
-  void _openStory(StellarStory story) {
+  void _openStories(List<StellarStory> stories) {
     Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => StoryViewerScreen(story: story),
+      builder: (_) => StoryViewerScreen(stories: stories),
       fullscreenDialog: true,
     )).then((_) => _loadStories());
   }
@@ -302,64 +299,120 @@ class _StoryCircle extends StatelessWidget {
 }
 
 class StoryViewerScreen extends ConsumerStatefulWidget {
-  const StoryViewerScreen({super.key, required this.story});
-  final StellarStory story;
+  const StoryViewerScreen({super.key, required this.stories});
+  final List<StellarStory> stories;
 
   @override
   ConsumerState<StoryViewerScreen> createState() => _StoryViewerScreenState();
 }
 
 class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
+  int _storyIndex = 0;
   Uint8List? _bytes;
   VideoPlayerController? _video;
   File? _temporaryVideo;
   String? _error;
   bool _loading = true;
   bool _reacting = false;
+  int _openGeneration = 0;
   Timer? _expiryTimer;
+
+  StellarStory get _story => widget.stories[_storyIndex];
 
   @override
   void initState() {
     super.initState();
-    final remaining = widget.story.expiresAt - DateTime.now().millisecondsSinceEpoch;
-    _expiryTimer = Timer(Duration(milliseconds: remaining < 0 ? 0 : remaining), () {
-      if (mounted) Navigator.of(context).pop();
-    });
+    _startExpiryTimer();
     _open();
   }
 
+  void _startExpiryTimer() {
+    _expiryTimer?.cancel();
+    final remaining = _story.expiresAt - DateTime.now().millisecondsSinceEpoch;
+    _expiryTimer = Timer(Duration(milliseconds: remaining < 0 ? 0 : remaining), () {
+      if (!mounted) return;
+      if (_storyIndex < widget.stories.length - 1) {
+        _showStory(_storyIndex + 1);
+      } else {
+        Navigator.of(context).pop();
+      }
+    });
+  }
+
+  Future<void> _showStory(int index) async {
+    if (index < 0 || index >= widget.stories.length || index == _storyIndex) return;
+    final direction = index > _storyIndex ? 1 : -1;
+    final nextIndex = findUnexpiredStoryIndex(
+      stories: widget.stories,
+      startIndex: index,
+      direction: direction,
+      nowMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    if (nextIndex == null) {
+      if (direction > 0 && mounted) Navigator.of(context).pop();
+      return;
+    }
+    index = nextIndex;
+    _expiryTimer?.cancel();
+    await _video?.dispose();
+    _video = null;
+    final oldFile = _temporaryVideo;
+    _temporaryVideo = null;
+    if (oldFile != null) {
+      try { await oldFile.delete(); } catch (_) {}
+    }
+    if (!mounted) return;
+    setState(() {
+      _storyIndex = index;
+      _bytes = null;
+      _error = null;
+      _loading = true;
+    });
+    _startExpiryTimer();
+    await _open();
+  }
+
   Future<void> _open() async {
+    final story = _story;
+    final generation = ++_openGeneration;
     try {
       final nickname = ref.read(localNicknameProvider)?.trim();
       if (nickname == null || nickname.isEmpty) throw StateError('Profile unavailable.');
       final bytes = await ref.read(storiesServiceProvider).openMedia(
-        nickname: nickname, story: widget.story,
+        nickname: nickname, story: story,
       );
-      if (widget.story.mediaType == 'video') {
+      if (!mounted || generation != _openGeneration) return;
+      if (story.mediaType == 'video') {
         final dir = await getTemporaryDirectory();
-        await for (final entity in dir.list()) {
-          if (entity is File && entity.path.split(Platform.pathSeparator).last.startsWith('stellar-story-')) {
-            try { await entity.delete(); } catch (_) {}
-          }
-        }
-        final file = File('${dir.path}/stellar-story-${widget.story.id}.${widget.story.videoExtension}');
+        await cleanupStoryTemporaryFiles(directory: dir);
+        final file = File('${dir.path}/stellar-story-${story.id}.${story.videoExtension}');
         _temporaryVideo = file;
         await file.writeAsBytes(bytes, flush: true);
         final controller = VideoPlayerController.file(file);
         _video = controller;
         await controller.initialize();
+        if (!mounted || generation != _openGeneration) {
+          await controller.dispose();
+          try { await file.delete(); } catch (_) {}
+          return;
+        }
         await controller.setLooping(false);
         await controller.play();
       }
-      if (mounted) setState(() { _bytes = bytes; _loading = false; });
+      if (mounted && generation == _openGeneration) {
+        setState(() { _bytes = bytes; _loading = false; });
+      }
     } catch (error) {
-      if (mounted) setState(() { _error = error.toString(); _loading = false; });
+      if (mounted && generation == _openGeneration) {
+        setState(() { _error = error.toString(); _loading = false; });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isOwn = widget.story.owner.toLowerCase() ==
+    final story = _story;
+    final isOwn = story.owner.toLowerCase() ==
         (ref.watch(localNicknameProvider) ?? '').toLowerCase();
     return Scaffold(
       backgroundColor: Colors.black,
@@ -367,10 +420,10 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
         Positioned.fill(child: Center(child: _buildMedia())),
         Positioned(left: 16, right: 16, top: 12, child: Row(children: [
           CircleAvatar(radius: 18, child: Text(
-            widget.story.owner.isEmpty ? '?' : widget.story.owner.substring(0, 1).toUpperCase(),
+            story.owner.isEmpty ? '?' : story.owner.substring(0, 1).toUpperCase(),
           )),
           const SizedBox(width: 10),
-          Expanded(child: Text(widget.story.owner,
+          Expanded(child: Text(story.owner,
               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600))),
           if (isOwn) ...[
             IconButton(tooltip: stellarText(context, 'Delete Story'),
@@ -387,20 +440,40 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
               ).toList(),
             ),
           ),
-        if (isOwn && widget.story.reactionCounts.isNotEmpty)
+        if (isOwn && story.reactionCounts.isNotEmpty)
           Positioned(left: 12, right: 12, bottom: 20,
             child: Wrap(alignment: WrapAlignment.center, spacing: 10,
-              children: widget.story.reactionCounts.entries.map((e) =>
+              children: story.reactionCounts.entries.map((e) =>
                 Chip(label: Text('${e.key} ${e.value}')),
               ).toList(),
             ),
           ),
         if (_reacting) const Positioned.fill(child: Center(child: CircularProgressIndicator())),
+        if (widget.stories.length > 1) ...[
+          Positioned(left: 4, top: 0, bottom: 0, child: Center(
+            child: IconButton(
+              tooltip: stellarText(context, 'Previous Story'),
+              onPressed: _storyIndex > 0 ? () => _showStory(_storyIndex - 1) : null,
+              icon: const Icon(Icons.chevron_left, color: Colors.white, size: 34),
+              style: IconButton.styleFrom(backgroundColor: Colors.black38),
+            ),
+          )),
+          Positioned(right: 4, top: 0, bottom: 0, child: Center(
+            child: IconButton(
+              tooltip: stellarText(context, 'Next Story'),
+              onPressed: _storyIndex < widget.stories.length - 1
+                  ? () => _showStory(_storyIndex + 1) : null,
+              icon: const Icon(Icons.chevron_right, color: Colors.white, size: 34),
+              style: IconButton.styleFrom(backgroundColor: Colors.black38),
+            ),
+          )),
+        ],
       ])),
     );
   }
 
   Widget _buildMedia() {
+    final story = _story;
     if (_loading) return const CircularProgressIndicator();
     if (_error != null) {
       return Padding(
@@ -409,7 +482,7 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
             textAlign: TextAlign.center),
       );
     }
-    if (widget.story.mediaType == 'video') {
+    if (story.mediaType == 'video') {
       final controller = _video;
       if (controller == null || !controller.value.isInitialized) return const CircularProgressIndicator();
       return AspectRatio(aspectRatio: controller.value.aspectRatio,
@@ -441,7 +514,7 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     setState(() => _reacting = true);
     try {
       await ref.read(storiesServiceProvider).react(
-        nickname: nickname, story: widget.story, emoji: emoji,
+        nickname: nickname, story: _story, emoji: emoji,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -459,7 +532,7 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     final nickname = ref.read(localNicknameProvider)?.trim();
     if (nickname == null) return;
     try {
-      await ref.read(storiesServiceProvider).delete(nickname: nickname, storyId: widget.story.id);
+      await ref.read(storiesServiceProvider).delete(nickname: nickname, storyId: _story.id);
       if (mounted) Navigator.pop(context);
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
@@ -468,6 +541,7 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
 
   @override
   void dispose() {
+    _openGeneration++;
     _expiryTimer?.cancel();
     _video?.dispose();
     final file = _temporaryVideo;
