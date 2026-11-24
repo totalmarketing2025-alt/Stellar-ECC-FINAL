@@ -33,15 +33,18 @@ class CallControlDock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      // Five controls must also fit narrow Android displays without overflow.
+      // Keep the dock usable on narrow phones as controls are added.
       margin: const EdgeInsets.symmetric(horizontal: 12),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
       decoration: BoxDecoration(
         color: StellarColors.bgElevated.withOpacity(0.9),
         borderRadius: BorderRadius.circular(32),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           _DockButton(
             icon: muted ? Icons.mic_off : Icons.mic,
@@ -83,7 +86,8 @@ class CallControlDock extends StatelessWidget {
             onTap: onEndCall,
             tooltip: 'End call',
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
