@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 import '../../state/app_providers.dart';
 
 class IdentityCreationScreen extends ConsumerStatefulWidget {
@@ -42,7 +43,7 @@ class _IdentityCreationScreenState
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Identity creation failed: $e'),
+          content: Text('${stellarText(context, "Identity creation failed:")} $e'),
         ),
       );
     }
@@ -69,16 +70,15 @@ class _IdentityCreationScreenState
                 ),
               ),
               const SizedBox(height: 24),
-              const Text(
-                'Forging your identity…',
+              Text(stellarText(context, 'Forging your identity…'),
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Generating your private cryptographic keys, on this device only.',
+              Text(
+                stellarText(context, 'Generating your private cryptographic keys, on this device only.'),
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: StellarColors.textSecondary,

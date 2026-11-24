@@ -591,14 +591,14 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
                     width: 180,
                     height: 180,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const Padding(
+                    errorBuilder: (errorContext, __, ___) => Padding(
                       padding: EdgeInsets.symmetric(vertical: 8),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.broken_image, size: 22),
                           SizedBox(width: 8),
-                          Text(stellarText(context, "Attachment unavailable")),
+                          Text(stellarText(errorContext, "Attachment unavailable")),
                         ],
                       ),
                     ),
@@ -613,7 +613,7 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
           );
         }
 
-        return const Padding(
+        return Padding(
           padding: EdgeInsets.symmetric(vertical: 8),
           child: Row(
             mainAxisSize: MainAxisSize.min,
