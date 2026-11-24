@@ -1013,7 +1013,9 @@ class GroupCallCoordinator {
       _cameraCaptureStream = shared.videoStream;
       _ownsLocalMedia = false;
       _ownsCameraMedia = false;
-      if (video) _localRenderer?.srcObject = shared.videoStream;
+      if (video) {
+        _localRenderer?.srcObject = shared.videoStream ?? shared.audioStream;
+      }
     } else {
       final stream = await navigator.mediaDevices.getUserMedia({
         'audio': true,
