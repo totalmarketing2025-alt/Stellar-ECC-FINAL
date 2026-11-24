@@ -433,7 +433,8 @@ final chatTypingIndicatorProvider = StateNotifierProvider<
   (ref) => ChatTypingIndicatorController(),
 );
 
-final chatRepositoryProvider = Provider<ChatRepository>((ref) {
+final Provider<ChatRepository> chatRepositoryProvider =
+    Provider<ChatRepository>((ref) {
   final nickname = ref.watch(localNicknameProvider);
   if (nickname == null) {
     throw StateError(
@@ -466,13 +467,15 @@ final chatRepositoryProvider = Provider<ChatRepository>((ref) {
 /// Chat list — refreshed on demand via `ref.invalidate(chatListProvider)`
 /// after sends/receives/deletes, and on a periodic timer from the chat
 /// list screen so expiring previews/countdowns stay live.
-final chatListProvider = FutureProvider.autoDispose<List<Chat>>((ref) async {
+final AutoDisposeFutureProvider<List<Chat>> chatListProvider =
+    FutureProvider.autoDispose<List<Chat>>((ref) async {
   final repo = ref.watch(chatRepositoryProvider);
   return repo.loadChats();
 });
 
-final chatMessagesProvider = FutureProvider.autoDispose
-    .family<List<Message>, String>((ref, chatId) async {
+final AutoDisposeFutureProviderFamily<List<Message>, String>
+    chatMessagesProvider = FutureProvider.autoDispose
+        .family<List<Message>, String>((ref, chatId) async {
       final repo = ref.watch(chatRepositoryProvider);
       return repo.loadMessages(chatId);
     });
