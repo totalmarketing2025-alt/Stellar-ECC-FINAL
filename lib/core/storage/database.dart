@@ -600,6 +600,7 @@ class ChatDao {
         c.*,
         (
           SELECT CASE
+            WHEN m.is_deleted = 1 THEN 'STELLAR_DELETED_MESSAGE'
             WHEN m.body_plaintext LIKE 'STELLAR_CALL_EVENT_V1:%' THEN 'Call'
             ELSE m.body_plaintext
           END
@@ -622,6 +623,7 @@ class ChatDao {
           FROM message m
           WHERE m.chat_id = c.chat_id
             AND m.expires_at > ?
+            AND m.is_deleted = 0
             AND m.read_at IS NULL
             AND (? IS NULL OR LOWER(m.sender_id) != LOWER(?))
         ) AS unread_count,
@@ -649,6 +651,8 @@ class ChatDao {
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      localNickname,
+      localNickname,
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       localNickname,
       localNickname,
@@ -771,6 +775,17 @@ class MessageDao {
         'sending',
         deliveryToken,
       ],
+    );
+  }
+
+  Future<void> setMessageFlags({
+    required String messageId,
+    required bool isMention,
+    required bool isReplyToMe,
+  }) async {
+    _db.execute(
+      'UPDATE message SET is_mention = ?, is_reply_to_me = ? WHERE message_id = ?',
+      [isMention ? 1 : 0, isReplyToMe ? 1 : 0, messageId],
     );
   }
 
