@@ -633,6 +633,7 @@ class ChatDao {
           WHERE m.chat_id = c.chat_id
             AND m.expires_at > ?
             AND m.read_at IS NULL
+            AND m.is_deleted = 0
             AND m.is_mention = 1
             AND (? IS NULL OR LOWER(m.sender_id) != LOWER(?))
         ) AS unread_mention_count,
@@ -642,6 +643,7 @@ class ChatDao {
           WHERE m.chat_id = c.chat_id
             AND m.expires_at > ?
             AND m.read_at IS NULL
+            AND m.is_deleted = 0
             AND m.is_reply_to_me = 1
             AND (? IS NULL OR LOWER(m.sender_id) != LOWER(?))
         ) AS unread_reply_count
