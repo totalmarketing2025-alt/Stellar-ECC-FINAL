@@ -30,6 +30,11 @@ class MainActivity : FlutterFragmentActivity() {
         private const val PREF_PENDING_SECURITY_NAVIGATION = "pending_security_navigation"
         private const val PREF_PENDING_SECURITY_CHALLENGE_ID = "pending_security_challenge_id"
         private const val CALL_ACTION = "ecc.stellar.app.CALL_ACTION"
+        private const val SHARE_CHANNEL = "ecc.stellar.app/share"
+        private const val SHARE_PREFS = "stellar_shared_content"
+        private const val PREF_PENDING_SHARED_CONTENT = "pending_shared_content"
+        private const val MAX_SHARED_FILE_BYTES = 8L * 1024L * 1024L
+        private const val MAX_SHARED_ITEMS = 10
         private const val METHOD_INCOMING_ACTION = "incomingCallAction"
         private const val METHOD_SET_CALL_ACTION_HANDLER_READY = "setCallActionHandlerReady"
         private const val METHOD_SET_CALL_ACTIVE = "setCallActive"
@@ -51,6 +56,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val pendingGroupActions = linkedMapOf<String, Map<String, String>>()
 
     private var callChannel: MethodChannel? = null
+    private var shareChannel: MethodChannel? = null
     private lateinit var wantedModeEventMonitor: WantedModeEventMonitor
     private lateinit var wantedModeChallengeStore: WantedModeChallengeStore
     private var callActionHandlerReady = false
@@ -188,6 +194,17 @@ class MainActivity : FlutterFragmentActivity() {
                     result.success(true)
                 }
                 else -> result.notImplemented()
+            }
+        }
+        shareChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            SHARE_CHANNEL
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "takePendingSharedContent" -> result.success(takePendingSharedContent())
+                    else -> result.notImplemented()
+                }
             }
         }
         callActionHandlerReady = false
@@ -817,6 +834,157 @@ class MainActivity : FlutterFragmentActivity() {
         deliverIntent(intent)
     }
 
+    private fun storeIncomingShare(intent: Intent) {
+        val items = org.json.JSONArray()
+        val uris = mutableListOf<Uri>()
+        val clip = intent.clipData
+        if (clip != null) {
+            for (index in 0 until clip.itemCount) {
+                clip.getItemAt(index).uri?.let { uris.add(it) }
+            }
+        }
+
+        val stream = intent.extras?.get(Intent.EXTRA_STREAM)
+        when (stream) {
+            is Uri -> uris.add(stream)
+            is ArrayList<*> -> stream.filterIsInstance<Uri>().forEach { uris.add(it) }
+        }
+
+        val uniqueUris = uris.distinctBy { it.toString() }.take(MAX_SHARED_ITEMS)
+        val inbox = java.io.File(cacheDir, "stellar_share_inbox")
+        if (!inbox.exists()) inbox.mkdirs()
+        val staleCutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L
+        inbox.listFiles()?.filter { it.lastModified() < staleCutoff }
+            ?.forEach { it.delete() }
+
+        for (uri in uniqueUris) {
+            val displayName = sharedDisplayName(uri)
+            val mimeType = contentResolver.getType(uri)
+                ?: intent.type
+                ?: "application/octet-stream"
+            val output = java.io.File(inbox, java.util.UUID.randomUUID().toString())
+            try {
+                val input = contentResolver.openInputStream(uri)
+                    ?: throw java.io.IOException("Could not open shared file")
+                var copied = 0L
+                input.use { source ->
+                    java.io.FileOutputStream(output).use { destination ->
+                        val buffer = ByteArray(16 * 1024)
+                        while (true) {
+                            val count = source.read(buffer)
+                            if (count < 0) break
+                            copied += count
+                            if (copied > MAX_SHARED_FILE_BYTES) {
+                                throw java.io.IOException("File exceeds the 8 MB attachment limit")
+                            }
+                            destination.write(buffer, 0, count)
+                        }
+                    }
+                }
+                items.put(org.json.JSONObject()
+                    .put("name", displayName)
+                    .put("path", output.absolutePath)
+                    .put("mimeType", mimeType))
+            } catch (error: Throwable) {
+                output.delete()
+                items.put(org.json.JSONObject()
+                    .put("name", displayName)
+                    .put("mimeType", mimeType)
+                    .put("error", error.message ?: "Could not read shared file"))
+            }
+        }
+
+        val sharedText = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)
+            ?.toString()
+            ?.trim()
+            ?.take(10000)
+        if (!sharedText.isNullOrEmpty() && items.length() < MAX_SHARED_ITEMS) {
+            items.put(org.json.JSONObject()
+                .put("name", "Shared text")
+                .put("mimeType", "text/plain")
+                .put("text", sharedText))
+        }
+        if (items.length() == 0) {
+            items.put(org.json.JSONObject()
+                .put("name", "Shared content")
+                .put("mimeType", intent.type ?: "application/octet-stream")
+                .put("error", "No readable shared content was provided"))
+        }
+
+        val preferences = getSharedPreferences(SHARE_PREFS, Context.MODE_PRIVATE)
+        val existing = preferences.getString(PREF_PENDING_SHARED_CONTENT, null)
+        val combined = org.json.JSONArray()
+        if (!existing.isNullOrBlank()) {
+            try {
+                val previous = org.json.JSONArray(existing)
+                for (index in 0 until previous.length()) {
+                    if (combined.length() >= MAX_SHARED_ITEMS) break
+                    combined.put(previous.get(index))
+                }
+            } catch (_: Throwable) {
+                // Replace corrupted pending share metadata with this request.
+            }
+        }
+        for (index in 0 until items.length()) {
+            if (combined.length() >= MAX_SHARED_ITEMS) break
+            combined.put(items.get(index))
+        }
+        preferences.edit()
+            .putString(PREF_PENDING_SHARED_CONTENT, combined.toString())
+            .commit()
+        shareChannel?.invokeMethod("sharedContentAvailable", null)
+    }
+
+    private fun sharedDisplayName(uri: Uri): String {
+        var name: String? = null
+        try {
+            contentResolver.query(
+                uri,
+                arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(
+                        android.provider.OpenableColumns.DISPLAY_NAME
+                    )
+                    if (index >= 0) name = cursor.getString(index)
+                }
+            }
+        } catch (_: Throwable) {
+            // Use the URI's final path segment as a readable fallback.
+        }
+        val candidate = name?.takeIf { it.isNotBlank() }
+            ?: uri.lastPathSegment
+            ?: "Shared file"
+        return candidate
+            .replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_")
+            .take(120)
+            .ifBlank { "Shared file" }
+    }
+
+    private fun takePendingSharedContent(): List<Map<String, String>> {
+        val preferences = getSharedPreferences(SHARE_PREFS, Context.MODE_PRIVATE)
+        val pending = preferences.getString(PREF_PENDING_SHARED_CONTENT, null)
+            ?: return emptyList()
+        preferences.edit().remove(PREF_PENDING_SHARED_CONTENT).commit()
+        return try {
+            val array = org.json.JSONArray(pending)
+            (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val values = linkedMapOf<String, String>()
+                listOf("name", "path", "mimeType", "text", "error").forEach { key ->
+                    val value = item.optString(key, "")
+                    if (value.isNotEmpty()) values[key] = value
+                }
+                values
+            }
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
     private fun takePendingCallAction(): HashMap<String, Any?>? {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val pendingJson = prefs.getString(PREF_PENDING_ACTION, null) ?: return null
@@ -839,6 +1007,12 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun deliverIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_SEND ||
+            intent?.action == Intent.ACTION_SEND_MULTIPLE) {
+            storeIncomingShare(intent)
+            return
+        }
+
         val groupRoom = intent?.getStringExtra("stellar.group.roomId")
         val groupAction = intent?.getStringExtra("stellar.group.action")
         if (groupRoom != null || groupAction != null) {
