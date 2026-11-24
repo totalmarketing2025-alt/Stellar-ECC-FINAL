@@ -214,10 +214,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ? messages
                           : messages.where((m) => !m.isDeleted && m.bodyPlaintext.toLowerCase().contains(query)).toList();
                       if (visibleMessages.isEmpty) {
-                        return const Center(
+                        return Center(
                           child: Text(
-                            _searchMode && query.isNotEmpty ? stellarText(context, "No matching messages") : 'No messages yet — say hello 👋',
-                            style: TextStyle(
+                            _searchMode && query.isNotEmpty
+                                ? stellarText(context, "No matching messages")
+                                : 'No messages yet — say hello 👋',
+                            style: const TextStyle(
                               color: StellarColors.textSecondary,
                             ),
                           ),
