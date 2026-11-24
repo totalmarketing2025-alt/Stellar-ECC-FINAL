@@ -232,6 +232,15 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "Failed": "Неуспешен",
     "Calling…": "Се повикува…",
     "Incoming call": "Дојдовен повик",
+    "You": "Ти",
+    "Another group call is already in progress": "Веќе има активен групен повик.",
+    "Group invitation has expired": "Поканата за групен повик истече.",
+    "Could not start group call:": "Групниот повик не може да започне:",
+    "Camera switch failed:": "Промената на камерата не успеа:",
+    "Could not join call:": "Не може да се приклучи на повикот:",
+    "Could not switch camera:": "Промената на камерата не успеа:",
+    "Could not update camera:": "Камерата не може да се ажурира:",
+    "Connecting…": "Се поврзува…",
     "Disabled": "Оневозможено"
   },
   "sq": {
@@ -464,6 +473,15 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "Failed": "Dështoi",
     "Calling…": "Po telefonohet…",
     "Incoming call": "Telefonatë hyrëse",
+    "You": "Ju",
+    "Another group call is already in progress": "Një telefonatë tjetër në grup është tashmë aktive.",
+    "Group invitation has expired": "Ftesa për telefonatë në grup ka skaduar.",
+    "Could not start group call:": "Telefonata në grup nuk mund të fillonte:",
+    "Camera switch failed:": "Ndërrimi i kamerës dështoi:",
+    "Could not join call:": "Nuk mund të bashkoheni në telefonatë:",
+    "Could not switch camera:": "Ndërrimi i kamerës dështoi:",
+    "Could not update camera:": "Kamera nuk mund të përditësohej:",
+    "Connecting…": "Po lidhet…",
     "Disabled": "Çaktivizuar"
   },
   "ru": {
@@ -696,6 +714,15 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "Failed": "Не выполнен",
     "Calling…": "Вызов…",
     "Incoming call": "Входящий вызов",
+    "You": "Вы",
+    "Another group call is already in progress": "Уже идёт другой групповой вызов.",
+    "Group invitation has expired": "Срок действия приглашения в групповой вызов истёк.",
+    "Could not start group call:": "Не удалось начать групповой вызов:",
+    "Camera switch failed:": "Не удалось переключить камеру:",
+    "Could not join call:": "Не удалось присоединиться к вызову:",
+    "Could not switch camera:": "Не удалось переключить камеру:",
+    "Could not update camera:": "Не удалось обновить камеру:",
+    "Connecting…": "Подключение…",
     "Disabled": "Выключено"
   }
 };

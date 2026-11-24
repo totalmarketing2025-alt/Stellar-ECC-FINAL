@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/calls/call_coordinator.dart';
 import '../../../domain/models/call_session.dart';
@@ -165,7 +166,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not update camera: $error')),
+          SnackBar(content: Text('${stellarText(context, 'Could not update camera:')} $error')),
         );
       }
     } finally {
@@ -224,7 +225,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
       case CallState.failed:
         return l10n.callFailed;
       case null:
-        return 'Connecting…';
+        return stellarText(context, 'Connecting…');
     }
   }
 
@@ -413,7 +414,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                       } catch (error) {
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Could not switch camera: $error')),
+                            SnackBar(content: Text('${stellarText(context, 'Could not switch camera:')} $error')),
                           );
                         }
                       }

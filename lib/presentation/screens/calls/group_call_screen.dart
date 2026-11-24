@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/calls/group_call_coordinator.dart';
 import '../../../core/calls/group_call_protocol.dart';
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../domain/models/group_call_room.dart';
 import '../../state/app_providers.dart';
@@ -73,7 +74,7 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
     final existing = coordinator.activeRoom;
     if (existing != null) {
       if (existing.chatId != widget.chatId) {
-        _showError('Another group call is already in progress');
+        _showError(stellarText(context, 'Another group call is already in progress'));
         return;
       }
       setState(() {
@@ -83,7 +84,7 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
       return;
     }
     if (widget.incoming) {
-      _showError('Group invitation has expired');
+      _showError(stellarText(context, 'Group invitation has expired'));
       return;
     }
     try {
@@ -92,7 +93,7 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
         video: widget.video,
       );
     } catch (error) {
-      _showError('Could not start group call: $error');
+      _showError('${stellarText(context, 'Could not start group call:')} $error');
     }
   }
 
@@ -139,7 +140,7 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
     try {
       await _coordinator?.setVideoEnabled(!room.localVideo);
     } catch (error) {
-      _showError('Camera switch failed: $error');
+      _showError('${stellarText(context, 'Camera switch failed:')} $error');
     } finally {
       if (mounted) setState(() => _busyCamera = false);
     }
@@ -149,7 +150,7 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
     try {
       await _coordinator?.acceptInvitation();
     } catch (error) {
-      _showError('Could not join call: $error');
+      _showError('${stellarText(context, 'Could not join call:')} $error');
       await _endCall();
     }
   }
@@ -170,7 +171,7 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final room = _room;
-    final nickname = ref.watch(localNicknameProvider) ?? 'You';
+    final nickname = ref.watch(localNicknameProvider) ?? stellarText(context, 'You');
     final peers = room?.members.where((name) => name != GroupCallProtocol.normalize(nickname))
         .toList() ?? <String>[];
     final showingVideo = room == null
@@ -295,7 +296,7 @@ class _GroupCallScreenState extends ConsumerState<GroupCallScreen> {
                       await _coordinator?.switchCamera();
                       if (mounted) setState(() => _frontCamera = !_frontCamera);
                     } catch (error) {
-                      _showError('Could not switch camera: $error');
+                      _showError('${stellarText(context, 'Could not switch camera:')} $error');
                     }
                   },
                   onEndCall: _endCall,
