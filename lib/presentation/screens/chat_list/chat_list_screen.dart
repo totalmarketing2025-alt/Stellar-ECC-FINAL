@@ -30,6 +30,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   Timer? _refreshTimer;
   Timer? _broadcastRefreshTimer;
   List<StellarBroadcast> _broadcasts = [];
+  String _chatFilter = 'All';
 
   @override
   void initState() {
@@ -123,6 +124,23 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
               onChanged: (_) => setState(() {}),
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [
+                for (final filter in const ['All', 'Unread', 'Mentions', 'Replies'])
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(stellarText(context, filter)),
+                      selected: _chatFilter == filter,
+                      onSelected: (_) => setState(() => _chatFilter = filter),
+                    ),
+                  ),
+              ]),
+            ),
+          ),
           Expanded(
             child: chatsAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -131,24 +149,31 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                     style: const TextStyle(color: StellarColors.danger)),
               ),
               data: (chats) {
-                final filtered = _filterChats(chats, _searchController.text);
-                if (filtered.isEmpty && _broadcasts.isEmpty) {
+                final filtered = _filterChats(chats, _searchController.text)
+                    .where((chat) => switch (_chatFilter) {
+                      'Unread' => chat.unreadCount > 0,
+                      'Mentions' => chat.unreadMentionCount > 0,
+                      'Replies' => chat.unreadReplyCount > 0,
+                      _ => true,
+                    }).toList();
+                final visibleBroadcasts = _chatFilter == 'All' ? _broadcasts : <StellarBroadcast>[];
+                if (filtered.isEmpty && visibleBroadcasts.isEmpty) {
                   return const _EmptyState();
                 }
                 return ListView.separated(
-                  itemCount: _broadcasts.length + filtered.length,
+                  itemCount: visibleBroadcasts.length + filtered.length,
                   separatorBuilder: (_, __) =>
                       const Divider(height: 1, color: StellarColors.bgElevated),
                   itemBuilder: (context, index) {
-                    if (index < _broadcasts.length) {
+                    if (index < visibleBroadcasts.length) {
                       return _BroadcastAnnouncementCard(
-                        key: ValueKey(_broadcasts[index].broadcastId),
-                        broadcast: _broadcasts[index],
+                        key: ValueKey(visibleBroadcasts[index].broadcastId),
+                        broadcast: visibleBroadcasts[index],
                       );
                     }
                     return _ChatListTile(
-                      chat: filtered[index - _broadcasts.length],
-                      onLongPress: () => _showChatActions(filtered[index - _broadcasts.length]),
+                      chat: filtered[index - visibleBroadcasts.length],
+                      onLongPress: () => _showChatActions(filtered[index - visibleBroadcasts.length]),
                     );
                   },
                 );
