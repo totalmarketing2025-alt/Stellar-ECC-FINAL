@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -31,9 +32,7 @@ class _ShareTargetScreenState extends ConsumerState<ShareTargetScreen> {
       final path = item.path;
       if (path != null) {
         final file = File(path);
-        if (file.existsSync()) {
-          file.delete().catchError((_) {});
-        }
+        unawaited(file.delete().catchError((Object _) => file));
       }
     }
     super.dispose();
@@ -52,8 +51,8 @@ class _ShareTargetScreenState extends ConsumerState<ShareTargetScreen> {
       builder: (dialogContext) => AlertDialog(
         title: Text(stellarText(dialogContext, 'Send shared content?')),
         content: Text(
-          '${stellarText(dialogContext, 'Send')} ${validItems.length} '
-          '${stellarText(dialogContext, 'item(s) to')} ${target.displayName}?',
+          '${validItems.length} ${stellarText(dialogContext, 'shared item(s) to')} '
+          '${target.displayName}?',
         ),
         actions: [
           TextButton(
