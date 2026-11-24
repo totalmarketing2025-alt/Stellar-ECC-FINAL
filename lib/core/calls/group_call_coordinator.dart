@@ -42,7 +42,7 @@ class GroupCallCoordinator {
   final bool Function() hasDirectCall;
   final String? Function() activeDirectPeer;
   final Future<CallGroupMedia?> Function({required bool video}) prepareDirectMedia;
-  final Future<void> Function(String roomId) onDirectUpgradeComplete;
+  final Future<bool> Function(String roomId) onDirectUpgradeComplete;
 
   final _roomController = StreamController<GroupCallRoom?>.broadcast();
   Stream<GroupCallRoom?> get roomStream => _roomController.stream;
@@ -114,11 +114,13 @@ class GroupCallCoordinator {
     final roomId = _directUpgradeRoomId;
     final normalized = GroupCallProtocol.normalize(peer);
     if (room == null || roomId == null || room.roomId != roomId ||
-        !room.members.contains(normalized) || !_allMembersConnected(room)) {
-      return null;
-    }
+        !room.members.contains(normalized)) return null;
     return roomId;
   }
+
+  bool isGroupUpgradeReady(String roomId) =>
+      _room?.roomId == roomId && _directUpgradeRoomId == roomId &&
+      _allMembersConnected(_room!);
 
   bool _allMembersConnected(GroupCallRoom room) =>
       room.members.where((member) => member != _local)
@@ -464,6 +466,7 @@ class GroupCallCoordinator {
       }
     }
     if (!_isCurrent(generation, roomId)) return;
+    _maybeFinishDirectUpgrade();
     if (_room?.inviter == _local) {
       for (final peer in room.members) {
         if (!_isCurrent(generation, roomId)) return;
@@ -930,8 +933,9 @@ class GroupCallCoordinator {
     _finishingDirectUpgrade = true;
     unawaited(() async {
       try {
-        await onDirectUpgradeComplete(roomId);
-        if (_room?.roomId == roomId && _directUpgradeRoomId == roomId) {
+        final transferred = await onDirectUpgradeComplete(roomId);
+        if (transferred && _room?.roomId == roomId &&
+            _directUpgradeRoomId == roomId) {
           // The group mesh now owns the shared capture. CallService ends
           // its old peer connection but deliberately keeps these tracks alive.
           _ownsLocalMedia = true;
