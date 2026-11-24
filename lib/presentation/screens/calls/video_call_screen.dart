@@ -416,14 +416,14 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                         }
                       }
                     },
-                    onAddParticipant: session?.state == CallState.connected
-                  ? () => unawaited(addParticipantToActiveCall(
-                        context: context,
-                        ref: ref,
-                        session: session!,
-                      ))
-                  : null,
-              onEndCall: () async {
+                    onAddParticipant: _session?.state == CallState.connected
+                        ? () => unawaited(addParticipantToActiveCall(
+                              context: context,
+                              ref: ref,
+                              session: _session!,
+                            ))
+                        : null,
+                    onEndCall: () async {
                       await _callCoordinator?.endActiveCall();
                       if (mounted) _closeCallScreen();
                     },
