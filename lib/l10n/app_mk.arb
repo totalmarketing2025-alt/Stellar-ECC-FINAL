@@ -1,0 +1,23 @@
+{
+  "@@locale": "mk",
+  "appName": "Stellar ✨️",
+  "searchChatsContacts": "Пребарај разговори и контакти",
+  "couldNotLoadChats": "Разговорите не можеа да се вчитаат",
+  "newDirectChat": "Нов директен разговор",
+  "newGroup": "Нова група",
+  "noChatsYet": "Сè уште нема разговори",
+  "emptyChatsHint": "Започни приватен разговор со копчето +.",
+  "settingsTitle": "Поставки",
+  "language": "Јазик",
+  "followsDeviceLanguage": "Го следи јазикот на телефонот",
+  "languageEnglish": "Англиски",
+  "languageMacedonian": "Македонски",
+  "languageAlbanian": "Албански",
+  "languageRussian": "Руски",
+  "accountSection": "Сметка",
+  "privacySection": "Приватност",
+  "chatsSection": "Разговори",
+  "appLockSection": "Заклучување на апликацијата",
+  "notificationsSection": "Известувања",
+  "aboutSection": "За апликацијата"
+}

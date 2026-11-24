@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/app_localizations.dart';
 import 'stellar_security_screen.dart';
 import 'stellar_guard_screen.dart';
 import '../../state/app_providers.dart';
@@ -114,13 +115,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final nickname = ref.watch(localNicknameProvider) ?? '—';
     final screenshotBlockEnabled = ref.watch(screenshotBlockEnabledProvider);
     final screenPrivacyMode = ref.watch(screenPrivacyModeEnabledProvider);
     final biometricLockEnabled = ref.watch(biometricLockEnabledProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: Text(l10n.settingsTitle)),
       body: ListView(
         children: [
           ListTile(
@@ -152,7 +154,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           ),
           const Divider(color: StellarColors.bgElevated),
 
-          _SectionHeader('Account'),
+          ListTile(
+            leading: const Icon(Icons.language, color: StellarColors.accentBlue),
+            title: Text(l10n.language),
+            subtitle: Text(
+              '${l10n.followsDeviceLanguage}: ${_languageName(
+                Localizations.localeOf(context).languageCode,
+                l10n,
+              )}',
+            ),
+          ),
+          _SectionHeader(l10n.accountSection),
           ListTile(
             leading: const Icon(Icons.alternate_email, color: StellarColors.accentBlue),
             title: const Text('Nickname'),
@@ -205,7 +217,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             },
           ),
 
-          _SectionHeader('Privacy'),
+          _SectionHeader(l10n.privacySection),
           SwitchListTile(
             activeColor: StellarColors.accentBlue,
             title: const Text('Block screenshots'),
@@ -226,7 +238,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             subtitle: const Text('Off — app data is excluded from device backups by design'),
           ),
 
-          _SectionHeader('Chats'),
+          _SectionHeader(l10n.chatsSection),
           ListTile(
             leading: const Icon(Icons.timer_outlined, color: StellarColors.accentPurple),
             title: const Text('Default disappearing timer'),
@@ -241,7 +253,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             },
           ),
 
-          _SectionHeader('App Lock'),
+          _SectionHeader(l10n.appLockSection),
           SwitchListTile(
             activeColor: StellarColors.accentBlue,
             title: const Text('Biometric / PIN lock'),
@@ -288,7 +300,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             },
           ),
 
-          _SectionHeader('Notifications'),
+          _SectionHeader(l10n.notificationsSection),
           if (Platform.isAndroid)
             SwitchListTile(
               activeColor: StellarColors.accentPurple,
@@ -323,7 +335,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             onTap: () => _showPreviewLevelPicker(context),
           ),
 
-          _SectionHeader('About'),
+          _SectionHeader(l10n.aboutSection),
           ListTile(
             leading: const Icon(Icons.security, color: StellarColors.textSecondary),
             title: const Text('Security audit checklist'),
@@ -436,6 +448,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         ref.read(isUnlockedProvider.notifier).state = false;
       }
     }
+  }
+}
+
+String _languageName(String code, AppLocalizations l10n) {
+  switch (code) {
+    case 'mk':
+      return l10n.languageMacedonian;
+    case 'sq':
+      return l10n.languageAlbanian;
+    case 'ru':
+      return l10n.languageRussian;
+    default:
+      return l10n.languageEnglish;
   }
 }
 

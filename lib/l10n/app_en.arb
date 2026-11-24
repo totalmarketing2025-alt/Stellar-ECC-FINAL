@@ -1,0 +1,23 @@
+{
+  "@@locale": "en",
+  "appName": "Stellar ✨️",
+  "searchChatsContacts": "Search chats and contacts",
+  "couldNotLoadChats": "Could not load chats",
+  "newDirectChat": "New direct chat",
+  "newGroup": "New group",
+  "noChatsYet": "No chats yet",
+  "emptyChatsHint": "Start a private, self-destructing conversation with the + button.",
+  "settingsTitle": "Settings",
+  "language": "Language",
+  "followsDeviceLanguage": "Follows device language",
+  "languageEnglish": "English",
+  "languageMacedonian": "Macedonian",
+  "languageAlbanian": "Albanian",
+  "languageRussian": "Russian",
+  "accountSection": "Account",
+  "privacySection": "Privacy",
+  "chatsSection": "Chats",
+  "appLockSection": "App Lock",
+  "notificationsSection": "Notifications",
+  "aboutSection": "About"
+}

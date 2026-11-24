@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../../core/moderation/stellar_broadcast.dart';
 import '../../../domain/models/chat.dart';
 import '../../state/app_providers.dart';
@@ -55,6 +56,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final chatsAsync = ref.watch(chatListProvider);
     final wantedModeEnabled = ref.watch(wantedModeWipeEnabledProvider);
 
@@ -62,7 +64,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       appBar: AppBar(
         title: wantedModeEnabled
             ? const _WantedHeaderTitle()
-            : const Text('Stellar ✨️'),
+            : Text(l10n.appName),
         actions: [
           IconButton(
             tooltip: 'My Profile',
@@ -114,7 +116,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             child: TextField(
               controller: _searchController,
               decoration: const InputDecoration(
-                hintText: 'Search chats and contacts',
+                hintText: l10n.searchChatsContacts,
                 prefixIcon: Icon(Icons.search, color: StellarColors.textSecondary),
               ),
               onChanged: (_) => setState(() {}),
@@ -124,7 +126,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             child: chatsAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (err, st) => Center(
-                child: Text('Could not load chats: $err',
+                child: Text('${l10n.couldNotLoadChats}: $err',
                     style: const TextStyle(color: StellarColors.danger)),
               ),
               data: (chats) {
@@ -294,7 +296,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.person_add_alt_1, color: StellarColors.accentBlue),
-              title: const Text('New direct chat'),
+              title: Text(AppLocalizations.of(sheetContext).newDirectChat),
               onTap: () {
                 Navigator.pop(sheetContext);
                 _promptNewDirectChat(context);
@@ -302,7 +304,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.group_add, color: StellarColors.accentPurple),
-              title: const Text('New group'),
+              title: Text(AppLocalizations.of(sheetContext).newGroup),
               onTap: () {
                 Navigator.pop(sheetContext);
                 context.push('/group/new');
@@ -438,10 +440,10 @@ class _EmptyState extends StatelessWidget {
               child: const Icon(Icons.chat_bubble_outline, color: Colors.white),
             ),
             const SizedBox(height: 16),
-            const Text('No chats yet', style: TextStyle(fontWeight: FontWeight.w600)),
+            Text(AppLocalizations.of(context).noChatsYet, style: const TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             const Text(
-              'Start a private, self-destructing conversation with the + button.',
+              AppLocalizations.of(context).emptyChatsHint,
               textAlign: TextAlign.center,
               style: TextStyle(color: StellarColors.textSecondary),
             ),

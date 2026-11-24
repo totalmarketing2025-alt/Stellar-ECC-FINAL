@@ -1,0 +1,23 @@
+{
+  "@@locale": "sq",
+  "appName": "Stellar ✨️",
+  "searchChatsContacts": "Kërko biseda dhe kontakte",
+  "couldNotLoadChats": "Bisedat nuk mund të ngarkoheshin",
+  "newDirectChat": "Bisedë e re direkte",
+  "newGroup": "Grup i ri",
+  "noChatsYet": "Nuk ka ende biseda",
+  "emptyChatsHint": "Fillo një bisedë private me butonin +.",
+  "settingsTitle": "Cilësimet",
+  "language": "Gjuha",
+  "followsDeviceLanguage": "Ndjek gjuhën e telefonit",
+  "languageEnglish": "Anglisht",
+  "languageMacedonian": "Maqedonisht",
+  "languageAlbanian": "Shqip",
+  "languageRussian": "Rusisht",
+  "accountSection": "Llogaria",
+  "privacySection": "Privatësia",
+  "chatsSection": "Bisedat",
+  "appLockSection": "Kyçja e aplikacionit",
+  "notificationsSection": "Njoftimet",
+  "aboutSection": "Rreth aplikacionit"
+}
