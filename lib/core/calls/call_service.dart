@@ -883,6 +883,7 @@ class CallService {
       } catch (error) {
         print('CALL_END_NATIVE_CLEANUP_FAILED: $error');
       }
+      await platformBridge.stopOutgoingCallForeground(callId);
     }
   }
 
