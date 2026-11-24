@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/media/attachment_payload.dart';
 import '../../../core/theme/stellar_theme.dart';
-import '../../../data/repositories/chat_repository.dart';
 import '../../../domain/models/chat.dart';
 import '../../../l10n/stellar_translations.dart';
 import '../../state/app_providers.dart';
