@@ -346,6 +346,7 @@ class RelayListener {
         'end',
         'busy',
         'media-state',
+        'group-upgrade-complete',
       };
 
       if (type is! String ||
