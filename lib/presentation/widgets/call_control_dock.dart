@@ -15,6 +15,7 @@ class CallControlDock extends StatelessWidget {
     this.cameraBusy = false,
     this.onToggleCamera,
     this.onFlipCamera,
+    this.onAddParticipant,
   });
 
   final bool muted;
@@ -27,6 +28,7 @@ class CallControlDock extends StatelessWidget {
   final VoidCallback onEndCall;
   final VoidCallback? onToggleCamera;
   final VoidCallback? onFlipCamera;
+  final VoidCallback? onAddParticipant;
 
   @override
   Widget build(BuildContext context) {
@@ -67,6 +69,13 @@ class CallControlDock extends StatelessWidget {
               tooltip: 'Switch camera',
             ),
           ],
+          if (onAddParticipant != null)
+            _DockButton(
+              icon: Icons.person_add_alt_1,
+              active: false,
+              onTap: onAddParticipant,
+              tooltip: 'Add participant to group call',
+            ),
           _DockButton(
             icon: Icons.call_end,
             active: true,
