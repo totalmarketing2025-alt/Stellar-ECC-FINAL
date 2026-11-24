@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/calls/call_coordinator.dart';
 import '../../../domain/models/call_session.dart';
@@ -411,13 +412,13 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: StellarColors.bgElevated,
-        title: const Text('Safety Number'),
+        title: Text(stellarText(context, stellarText(context, "Safety Number"))),
         content: const Text(
           'Compare this number with your contact in person or over a separate '
           'trusted channel to confirm no one is intercepting your conversation.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text(stellarText(context, stellarText(context, "Close")))),
         ],
       ),
     );

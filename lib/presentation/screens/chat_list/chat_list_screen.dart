@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/moderation/stellar_broadcast.dart';
 import '../../../domain/models/chat.dart';
@@ -67,13 +68,13 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             : Text(l10n.appName),
         actions: [
           IconButton(
-            tooltip: 'My Profile',
+            tooltip: stellarText(context, stellarText(context, "My Profile")),
             icon: const Icon(Icons.account_circle_outlined),
             onPressed: () {
               final nickname = ref.read(localNicknameProvider)?.trim();
               if (nickname == null || nickname.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Your profile is not ready yet.')),
+                  const SnackBar(content: Text(stellarText(context, stellarText(context, "Your profile is not ready yet.")))),
                 );
                 return;
               }
@@ -225,7 +226,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
         children: [
           ListTile(
             leading: Icon(chat.isPinned ? Icons.push_pin_outlined : Icons.push_pin),
-            title: Text(chat.isPinned ? 'Unpin Chat' : 'Pin Chat'),
+            title: Text(chat.isPinned ? stellarText(context, stellarText(context, "Unpin Chat")) : stellarText(context, stellarText(context, "Pin Chat"))),
             onTap: () async {
               Navigator.pop(sheetContext);
               try {
@@ -243,7 +244,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           if (chat.chatType == ChatType.direct)
             ListTile(
               leading: const Icon(Icons.delete_outline, color: StellarColors.danger),
-              title: const Text('Delete Chat'),
+              title: Text(stellarText(context, stellarText(context, "Delete Chat"))),
               onTap: () {
                 Navigator.pop(sheetContext);
                 _confirmDeleteChat(chat);
@@ -258,15 +259,15 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete Chat?'),
+        title: Text(stellarText(context, stellarText(context, "Delete Chat?"))),
         content: Text('Delete local conversation with ${chat.displayName}? '
           'This does not delete messages on the other device. '
           'New incoming messages will recreate the chat.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel')),
+            child: Text(stellarText(context, stellarText(context, "Cancel")))),
           TextButton(onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Delete')),
+            child: Text(stellarText(context, stellarText(context, "Delete")))),
         ],
       ),
     );
@@ -322,20 +323,20 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: StellarColors.bgElevated,
-        title: const Text('Start a chat'),
+        title: Text(stellarText(context, stellarText(context, "Start a chat"))),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(hintText: '@nickname'),
+          decoration: const InputDecoration(hintText: stellarText(context, stellarText(context, "@nickname"))),
           autofocus: true,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
+            child: Text(stellarText(context, stellarText(context, "Cancel"))),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
-            child: const Text('Start'),
+            child: Text(stellarText(context, stellarText(context, "Start"))),
           ),
         ],
       ),
@@ -523,14 +524,14 @@ class _BroadcastAnnouncementCardState
         context: context,
         builder: (dialogContext) => AlertDialog(
           backgroundColor: StellarColors.bgSurface,
-          title: const Text('Broadcast attachment'),
+          title: Text(stellarText(context, stellarText(context, "Broadcast attachment"))),
           content: SingleChildScrollView(
             child: SelectableText(content),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('CLOSE'),
+              child: Text(stellarText(context, stellarText(context, "CLOSE"))),
             ),
           ],
         ),
@@ -654,7 +655,7 @@ class _BroadcastAnnouncementCardState
               },
             ),
             const SizedBox(height: 5),
-            const Text('Tap image to zoom',
+            Text(stellarText(context, stellarText(context, "Tap image to zoom")),
                 style: TextStyle(
                     color: StellarColors.textSecondary, fontSize: 11)),
           ] else if (broadcast.hasAttachment) ...[
@@ -662,7 +663,7 @@ class _BroadcastAnnouncementCardState
             OutlinedButton.icon(
               onPressed: _openAttachment,
               icon: const Icon(Icons.attach_file),
-              label: const Text('OPEN ATTACHMENT'),
+              label: Text(stellarText(context, stellarText(context, "OPEN ATTACHMENT"))),
             ),
           ],
         ],

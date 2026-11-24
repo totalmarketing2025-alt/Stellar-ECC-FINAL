@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 import '../../../domain/models/contact.dart';
 import '../../widgets/stellar_avatar.dart';
 import '../../widgets/ttl_picker_sheet.dart';
@@ -25,16 +26,16 @@ class _GroupManagementScreenState extends ConsumerState<GroupManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Group Settings')),
+      appBar: AppBar(title: Text(stellarText(context, stellarText(context, "Group Settings")))),
       body: ListView(
         children: [
           ListTile(
             leading: const Icon(Icons.timer_outlined, color: StellarColors.accentPurple),
-            title: const Text('Default disappearing timer'),
+            title: Text(stellarText(context, stellarText(context, "Default disappearing timer"))),
             onTap: () => showModalBottomSheet<int>(
               context: context,
               backgroundColor: StellarColors.bgElevated,
-              builder: (_) => TtlPickerSheet(current: TtlPreset.oneHour, title: 'Default disappearing timer'),
+              builder: (_) => TtlPickerSheet(current: TtlPreset.oneHour, title: stellarText(context, stellarText(context, "Default disappearing timer"))),
             ),
           ),
           const Divider(color: StellarColors.bgElevated),
@@ -43,11 +44,11 @@ class _GroupManagementScreenState extends ConsumerState<GroupManagementScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Members', style: TextStyle(color: StellarColors.textSecondary, fontSize: 12)),
+                Text(stellarText(context, stellarText(context, "Members")), style: TextStyle(color: StellarColors.textSecondary, fontSize: 12)),
                 TextButton.icon(
                   onPressed: _addMember,
                   icon: const Icon(Icons.person_add_alt_1, size: 16, color: StellarColors.accentBlue),
-                  label: const Text('Add', style: TextStyle(color: StellarColors.accentBlue)),
+                  label: Text(stellarText(context, stellarText(context, "Add")), style: TextStyle(color: StellarColors.accentBlue)),
                 ),
               ],
             ),
@@ -55,7 +56,7 @@ class _GroupManagementScreenState extends ConsumerState<GroupManagementScreen> {
           if (_members.isEmpty)
             const Padding(
               padding: EdgeInsets.all(24),
-              child: Text('No other members yet', style: TextStyle(color: StellarColors.textSecondary)),
+              child: Text(stellarText(context, stellarText(context, "No other members yet")), style: TextStyle(color: StellarColors.textSecondary)),
             ),
           ..._members.map((member) => ListTile(
                 leading: StellarAvatar(seed: member.nickname, label: member.nickname, size: 40),
@@ -71,7 +72,7 @@ class _GroupManagementScreenState extends ConsumerState<GroupManagementScreen> {
           const Divider(color: StellarColors.bgElevated),
           ListTile(
             leading: const Icon(Icons.exit_to_app, color: StellarColors.danger),
-            title: const Text('Leave group', style: TextStyle(color: StellarColors.danger)),
+            title: Text(stellarText(context, stellarText(context, "Leave group")), style: TextStyle(color: StellarColors.danger)),
             onTap: () {},
           ),
         ],

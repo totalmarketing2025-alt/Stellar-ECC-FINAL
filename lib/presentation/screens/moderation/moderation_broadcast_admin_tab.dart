@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../../l10n/stellar_translations.dart';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -296,7 +297,7 @@ class _ModerationBroadcastAdminTabState
           OutlinedButton.icon(
             onPressed: _loading ? null : _pickAttachment,
             icon: const Icon(Icons.attach_file),
-            label: const Text('Choose attachment (max 8 MiB)'),
+            label: Text(stellarText(context, stellarText(context, "Choose attachment (max 8 MiB)"))),
           ),
           if (_attachment != null)
             ListTile(
@@ -307,7 +308,7 @@ class _ModerationBroadcastAdminTabState
                 '${(_attachment!.size / 1024).toStringAsFixed(1)} KiB',
               ),
               trailing: IconButton(
-                tooltip: 'Remove attachment',
+                tooltip: stellarText(context, stellarText(context, "Remove attachment")),
                 onPressed: _loading
                     ? null
                     : () => setState(() => _attachment = null),
@@ -324,7 +325,7 @@ class _ModerationBroadcastAdminTabState
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.campaign_outlined),
-            label: Text(_loading ? 'Please wait...' : 'Publish Broadcast'),
+            label: Text(_loading ? stellarText(context, stellarText(context, "Please wait...")) : stellarText(context, stellarText(context, "Publish Broadcast"))),
           ),
           if (_error != null) ...[
             const SizedBox(height: 12),
@@ -350,7 +351,7 @@ class _ModerationBroadcastAdminTabState
                 ),
               ),
               IconButton(
-                tooltip: 'Refresh announcements',
+                tooltip: stellarText(context, stellarText(context, "Refresh announcements")),
                 onPressed: _loading ? null : _refresh,
                 icon: const Icon(Icons.refresh),
               ),
@@ -364,7 +365,7 @@ class _ModerationBroadcastAdminTabState
           else if (_broadcasts.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
-              child: Text('No Broadcast announcements yet.'),
+              child: Text(stellarText(context, stellarText(context, "No Broadcast announcements yet."))),
             )
           else
             ..._broadcasts.map(

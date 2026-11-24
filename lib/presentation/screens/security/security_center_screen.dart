@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 import '../../../core/crypto/fingerprint_formatter.dart';
 import '../../../domain/models/chat.dart';
 import '../../state/app_providers.dart';
@@ -27,7 +28,7 @@ class SecurityCenterScreen extends ConsumerWidget {
     final score = ref.watch(securityScoreProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Security Center')),
+      appBar: AppBar(title: Text(stellarText(context, stellarText(context, "Security Center")))),
       body: ListView(
         children: [
           if (openWanted)
@@ -41,10 +42,10 @@ class SecurityCenterScreen extends ConsumerWidget {
             ),
           _ScoreCard(score: score),
 
-          _SectionHeader('Devices & Sessions'),
+          _SectionHeader(stellarText(context, stellarText(context, "Devices & Sessions"))),
           ListTile(
             leading: const Icon(Icons.devices_other, color: StellarColors.accentBlue),
-            title: const Text('Active devices'),
+            title: Text(stellarText(context, stellarText(context, "Active devices"))),
             subtitle: Consumer(
               builder: (context, ref, _) {
                 final devices = ref.watch(linkedDevicesProvider);
@@ -56,38 +57,38 @@ class SecurityCenterScreen extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.sync_alt, color: StellarColors.accentBlue),
-            title: const Text('Session management'),
-            subtitle: const Text('Double Ratchet sessions with your contacts'),
+            title: Text(stellarText(context, stellarText(context, "Session management"))),
+            subtitle: Text(stellarText(context, stellarText(context, "Double Ratchet sessions with your contacts"))),
             trailing: const Icon(Icons.chevron_right, color: StellarColors.textSecondary),
             onTap: () => _openSessionManagement(context),
           ),
 
-          _SectionHeader('Verification'),
+          _SectionHeader(stellarText(context, stellarText(context, "Verification"))),
           ListTile(
             leading: const Icon(Icons.qr_code_2, color: StellarColors.accentPurple),
-            title: const Text('Verify contacts (QR code)'),
-            subtitle: const Text('Compare fingerprints in person to confirm no interception'),
+            title: Text(stellarText(context, stellarText(context, "Verify contacts (QR code)"))),
+            subtitle: Text(stellarText(context, stellarText(context, "Compare fingerprints in person to confirm no interception"))),
             trailing: const Icon(Icons.chevron_right, color: StellarColors.textSecondary),
             onTap: () => _openQrVerify(context),
           ),
           ListTile(
             leading: const Icon(Icons.fingerprint, color: StellarColors.accentPurple),
-            title: const Text('Encryption key fingerprint'),
-            subtitle: const Text('Your identity key, as a comparable number'),
+            title: Text(stellarText(context, stellarText(context, "Encryption key fingerprint"))),
+            subtitle: Text(stellarText(context, stellarText(context, "Your identity key, as a comparable number"))),
             trailing: const Icon(Icons.chevron_right, color: StellarColors.textSecondary),
             onTap: () => _openFingerprint(context),
           ),
 
-          _SectionHeader('Emergency'),
+          _SectionHeader(stellarText(context, stellarText(context, "Emergency"))),
           ListTile(
             leading: const Icon(Icons.emergency_outlined, color: StellarColors.danger),
-            title: const Text('Wanted Mode'),
-            subtitle: const Text('Lock the app or erase its local data'),
+            title: Text(stellarText(context, stellarText(context, "Wanted Mode"))),
+            subtitle: Text(stellarText(context, stellarText(context, "Lock the app or erase its local data"))),
             trailing: const Icon(Icons.chevron_right, color: StellarColors.textSecondary),
             onTap: () => _openWantedMode(context, ref),
           ),
 
-          _SectionHeader('Backup & Privacy'),
+          _SectionHeader(stellarText(context, stellarText(context, "Backup & Privacy"))),
           Consumer(
             builder: (context, ref, _) {
               final backupEnabled = ref.watch(cloudBackupEnabledProvider);
@@ -96,7 +97,7 @@ class SecurityCenterScreen extends ConsumerWidget {
                   backupEnabled ? Icons.cloud_outlined : Icons.cloud_off,
                   color: backupEnabled ? StellarColors.danger : StellarColors.success,
                 ),
-                title: const Text('Secure backup status'),
+                title: Text(stellarText(context, stellarText(context, "Secure backup status"))),
                 subtitle: Text(
                   backupEnabled
                       ? 'Recovery backup is enabled'
@@ -107,8 +108,8 @@ class SecurityCenterScreen extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.privacy_tip_outlined, color: StellarColors.textSecondary),
-            title: const Text('Privacy settings'),
-            subtitle: const Text('Screenshot blocking, screen privacy, notification previews'),
+            title: Text(stellarText(context, stellarText(context, "Privacy settings"))),
+            subtitle: Text(stellarText(context, stellarText(context, "Screenshot blocking, screen privacy, notification previews"))),
             trailing: const Icon(Icons.chevron_right, color: StellarColors.textSecondary),
             onTap: () => context.push('/settings'),
           ),
@@ -244,7 +245,7 @@ class _ScoreCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Security score', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                Text(stellarText(context, stellarText(context, "Security score")), style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
                 const SizedBox(height: 4),
                 Text(_label, style: TextStyle(color: _color)),
               ],
@@ -285,7 +286,7 @@ class _ActiveDevicesSheet extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Active devices', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+            Text(stellarText(context, stellarText(context, "Active devices")), style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
             const SizedBox(height: 12),
             ...devices.map((d) => ListTile(
                   leading: Icon(
@@ -300,7 +301,7 @@ class _ActiveDevicesSheet extends ConsumerWidget {
                       ? null
                       : TextButton(
                           onPressed: () {},
-                          child: const Text('Revoke', style: TextStyle(color: StellarColors.danger)),
+                          child: Text(stellarText(context, stellarText(context, "Revoke")), style: TextStyle(color: StellarColors.danger)),
                         ),
                 )),
             const SizedBox(height: 8),
@@ -330,7 +331,7 @@ class _SessionManagementSheet extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Session management', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+            Text(stellarText(context, stellarText(context, "Session management")), style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
             const SizedBox(height: 4),
             const Text(
               'Each contact has an independent Double Ratchet session. '
@@ -343,21 +344,21 @@ class _SessionManagementSheet extends ConsumerWidget {
                 padding: EdgeInsets.all(24),
                 child: Center(child: CircularProgressIndicator()),
               ),
-              error: (_, __) => const Text('Could not load sessions', style: TextStyle(color: StellarColors.danger)),
+              error: (_, __) => Text(stellarText(context, stellarText(context, "Could not load sessions")), style: TextStyle(color: StellarColors.danger)),
               data: (chats) {
                 final direct = chats.where((c) => c.chatType == ChatType.direct).toList();
                 if (direct.isEmpty) {
-                  return const Text('No active sessions yet', style: TextStyle(color: StellarColors.textSecondary));
+                  return Text(stellarText(context, stellarText(context, "No active sessions yet")), style: TextStyle(color: StellarColors.textSecondary));
                 }
                 return Column(
                   children: direct
                       .map((chat) => ListTile(
                             leading: StellarAvatar(seed: chat.chatId, label: chat.displayName, size: 36),
                             title: Text(chat.displayName),
-                            subtitle: const Text('Session active'),
+                            subtitle: Text(stellarText(context, stellarText(context, "Session active"))),
                             trailing: TextButton(
                               onPressed: () {},
-                              child: const Text('Reset', style: TextStyle(color: StellarColors.danger)),
+                              child: Text(stellarText(context, stellarText(context, "Reset")), style: TextStyle(color: StellarColors.danger)),
                             ),
                           ))
                       .toList(),
@@ -379,7 +380,7 @@ class _QrVerifyScreen extends ConsumerWidget {
     final nickname = ref.watch(localNicknameProvider) ?? 'unknown';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Verify Contact')),
+      appBar: AppBar(title: Text(stellarText(context, stellarText(context, "Verify Contact")))),
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -411,7 +412,7 @@ class _QrVerifyScreen extends ConsumerWidget {
                 MaterialPageRoute(builder: (_) => const _QrScanScreen()),
               ),
               icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('Scan a code instead'),
+              label: Text(stellarText(context, stellarText(context, "Scan a code instead"))),
             ),
           ],
         ),
@@ -432,9 +433,9 @@ class _QrScanScreen extends StatelessWidget {
     // session's safety number, then mark StellarIdentityKeyStore's
     // trusted-identity record as user-verified).
     return Scaffold(
-      appBar: AppBar(title: const Text('Scan Code')),
+      appBar: AppBar(title: Text(stellarText(context, stellarText(context, "Scan Code")))),
       body: const Center(
-        child: Text('Camera scanner view', style: TextStyle(color: StellarColors.textSecondary)),
+        child: Text(stellarText(context, stellarText(context, "Camera scanner view")), style: TextStyle(color: StellarColors.textSecondary)),
       ),
     );
   }
@@ -446,7 +447,7 @@ class _FingerprintScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Encryption Key Fingerprint')),
+      appBar: AppBar(title: Text(stellarText(context, stellarText(context, "Encryption Key Fingerprint")))),
       body: FutureBuilder(
         future: ref.read(identityKeyStoreProvider).getIdentityKeyPair(),
         builder: (context, snapshot) {
@@ -661,12 +662,12 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
+              child: Text(stellarText(context, stellarText(context, "Cancel"))),
             ),
             FilledButton(
               onPressed: () =>
                   Navigator.of(dialogContext).pop(controller.text),
-              child: const Text('Verify'),
+              child: Text(stellarText(context, stellarText(context, "Verify"))),
             ),
           ],
         ),
@@ -700,7 +701,7 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Could not verify this event.'),
+            content: Text(stellarText(context, stellarText(context, "Could not verify this event."))),
           ),
         );
       }
@@ -742,7 +743,7 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
         barrierDismissible: true,
         builder: (dialogContext) {
           return AlertDialog(
-            title: const Text('Confirm app PIN'),
+            title: Text(stellarText(context, stellarText(context, "Confirm app PIN"))),
             content: TextField(
               controller: controller,
               autofocus: true,
@@ -761,12 +762,12 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
               TextButton(
                 onPressed: () =>
                     Navigator.of(dialogContext).pop(),
-                child: const Text('Cancel'),
+                child: Text(stellarText(context, stellarText(context, "Cancel"))),
               ),
               FilledButton(
                 onPressed: () => Navigator.of(dialogContext)
                     .pop(controller.text),
-                child: const Text('Confirm'),
+                child: Text(stellarText(context, stellarText(context, "Confirm"))),
               ),
             ],
           );
@@ -836,7 +837,7 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Wanted Mode', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+            Text(stellarText(context, stellarText(context, "Wanted Mode")), style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
             const SizedBox(height: 8),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -875,7 +876,7 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
               width: double.infinity,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.lock),
-                label: const Text('Lock now'),
+                label: Text(stellarText(context, stellarText(context, "Lock now"))),
                 onPressed: () {
                   ref.read(wantedModeControllerProvider).lockNow();
                   Navigator.pop(context);
@@ -890,7 +891,7 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
                     Icons.error,
                     color: StellarColors.danger,
                   ),
-                  title: const Text('PIN challenge storage is corrupted'),
+                  title: Text(stellarText(context, stellarText(context, "PIN challenge storage is corrupted"))),
                   subtitle: const Text(
                     'Wanted Mode event verification is blocked. '
                     'Do not rely on monitoring until this issue is safely recovered.',
@@ -904,7 +905,7 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
                     Icons.warning_amber_rounded,
                     color: StellarColors.danger,
                   ),
-                  title: const Text('Could not verify PIN storage status'),
+                  title: Text(stellarText(context, stellarText(context, "Could not verify PIN storage status"))),
                   subtitle: const Text(
                     'The native status check failed. The storage must not be '
                     'assumed healthy.',
@@ -957,7 +958,7 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
                 ListTile(
                   leading: const Icon(Icons.history, color: StellarColors.danger),
                   title: Text('${challenge['category']} ${challenge['action']}'),
-                  subtitle: const Text('Expired – requires PIN to acknowledge'),
+                  subtitle: Text(stellarText(context, stellarText(context, "Expired – requires PIN to acknowledge"))),
                   onTap: _resolvingChallenge
                       ? null : () => _showChallengePinDialog(challenge),
                 ),
@@ -967,13 +968,13 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
               child: TextButton.icon(
                 onPressed: _checkingChallenges ? null : _refreshChallenges,
                 icon: const Icon(Icons.refresh),
-                label: const Text('Refresh event checks'),
+                label: Text(stellarText(context, stellarText(context, "Refresh event checks"))),
               ),
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               activeColor: StellarColors.danger,
-              title: const Text('Enable Wanted Mode wipe'),
+              title: Text(stellarText(context, stellarText(context, "Enable Wanted Mode wipe"))),
               subtitle: const Text(
                 'Enables local event monitoring and the manual local wipe action.',
               ),
@@ -986,7 +987,7 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
                 child: OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(foregroundColor: StellarColors.danger, side: const BorderSide(color: StellarColors.danger)),
                   icon: const Icon(Icons.delete_forever),
-                  label: const Text('Wipe local data and lock'),
+                  label: Text(stellarText(context, stellarText(context, "Wipe local data and lock"))),
                   onPressed: () => _wipeNow(context),
                 ),
               ),

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import '../../../l10n/stellar_translations.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -151,7 +152,7 @@ class _BroadcastInboxScreenState
                   fit: BoxFit.contain,
                   errorBuilder: (_, __, ___) => const Padding(
                     padding: EdgeInsets.all(24),
-                    child: Text('Unable to display this image.'),
+                    child: Text(stellarText(context, stellarText(context, "Unable to display this image."))),
                   ),
                 ),
               ),
@@ -164,14 +165,14 @@ class _BroadcastInboxScreenState
         await showDialog<void>(
           context: context,
           builder: (dialogContext) => AlertDialog(
-            title: const Text('Text attachment'),
+            title: Text(stellarText(context, stellarText(context, "Text attachment"))),
             content: SingleChildScrollView(
               child: SelectableText(text),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Close'),
+                child: Text(stellarText(context, stellarText(context, "Close"))),
               ),
             ],
           ),
@@ -180,7 +181,7 @@ class _BroadcastInboxScreenState
         await showDialog<void>(
           context: context,
           builder: (dialogContext) => AlertDialog(
-            title: const Text('Attachment received'),
+            title: Text(stellarText(context, stellarText(context, "Attachment received"))),
             content: Text(
               'Type: $mimeType\n'
               'Size: ${bytes.length} bytes\n\n'
@@ -190,7 +191,7 @@ class _BroadcastInboxScreenState
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Close'),
+                child: Text(stellarText(context, stellarText(context, "Close"))),
               ),
             ],
           ),
@@ -226,7 +227,7 @@ class _BroadcastInboxScreenState
             child: FilledButton.icon(
               onPressed: _loading ? null : _refresh,
               icon: const Icon(Icons.refresh),
-              label: const Text('Try again'),
+              label: Text(stellarText(context, stellarText(context, "Try again"))),
             ),
           ),
         ],
@@ -242,10 +243,10 @@ class _BroadcastInboxScreenState
             SizedBox(height: 140),
             Icon(Icons.campaign_outlined, size: 52),
             SizedBox(height: 16),
-            Center(child: Text('No broadcasts yet')),
+            Center(child: Text(stellarText(context, stellarText(context, "No broadcasts yet")))),
             SizedBox(height: 8),
             Center(
-              child: Text('Pull down to check for new announcements.'),
+              child: Text(stellarText(context, stellarText(context, "Pull down to check for new announcements."))),
             ),
           ],
         ),
@@ -296,7 +297,7 @@ class _BroadcastInboxScreenState
                       child: OutlinedButton.icon(
                         onPressed: () => _openAttachment(broadcast),
                         icon: const Icon(Icons.attach_file),
-                        label: const Text('Open attachment'),
+                        label: Text(stellarText(context, stellarText(context, "Open attachment"))),
                       ),
                     ),
                   ],
@@ -313,10 +314,10 @@ class _BroadcastInboxScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Broadcasts'),
+        title: Text(stellarText(context, stellarText(context, "Broadcasts"))),
         actions: [
           IconButton(
-            tooltip: 'Refresh broadcasts',
+            tooltip: stellarText(context, stellarText(context, "Refresh broadcasts")),
             onPressed: _loading ? null : _refresh,
             icon: const Icon(Icons.refresh),
           ),
@@ -330,7 +331,7 @@ class _BroadcastInboxScreenState
               actions: [
                 TextButton(
                   onPressed: _refresh,
-                  child: const Text('Retry'),
+                  child: Text(stellarText(context, stellarText(context, "Retry"))),
                 ),
               ],
             ),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 import '../../../domain/models/call_session.dart';
 import '../../state/app_providers.dart';
 import '../../state/security_providers.dart';
@@ -147,7 +148,7 @@ class _PinUnlockScreenState extends ConsumerState<PinUnlockScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _checking ? null : _unlock,
-                  child: Text(_checking ? 'Checking...' : 'Unlock'),
+                  child: Text(_checking ? stellarText(context, stellarText(context, "Checking...")) : stellarText(context, stellarText(context, "Unlock"))),
                 ),
               ),
               const Spacer(),

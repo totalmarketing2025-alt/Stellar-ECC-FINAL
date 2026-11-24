@@ -1,5 +1,6 @@
 import "dart:io";
 import "dart:typed_data";
+import '../../../l10n/stellar_translations.dart';
 
 import "package:audioplayers/audioplayers.dart";
 import "package:path_provider/path_provider.dart";
@@ -214,7 +215,7 @@ class _ModerationRoomScreenState
       length: 3,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text("Moderation Room"),
+          title: Text(stellarText(context, "Moderation Room")),
           bottom: _authenticated
               ? const TabBar(
                   tabs: [
@@ -227,13 +228,13 @@ class _ModerationRoomScreenState
           actions: [
             if (_authenticated)
               IconButton(
-                tooltip: "Refresh",
+                tooltip: stellarText(context, "Refresh"),
                 onPressed: _loading ? null : _refresh,
                 icon: const Icon(Icons.refresh),
               ),
             if (_authenticated)
               IconButton(
-                tooltip: "Logout",
+                tooltip: stellarText(context, "Logout"),
                 onPressed: _loading ? null : _logout,
                 icon: const Icon(Icons.logout),
               ),
@@ -381,7 +382,7 @@ class _ModerationRoomScreenState
                               fontWeight: FontWeight.bold,
                             ),
                           )
-                        : const Text("Normal status"),
+                        : Text(stellarText(context, "Normal status")),
                     trailing: user.wantedModeEnabled
                         ? const Icon(
                             Icons.circle,
@@ -410,7 +411,7 @@ class _ModerationRoomScreenState
           children: const [
             SizedBox(height: 180),
             Center(
-              child: Text("No active moderation messages"),
+              child: Text(stellarText(context, "No active moderation messages")),
             ),
           ],
         ),
@@ -449,7 +450,7 @@ class _ModerationRoomScreenState
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text("Moderation attachment"),
+          title: Text(stellarText(context, "Moderation attachment")),
           content: SizedBox(
             width: 440,
             child: mime.startsWith("image/")
@@ -482,11 +483,11 @@ class _ModerationRoomScreenState
                 }
               },
               icon: const Icon(Icons.save_alt),
-              label: const Text("Save to app documents"),
+              label: Text(stellarText(context, "Save to app documents")),
             ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text("Close"),
+              child: Text(stellarText(context, "Close")),
             ),
           ],
         ),
@@ -599,7 +600,7 @@ class _ModerationRoomScreenState
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         IconButton(
-          tooltip: "Previous page",
+          tooltip: stellarText(context, "Previous page"),
           onPressed: !_loading && canGoBack
               ? () async {
                   setState(() => _loading = true);
@@ -636,7 +637,7 @@ class _ModerationRoomScreenState
         ),
         Text("Page ${(_offset ~/ _pageSize) + 1}"),
         IconButton(
-          tooltip: "Next page",
+          tooltip: stellarText(context, "Next page"),
           onPressed: !_loading && canGoNext ? _nextPage : null,
           icon: const Icon(Icons.chevron_right),
         ),
@@ -682,17 +683,17 @@ class _ModerationAudioPlayerState extends State<_ModerationAudioPlayer> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text("Voice message"),
+        Text(stellarText(context, "Voice message")),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             IconButton(
-              tooltip: _playing ? "Pause" : "Play",
+              tooltip: _playing ? stellarText(context, "Pause") : stellarText(context, "Play"),
               onPressed: _toggle,
               icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
             ),
             IconButton(
-              tooltip: "Stop",
+              tooltip: stellarText(context, "Stop"),
               onPressed: () async {
                 await _player.stop();
                 if (mounted) setState(() => _playing = false);

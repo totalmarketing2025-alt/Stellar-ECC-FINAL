@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 import '../../../core/network/directory_client.dart';
 import '../../state/app_providers.dart';
 
@@ -163,7 +164,7 @@ class _ChooseNicknameScreenState
                 },
                 decoration: InputDecoration(
                   prefixText: '@',
-                  hintText: 'nickname',
+                  hintText: stellarText(context, stellarText(context, "nickname")),
                   errorText: _error,
                   border: const OutlineInputBorder(),
                 ),
@@ -187,7 +188,7 @@ class _ChooseNicknameScreenState
                             color: Colors.white,
                           ),
                         )
-                      : const Text('Continue'),
+                      : Text(stellarText(context, stellarText(context, "Continue"))),
                 ),
               ),
             ],

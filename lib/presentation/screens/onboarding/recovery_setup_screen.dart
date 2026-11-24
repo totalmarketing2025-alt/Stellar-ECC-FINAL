@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 
 class RecoverySetupScreen extends ConsumerWidget {
   const RecoverySetupScreen({super.key});
@@ -73,7 +74,7 @@ class RecoverySetupScreen extends ConsumerWidget {
                       ),
                     );
                   },
-                  child: const Text('Set up recovery'),
+                  child: Text(stellarText(context, stellarText(context, "Set up recovery"))),
                 ),
               ),
               const SizedBox(height: 12),
@@ -83,7 +84,7 @@ class RecoverySetupScreen extends ConsumerWidget {
                   onPressed: () {
                     context.go('/onboarding/app-lock');
                   },
-                  child: const Text('Skip for now'),
+                  child: Text(stellarText(context, stellarText(context, "Skip for now"))),
                 ),
               ),
             ],

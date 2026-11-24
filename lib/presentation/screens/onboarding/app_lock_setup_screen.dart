@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 import '../../state/app_providers.dart';
 import '../../state/app_lock_controller.dart';
 
@@ -157,7 +158,7 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _saving ? null : _savePin,
-                  child: Text(_saving ? 'Saving...' : 'Set PIN'),
+                  child: Text(_saving ? stellarText(context, stellarText(context, "Saving...")) : stellarText(context, stellarText(context, "Set PIN"))),
                 ),
               ),
 
@@ -168,7 +169,7 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
                 child: OutlinedButton.icon(
                   onPressed: _saving ? null : _enableBiometrics,
                   icon: const Icon(Icons.fingerprint),
-                  label: const Text('Enable biometric lock'),
+                  label: Text(stellarText(context, stellarText(context, "Enable biometric lock"))),
                 ),
               ),
             ],

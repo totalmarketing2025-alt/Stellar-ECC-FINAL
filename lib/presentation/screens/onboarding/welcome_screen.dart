@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
@@ -15,9 +16,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   int _page = 0;
 
   static const _cards = [
-    _ValueProp(icon: Icons.shield_outlined, title: 'Private', body: 'No phone number required. No permanent servers holding your messages.'),
-    _ValueProp(icon: Icons.timer_outlined, title: 'Ephemeral', body: 'Messages disappear automatically — nothing lingers after your chat.'),
-    _ValueProp(icon: Icons.flash_on_outlined, title: 'Fast', body: 'A lightweight relay and modern encryption keep things quick and responsive.'),
+    _ValueProp(icon: Icons.shield_outlined, title: stellarText(context, stellarText(context, "Private")), body: stellarText(context, stellarText(context, "No phone number required. No permanent servers holding your messages."))),
+    _ValueProp(icon: Icons.timer_outlined, title: stellarText(context, stellarText(context, "Ephemeral")), body: stellarText(context, stellarText(context, "Messages disappear automatically — nothing lingers after your chat."))),
+    _ValueProp(icon: Icons.flash_on_outlined, title: stellarText(context, stellarText(context, "Fast")), body: stellarText(context, stellarText(context, "A lightweight relay and modern encryption keep things quick and responsive."))),
   ];
 
   @override
@@ -66,7 +67,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () => context.go('/onboarding/identity'),
-                  child: const Text('Get Started'),
+                  child: Text(stellarText(context, stellarText(context, "Get Started"))),
                 ),
               ),
             ),

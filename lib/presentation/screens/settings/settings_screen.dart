@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
 import '../../../l10n/app_localizations.dart';
 import 'stellar_security_screen.dart';
 import 'stellar_guard_screen.dart';
@@ -105,7 +106,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     } on PlatformException {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Android could not open edge lighting settings.'),
+          content: Text(stellarText(context, stellarText(context, "Android could not open edge lighting settings."))),
         ));
       }
     } finally {
@@ -127,7 +128,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         children: [
           ListTile(
             leading: const Icon(Icons.shield_outlined, color: StellarColors.accentBlue),
-            title: const Text('Security Center'),
+            title: Text(stellarText(context, stellarText(context, "Security Center"))),
             subtitle: Text('Score: ${ref.watch(securityScoreProvider)}/100'),
             trailing: const Icon(Icons.chevron_right, color: StellarColors.textSecondary),
             onTap: () => context.push('/security'),
@@ -138,8 +139,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               Icons.shield_moon_outlined,
               color: StellarColors.accentBlue,
             ),
-            title: const Text('Stellar Security'),
-            subtitle: const Text('Learn how Stellar protects you'),
+            title: Text(stellarText(context, stellarText(context, "Stellar Security"))),
+            subtitle: Text(stellarText(context, stellarText(context, "Learn how Stellar protects you"))),
             trailing: const Icon(
               Icons.chevron_right,
               color: StellarColors.textSecondary,
@@ -167,13 +168,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           _SectionHeader(l10n.accountSection),
           ListTile(
             leading: const Icon(Icons.alternate_email, color: StellarColors.accentBlue),
-            title: const Text('Nickname'),
+            title: Text(stellarText(context, stellarText(context, "Nickname"))),
             subtitle: Text(nickname),
           ),
           ListTile(
             leading: const Icon(Icons.account_circle_outlined, color: StellarColors.accentBlue),
-            title: const Text('My Profile'),
-            subtitle: const Text('View or change your profile photo'),
+            title: Text(stellarText(context, stellarText(context, "My Profile"))),
+            subtitle: Text(stellarText(context, stellarText(context, "View or change your profile photo"))),
             trailing: const Icon(Icons.chevron_right, color: StellarColors.textSecondary),
             onTap: () {
               if (nickname == '—' || nickname.trim().isEmpty) {
@@ -187,13 +188,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           ),
           ListTile(
             leading: const Icon(Icons.qr_code, color: StellarColors.accentBlue),
-            title: const Text('Safety number / QR'),
+            title: Text(stellarText(context, stellarText(context, "Safety number / QR"))),
             onTap: () => context.push('/security'),
           ),
           ListTile(
             leading: const Icon(Icons.warning_amber_rounded, color: StellarColors.danger),
-            title: const Text('Reset Identity', style: TextStyle(color: StellarColors.danger)),
-            subtitle: const Text('Invalidates all sessions — contacts must re-verify you'),
+            title: Text(stellarText(context, stellarText(context, "Reset Identity")), style: TextStyle(color: StellarColors.danger)),
+            subtitle: Text(stellarText(context, stellarText(context, "Invalidates all sessions — contacts must re-verify you"))),
             onTap: () => _confirmResetIdentity(context),
           ),
 
@@ -202,8 +203,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               Icons.shield_moon_outlined,
               color: StellarColors.accentPurple,
             ),
-            title: const Text('Stellar GUARD'),
-            subtitle: const Text('Secure Stellar user removal'),
+            title: Text(stellarText(context, stellarText(context, "Stellar GUARD"))),
+            subtitle: Text(stellarText(context, stellarText(context, "Secure Stellar user removal"))),
             trailing: const Icon(
               Icons.chevron_right,
               color: StellarColors.textSecondary,
@@ -220,34 +221,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           _SectionHeader(l10n.privacySection),
           SwitchListTile(
             activeColor: StellarColors.accentBlue,
-            title: const Text('Block screenshots'),
-            subtitle: const Text('Android: fully blocked. iOS: detected + disclosed (no OS-level prevention exists)'),
+            title: Text(stellarText(context, stellarText(context, "Block screenshots"))),
+            subtitle: Text(stellarText(context, stellarText(context, "Android: fully blocked. iOS: detected + disclosed (no OS-level prevention exists)"))),
             value: screenshotBlockEnabled,
             onChanged: (v) => ref.read(screenshotBlockEnabledProvider.notifier).state = v,
           ),
           SwitchListTile(
             activeColor: StellarColors.accentBlue,
-            title: const Text('Screen privacy mode'),
-            subtitle: const Text('Blur content when app is backgrounded'),
+            title: Text(stellarText(context, stellarText(context, "Screen privacy mode"))),
+            subtitle: Text(stellarText(context, stellarText(context, "Blur content when app is backgrounded"))),
             value: screenPrivacyMode,
             onChanged: (v) => ref.read(screenPrivacyModeEnabledProvider.notifier).state = v,
           ),
           ListTile(
             leading: const Icon(Icons.cloud_off, color: StellarColors.textSecondary),
-            title: const Text('Cloud backups'),
-            subtitle: const Text('Off — app data is excluded from device backups by design'),
+            title: Text(stellarText(context, stellarText(context, "Cloud backups"))),
+            subtitle: Text(stellarText(context, stellarText(context, "Off — app data is excluded from device backups by design"))),
           ),
 
           _SectionHeader(l10n.chatsSection),
           ListTile(
             leading: const Icon(Icons.timer_outlined, color: StellarColors.accentPurple),
-            title: const Text('Default disappearing timer'),
+            title: Text(stellarText(context, stellarText(context, "Default disappearing timer"))),
             subtitle: Text(TtlPreset.label(_defaultTtl)),
             onTap: () async {
               final selected = await showModalBottomSheet<int>(
                 context: context,
                 backgroundColor: StellarColors.bgElevated,
-                builder: (_) => TtlPickerSheet(current: _defaultTtl, title: 'Default disappearing timer'),
+                builder: (_) => TtlPickerSheet(current: _defaultTtl, title: stellarText(context, stellarText(context, "Default disappearing timer"))),
               );
               if (selected != null) setState(() => _defaultTtl = selected);
             },
@@ -256,7 +257,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           _SectionHeader(l10n.appLockSection),
           SwitchListTile(
             activeColor: StellarColors.accentBlue,
-            title: const Text('Biometric / PIN lock'),
+            title: Text(stellarText(context, stellarText(context, "Biometric / PIN lock"))),
             value: biometricLockEnabled,
             onChanged: (v) async {
               final controller = ref.read(appLockControllerProvider);
@@ -271,7 +272,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Biometric authentication was not enabled.'),
+                      content: Text(stellarText(context, stellarText(context, "Biometric authentication was not enabled."))),
                     ),
                   );
                 }
@@ -306,7 +307,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               activeColor: StellarColors.accentPurple,
               secondary: const Icon(Icons.auto_awesome,
                   color: StellarColors.accentPurple),
-              title: const Text('Purple edge lighting'),
+              title: Text(stellarText(context, stellarText(context, "Purple edge lighting"))),
               subtitle: Text(!_edgeSupported
                   ? 'Requires Android 8 or later'
                   : !_edgePermissionGranted
@@ -323,14 +324,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               Icons.campaign_outlined,
               color: StellarColors.accentPurple,
             ),
-            title: const Text('Broadcasts'),
-            subtitle: const Text('Announcements and attached files'),
+            title: Text(stellarText(context, stellarText(context, "Broadcasts"))),
+            subtitle: Text(stellarText(context, stellarText(context, "Announcements and attached files"))),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => context.push('/broadcasts'),
           ),
           ListTile(
             leading: const Icon(Icons.notifications_outlined, color: StellarColors.accentPurple),
-            title: const Text('Preview level'),
+            title: Text(stellarText(context, stellarText(context, "Preview level"))),
             subtitle: Text(_notificationPreviewLevelLabel(_notificationPreviewLevel)),
             onTap: () => _showPreviewLevelPicker(context),
           ),
@@ -338,7 +339,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           _SectionHeader(l10n.aboutSection),
           ListTile(
             leading: const Icon(Icons.security, color: StellarColors.textSecondary),
-            title: const Text('Security audit checklist'),
+            title: Text(stellarText(context, stellarText(context, "Security audit checklist"))),
             onTap: () {},
           ),
         ],
@@ -386,7 +387,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: StellarColors.bgElevated,
-        title: const Text('Reset Identity?'),
+        title: Text(stellarText(context, stellarText(context, "Reset Identity?"))),
         content: const Text(
           'This removes local messages, sessions, identity data, PIN settings, '
           'and local media. Your contacts will need to verify your new identity. '
@@ -395,7 +396,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
+            child: Text(stellarText(context, stellarText(context, "Cancel"))),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
