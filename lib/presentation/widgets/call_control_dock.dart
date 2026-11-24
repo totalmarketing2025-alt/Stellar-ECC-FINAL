@@ -64,6 +64,7 @@ class CallControlDock extends StatelessWidget {
             _DockButton(
               icon: cameraOff ? Icons.videocam_off : Icons.videocam,
               active: !cameraOff,
+              size: 44,
               onTap: cameraBusy ? null : onToggleCamera,
               tooltip: cameraOff ? l10n.turnVideoOn : l10n.turnVideoOff,
             ),
@@ -102,6 +103,7 @@ class _DockButton extends StatelessWidget {
     required this.onTap,
     this.activeColor = StellarColors.accentBlue,
     this.tooltip,
+    this.size = 52,
   });
 
   final IconData icon;
@@ -109,6 +111,7 @@ class _DockButton extends StatelessWidget {
   final Color activeColor;
   final VoidCallback? onTap;
   final String? tooltip;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -117,8 +120,8 @@ class _DockButton extends StatelessWidget {
       onPressed: onTap,
       padding: EdgeInsets.zero,
       icon: Container(
-        width: 52,
-        height: 52,
+        width: size,
+        height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: active ? activeColor : Colors.white10,
