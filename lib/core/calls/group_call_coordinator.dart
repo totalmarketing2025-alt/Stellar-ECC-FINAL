@@ -236,9 +236,11 @@ class GroupCallCoordinator {
       } catch (_) {
         // Group metadata may be delivered immediately before the call invite.
       }
-      if (attempt < 4) await Future<void>.delayed(
-        const Duration(milliseconds: 500),
-      );
+      if (attempt < 4) {
+        await Future<void>.delayed(
+          const Duration(milliseconds: 500),
+        );
+      }
     }
     return const <String>[];
   }
