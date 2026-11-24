@@ -204,7 +204,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               color: StellarColors.accentPurple,
             ),
             title: Text(stellarText(context, "Stellar GUARD")),
-            subtitle: Text(stellarText(context, "Secure Stellar user removal")),
+            subtitle: Text(stellarText(context, "Report accounts; a matching theft report can revoke an account automatically.")),
             trailing: const Icon(
               Icons.chevron_right,
               color: StellarColors.textSecondary,

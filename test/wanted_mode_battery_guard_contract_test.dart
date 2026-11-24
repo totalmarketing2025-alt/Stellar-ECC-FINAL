@@ -53,6 +53,7 @@ void main() {
     expect(service, contains('putExtra(EXTRA_CHALLENGE_ID, challenge.id)'));
     expect(monitor, contains('"batteryPercent" to prefs.getInt(KEY_BATTERY_PERCENT, -1)'));
     expect(monitor, contains('event.put("batteryPercent", batteryPercent)'));
-    expect(screen, contains('Battery Guard:'));
+    expect(screen, contains('stellarText(context, "Battery check")'));
+    expect(screen, contains('Below 20%, asks for your app PIN for 10 seconds.'));
   });
 }

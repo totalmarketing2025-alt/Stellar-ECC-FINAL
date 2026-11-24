@@ -83,7 +83,7 @@ class SecurityCenterScreen extends ConsumerWidget {
           ListTile(
             leading: const Icon(Icons.emergency_outlined, color: StellarColors.danger),
             title: Text(stellarText(context, "Wanted Mode")),
-            subtitle: Text(stellarText(context, "Lock the app or erase its local data")),
+            subtitle: Text(stellarText(context, "PIN checks monitor device events; a missed check may erase local Stellar data")),
             trailing: const Icon(Icons.chevron_right, color: StellarColors.textSecondary),
             onTap: () => _openWantedMode(context, ref),
           ),
@@ -847,9 +847,9 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
                 color: _monitoringStatus == 'ACTIVE'
                     ? StellarColors.success : StellarColors.danger,
               ),
-              title: Text('Monitoring: $_monitoringStatus'),
+              title: Text('${stellarText(context, "Monitoring")}: ${stellarText(context, _monitoringStatus)}'),
               subtitle: Text(_monitoringDetails.isEmpty
-                  ? 'USB detection covers USB host devices only.'
+                  ? stellarText(context, 'USB detection covers USB host devices only.')
                   : _monitoringDetails),
             ),
             ListTile(
@@ -860,16 +860,16 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
                     ? StellarColors.danger : StellarColors.textSecondary,
               ),
               title: Text(_batteryPercent < 0
-                  ? 'Battery Guard: waiting for battery status'
-                  : 'Battery Guard: $_batteryPercent%'),
+                  ? '${stellarText(context, "Battery check")}: ${stellarText(context, "Waiting for battery status")}'
+                  : '${stellarText(context, "Battery check")}: $_batteryPercent%'),
               subtitle: Text(_batteryGuardArmed
-                  ? 'Below 20%: 10-second PIN check; missed check triggers local wipe.'
-                  : 'Triggered. Rearms after charging to 25%.'),
+                  ? stellarText(context, "Below 20%, asks for your app PIN for 10 seconds. If the check expires while Android event alerts are allowed, local Stellar data is wiped.")
+                  : stellarText(context, "Triggered. Rearms after charging to 25%.")),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Instantly locks the app, requiring biometric/PIN re-entry to reopen.',
-              style: TextStyle(color: StellarColors.textSecondary),
+            Text(
+              stellarText(context, "Lock now locks the app and requires your normal app unlock. It does not erase data."),
+              style: const TextStyle(color: StellarColors.textSecondary),
             ),
             const SizedBox(height: 16),
             SizedBox(
@@ -974,9 +974,9 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               activeColor: StellarColors.danger,
-              title: Text(stellarText(context, "Enable Wanted Mode wipe")),
-              subtitle: const Text(
-                'Enables local event monitoring and the manual local wipe action.',
+              title: Text(stellarText(context, "Enable Wanted Mode monitoring")),
+              subtitle: Text(
+                stellarText(context, "Monitors selected device events. A missed 10-second PIN check may erase local Stellar data and lock this app. Android event alerts must be allowed for automatic wipe; manual wipe is available below."),
               ),
               value: wipeEnabled,
               onChanged: _updatingMonitor ? null : _setMonitoring,

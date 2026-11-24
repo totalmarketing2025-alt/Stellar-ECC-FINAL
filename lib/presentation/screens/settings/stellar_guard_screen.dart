@@ -150,15 +150,13 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
         !_form.currentState!.validate()) return;
     final autoTheft = _reason == 'theft';
     final confirmed = await _confirm(
-      autoTheft ? 'Submit theft report and revoke account?' : 'Submit Guard report?',
-      autoTheft
-          ? 'If the nine-digit code matches a live user, submitting this '
-              'signed theft report permanently revokes that account '
-              'immediately, without moderator review. This cannot be undone '
-              'from the app.'
-          : 'This creates a request for moderator review. It does NOT remove '
-              'or disable any user account.',
-      autoTheft ? 'Submit theft report' : 'Submit for review',
+      stellarText(context, autoTheft
+          ? 'Submit theft report and revoke account?'
+          : 'Submit Guard report?'),
+      stellarText(context, autoTheft
+          ? 'If the nine-digit code matches an active account, this report permanently revokes that account immediately, without moderator review. A code match identifies the account but does not prove theft. The target app may clear its local account data after it detects the revocation. This cannot be undone in Stellar. Check every digit before submitting.'
+          : 'This creates a request for moderator review. It does NOT remove or disable any user account immediately; moderators may take action after reviewing the report.'),
+      stellarText(context, autoTheft ? 'Submit theft report' : 'Submit for review'),
     );
     if (!confirmed || !mounted || _account != account) return;
 
@@ -181,9 +179,9 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(autoTheft
             ? (receipt.status == 'approved'
-                ? 'Theft report approved automatically; matched account revoked.'
-                : 'Theft report recorded; no matching account was revoked.')
-            : 'Guard report saved for moderator review.')),
+                ? stellarText(context, 'Theft report approved automatically; matched account revoked.')
+                : stellarText(context, 'Theft report recorded; no matching account was revoked.'))
+            : stellarText(context, 'Guard report saved for moderator review.'))),
       );
     } catch (error) {
       try {
@@ -238,8 +236,7 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
           Text(stellarText(context, "My 9-digit Guard code"),
               style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          const Text('Your Guard code identifies your account. It is NOT '
-              'your app PIN.',
+          Text(stellarText(context, 'Your Guard code identifies your account. It is NOT your app PIN.'),
               style: TextStyle(color: StellarColors.textSecondary)),
           const SizedBox(height: 12),
           if (_myCode != null) ...[
@@ -285,7 +282,7 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
                 counterText: '', border: OutlineInputBorder(),
               ),
               validator: (value) => GuardProtocol.validCode(value ?? '')
-                  ? null : 'Enter exactly nine digits',
+                  ? null : stellarText(context, 'Enter exactly nine digits'),
               onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: 12),
@@ -296,15 +293,30 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
               value: _reason,
               isExpanded: true,
               decoration: InputDecoration(
-                labelText: 'Reason', border: OutlineInputBorder(),
+                labelText: stellarText(context, 'Reason'), border: const OutlineInputBorder(),
               ),
               items: GuardProtocol.reasons.entries.map((entry) =>
                   DropdownMenuItem(value: entry.key,
-                      child: Text(entry.value))).toList(),
+                      child: Text(stellarText(context, entry.value)))).toList(),
               onChanged: _submitting ? null : (value) {
                 if (value != null) setState(() => _reason = value);
               },
             ),
+            if (_reason == 'theft')
+              Card(
+                color: StellarColors.danger.withOpacity(0.12),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(stellarText(context, 'Theft report: automatic revocation if the code matches an active account. A code match does not verify that theft occurred. Review all nine digits before submitting.'),
+                      style: const TextStyle(color: StellarColors.textPrimary, height: 1.4)),
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(stellarText(context, 'Reports for this reason go to moderators. Submitting one does not immediately disable the account.'),
+                    style: const TextStyle(color: StellarColors.textSecondary, height: 1.4)),
+              ),
             const SizedBox(height: 12),
             TextFormField(
               key: const Key('guard_details'),
@@ -313,11 +325,11 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
               minLines: 3,
               maxLines: 6,
               decoration: InputDecoration(
-                labelText: 'Describe the issue',
+                labelText: stellarText(context, 'Describe the issue'),
                 hintText: stellarText(context, "What happened?"), border: OutlineInputBorder(),
               ),
               validator: (value) => GuardProtocol.validDetails((value ?? '').trim())
-                  ? null : 'Write 10–2000 characters',
+                  ? null : stellarText(context, 'Write 10–2000 characters'),
               onChanged: (_) => setState(() {}),
             ),
             if (_pending != null) ...[
@@ -345,12 +357,12 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
                 child: _submitting
                     ? const SizedBox(width: 18, height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2))
-                    : Text(stellarText(context, "Submit for moderator review")),
+                    : Text(stellarText(context, _reason == 'theft' ? 'Continue to theft confirmation' : 'Submit for moderator review')),
               ),
             ),
             const SizedBox(height: 8),
-            Text(stellarText(context, "A report never automatically removes an account."),
-                style: TextStyle(color: StellarColors.textSecondary)),
+            Text(stellarText(context, "For non-theft reports, submission does not disable the account; moderators review it first."),
+                style: const TextStyle(color: StellarColors.textSecondary)),
           ],
         ),
       ),
@@ -434,10 +446,13 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
           Text(stellarText(context, "Stellar GUARD"), textAlign: TextAlign.center,
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          const Text('Submit a secure report about a Stellar account. '
-              'A moderator must review it separately.',
+          Text(stellarText(context, 'GUARD lets you report a Stellar account using its nine-digit Guard code. The code identifies the account; it is not your app PIN. Most reports go to moderators, but theft reports can revoke a matching active account automatically without review. A code match does not prove theft.'),
               textAlign: TextAlign.center,
-              style: TextStyle(color: StellarColors.textSecondary)),
+              style: const TextStyle(color: StellarColors.textSecondary, height: 1.4)),
+          const SizedBox(height: 6),
+          Text(stellarText(context, 'Review the target code carefully before submitting a theft report. Its effect cannot be undone in Stellar.'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: StellarColors.danger, height: 1.4)),
           if (!ready)
             Card(child: Padding(
               padding: EdgeInsets.all(16),
@@ -456,10 +471,8 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
           const SizedBox(height: 12),
           _historyCard(context),
           const SizedBox(height: 16),
-          const Text('Case IDs are stored securely on this device. If app '
-              'data is wiped, these local references can be lost. Guard does '
-              'not remotely delete anyone\'s messages.',
-              style: TextStyle(color: StellarColors.textSecondary)),
+          Text(stellarText(context, 'GUARD reports and audit history are retained for review. Local case references may be lost if you wipe app data. GUARD cannot erase messages already delivered to other devices.'),
+              style: const TextStyle(color: StellarColors.textSecondary, height: 1.4)),
         ],
       ),
     );
