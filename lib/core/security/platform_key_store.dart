@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
+import 'pin_hash.dart';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -27,6 +28,7 @@ class PlatformKeyStore {
 
   static const _dbKeyAlias = 'stellar_ecc.db_master_key';
 
+  static const _pinRecordAlias = 'stellar_ecc.app_pin_record';
   static const _pinHashAlias = 'stellar_ecc.app_pin_hash';
   static const _pinSaltAlias = 'stellar_ecc.app_pin_salt';
   static const _pinFailedAttemptsAlias = 'stellar_ecc.pin_failed_attempts';
@@ -48,23 +50,26 @@ class PlatformKeyStore {
 
 
   Future<bool> hasPin() async {
-    return await _storage.read(key: _pinHashAlias) != null;
+    final current = await _storage.read(key: _pinRecordAlias);
+    final legacy = await _storage.read(key: _pinHashAlias);
+    return current != null || legacy != null;
   }
 
   Future<void> setPin(String pin) async {
     final salt = _generateRandomKey(16);
-    final hash = sha256.convert(
-      [...salt, ...utf8.encode(pin)],
-    ).bytes;
+    final hash = await derivePinVerifier(pin, salt);
+    final record = jsonEncode({
+      'version': 1,
+      'kdf': 'pbkdf2-hmac-sha256',
+      'iterations': pinKdfIterations,
+      'salt': base64Encode(salt),
+      'hash': base64Encode(hash),
+    });
 
-    await _storage.write(
-      key: _pinSaltAlias,
-      value: base64Encode(salt),
-    );
-    await _storage.write(
-      key: _pinHashAlias,
-      value: base64Encode(hash),
-    );
+    // Commit the verifier as one value before removing legacy fields.
+    await _storage.write(key: _pinRecordAlias, value: record);
+    await _storage.delete(key: _pinHashAlias);
+    await _storage.delete(key: _pinSaltAlias);
   }
 
   Future<int> getPinFailedAttempts() async {
@@ -86,24 +91,50 @@ class PlatformKeyStore {
   }
 
   Future<bool> verifyPin(String pin) async {
+    final recordRaw = await _storage.read(key: _pinRecordAlias);
+    if (recordRaw != null) {
+      try {
+        final record = jsonDecode(recordRaw) as Map<String, dynamic>;
+        if (record['version'] != 1 ||
+            record['kdf'] != 'pbkdf2-hmac-sha256') return false;
+        final iterations = record['iterations'];
+        if (iterations is! int || iterations < 1 || iterations > pinKdfIterations) {
+          return false;
+        }
+        final salt = base64Decode(record['salt'] as String);
+        final expected = base64Decode(record['hash'] as String);
+        final actual = await derivePinVerifier(
+          pin, salt, iterations: iterations,
+        );
+        return _constantTimeEquals(actual, expected);
+      } catch (_) {
+        return false;
+      }
+    }
+
+    // Verify existing installations and upgrade their legacy fast hash only
+    // after the entered PIN has been confirmed.
     final saltRaw = await _storage.read(key: _pinSaltAlias);
     final hashRaw = await _storage.read(key: _pinHashAlias);
-
     if (saltRaw == null || hashRaw == null) return false;
+    try {
+      final salt = base64Decode(saltRaw);
+      final expected = base64Decode(hashRaw);
+      final actual = sha256.convert([...salt, ...utf8.encode(pin)]).bytes;
+      if (!_constantTimeEquals(actual, expected)) return false;
+      await setPin(pin);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
-    final salt = base64Decode(saltRaw);
-    final expected = base64Decode(hashRaw);
-    final actual = sha256.convert(
-      [...salt, ...utf8.encode(pin)],
-    ).bytes;
-
+  bool _constantTimeEquals(List<int> actual, List<int> expected) {
     if (actual.length != expected.length) return false;
-
     var difference = 0;
     for (var i = 0; i < actual.length; i++) {
       difference |= actual[i] ^ expected[i];
     }
-
     return difference == 0;
   }
 

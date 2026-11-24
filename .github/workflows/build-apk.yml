@@ -1,4 +1,4 @@
-name: Flutter APK Build
+name: Flutter Debug APK Build
 
 on:
   push:
@@ -36,20 +36,11 @@ jobs:
       - name: Get packages
         run: flutter pub get
 
-      - name: Test call action and lock-screen contracts
-        run: flutter test test/call_notification_action_contract_test.dart
+      - name: Run Flutter tests
+        run: flutter test
 
-      - name: Test push notification dedup contracts
-        run: flutter test test/push_notification_dedup_contract_test.dart
-
-      - name: Test Wanted Mode notification and monitoring contracts
-        run: flutter test test/wanted_mode_reliability_contract_test.dart
-
-      - name: Test Wanted Mode battery contracts
-        run: flutter test test/wanted_mode_battery_guard_contract_test.dart
-
-      - name: Build APK
-        run: flutter build apk --release
+      - name: Build debug APK
+        run: flutter build apk --debug
 
       - name: Test Android Wanted Mode battery threshold policy
         run: cd android && ./gradlew :app:testDebugUnitTest --tests 'ecc.stellar.app.WantedModeBatteryGuardPolicyTest' --no-daemon
@@ -60,5 +51,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: stellar-ecc-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: stellar-ecc-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk

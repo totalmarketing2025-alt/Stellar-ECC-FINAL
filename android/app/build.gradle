@@ -24,9 +24,16 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+def releaseStoreFile = System.getenv('STELLAR_RELEASE_STORE_FILE')
+def releaseStorePassword = System.getenv('STELLAR_RELEASE_STORE_PASSWORD')
+def releaseKeyAlias = System.getenv('STELLAR_RELEASE_KEY_ALIAS')
+def releaseKeyPassword = System.getenv('STELLAR_RELEASE_KEY_PASSWORD')
+def hasReleaseSigning = [releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword]
+    .every { it != null && !it.trim().isEmpty() }
+
 android {
     namespace 'ecc.stellar.app'
-    compileSdk 35
+    compileSdk 36
     ndkVersion "26.1.10909125"
 
     compileOptions {
@@ -45,7 +52,7 @@ android {
     defaultConfig {
         applicationId "ecc.stellar.app"
         minSdkVersion 26
-        targetSdkVersion 34
+        targetSdkVersion 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
         multiDexEnabled true
@@ -53,16 +60,37 @@ android {
 
     signingConfigs {
         release {
-            // Production keystore will be configured later.
+            if (hasReleaseSigning) {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
         }
     }
 
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+// Fail release packaging tasks early when production signing is not configured.
+// Debug builds and debug unit tests remain available without release credentials.
+if (!hasReleaseSigning) {
+    tasks.configureEach { task ->
+        if (task.name.toLowerCase().contains('release')) {
+            task.doFirst {
+                throw new GradleException(
+                    'Production signing credentials are required for release builds. Use --debug for test APKs.'
+                )
+            }
         }
     }
 }

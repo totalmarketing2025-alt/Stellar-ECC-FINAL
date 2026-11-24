@@ -4,7 +4,7 @@ This guide reflects the Android-first application and current `main` code. CI ch
 
 ## Local Android checks
 
-Run from the repository root with the Flutter version used by CI (Flutter 3.24.0):
+Run from the repository root with the Flutter version used by CI (Flutter 3.27.4):
 
 ```sh
 flutter pub get
@@ -27,9 +27,9 @@ The debug APK is written to `build/app/outputs/flutter-apk/app-debug.apk`. This 
 
 - [Internal Audit](.github/workflows/internal-audit.yml) generates Flutter localizations, runs `flutter analyze`, and runs `flutter test`.
 - [GUARD Phase 05 verification](.github/workflows/guard-phase05.yml) runs GUARD backend tests, Flutter GUARD contract/UI tests, builds a debug APK and runs a native Android policy test.
-- [Group call validation](.github/workflows/group-call-validation.yml) runs localization generation, Flutter analysis/tests, Android debug compilation and a native group-call wake test. Its current trigger is the `feature/group-call-engine-v2` branch only; it does not automatically run for every PR or push to `main`. Confirm the run manually when changing group-call code.
+- [Group call validation](.github/workflows/group-call-validation.yml) runs localization generation, Flutter analysis/tests, Android debug compilation and a native group-call wake test on pull requests to `main`, pushes to `main`, and the group-call feature branch.
 
-For the source tree merged as main commit `ebb8e543` on 2026-11-24, the Flutter audit, GUARD verification, Directory backend tests and the group-call validation run completed successfully. This validates compilation and automated tests, not live calling or release readiness.
+Recent successful runs validate only the commit and checks shown in GitHub Actions. CI does not confirm live calling, push delivery, release signing, or production Worker configuration.
 
 ## Live service configuration
 
@@ -50,12 +50,14 @@ Use at least two Android phones with separate test identities for one-to-one mes
 - Test incoming group invitations while Stellar is open, backgrounded, screen-locked and removed from recents. Group calls do not yet have the same verified native background ringing/lock-screen flow as 1:1 calls; treat those cases as a known limitation until verified on devices.
 - Change Android system language to English, Macedonian, Albanian and Russian. Verify app UI, incoming-call UI, message notifications, call notifications, group-call notifications, Wanted Mode alerts and notification-channel names.
 - Test Wanted Mode only on a disposable device identity. Verify enabled/disabled notifications, 10-second PIN expiry, low-battery threshold below 20%, rearming at 25%, reboot recovery, lock-only and manual local wipe.
-- Test GUARD only with disposable accounts in a staging environment. A theft report can irreversibly revoke an exact matching active account when production processing is enabled; a nine-digit code is not evidence of theft.
+- Test GUARD only with disposable accounts in staging. All reports remain pending until an authorized moderator reviews them; a nine-digit code identifies an account but is not evidence of theft.
 
 Record Android version, device model, system language, network type, Worker deployment version, steps and logs for every failed case. Do not treat a green CI build as a replacement for this matrix.
 
 ## Release and platform limits
 
-- The Android `release` build currently uses the debug signing configuration. Configure and protect a production signing key before creating a distributable release; CI presently verifies debug APK builds.
+- Android compilation and targeting use API level 36. This meets Google Play's current Android 16 submission target, but it does not replace Play Console validation or real-device testing of Android 16 behavior.
+
+- Release builds require a production keystore configured through the `STELLAR_RELEASE_STORE_FILE`, `STELLAR_RELEASE_STORE_PASSWORD`, `STELLAR_RELEASE_KEY_ALIAS` and `STELLAR_RELEASE_KEY_PASSWORD` environment variables. CI builds and uploads a clearly labeled debug APK only.
 - This repository does not currently contain `ios/Runner.xcodeproj/project.pbxproj`. An iOS build is therefore not validated by the current project.
 - Group calls use a small peer-to-peer mesh capped at four participants. Do not infer four-device performance or production reliability from unit tests and successful compilation alone.

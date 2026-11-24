@@ -29,13 +29,9 @@ Wanted Mode is an optional local device-monitoring feature. On supported Android
 
 GUARD uses a nine-digit code to identify a Stellar account. The code is not the app PIN and is not proof that an account was stolen.
 
-- Reports for harassment, threats, scams, impersonation and other non-theft reasons are sent for moderator review. Submitting those reports does not immediately disable the account.
-- **Theft reports have a different, high-impact server policy.** The current repository configuration enables automatic processing. When the server's required independent secrets and Relay service are ready, a theft report whose code matches an active account can immediately revoke that account without moderator review.
-- A matching code does not verify that theft happened. The automatic action is irreversible in Stellar. Verify all nine digits; do not use this workflow as evidence that a device was stolen.
-- The server can revoke the account and remove its active directory/relay records, but it cannot erase messages or media already delivered to other devices. A revoked device clears its local data when it later verifies revocation.
-- The automatic path fails closed if the required server secrets or Relay readiness check are unavailable. A passing source-code test does not confirm those production secrets or the live Worker state.
+All reports, including theft reports, are stored for moderator review. A submitted report does not immediately revoke or disable an account. A moderator must review the report and explicitly approve an action; a matching nine-digit code identifies an account but does not prove that theft occurred.
 
-See [Guard Phase 05 deployment and deletion checks](backend/cloudflare-directory/GUARD_PHASE05.md) before operating or testing this feature. Use disposable test identities only; never test automatic theft revocation against a real account.
+A moderator-approved revocation can remove the account's active directory/relay records, but it cannot erase messages or media already delivered to other devices. A revoked device clears its local data when it later verifies revocation. Test GUARD with disposable identities in a staging environment.
 
 ## Security Best Practices
 

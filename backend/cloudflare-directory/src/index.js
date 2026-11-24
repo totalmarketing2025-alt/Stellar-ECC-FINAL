@@ -9,9 +9,8 @@ function validNickname(nickname) {
 
 const PUSH_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
-// GUARD codes identify accounts, not secret credentials. The owner-approved
-// theft policy treats a signed report with an exact code match as an automatic
-// revocation trigger. Keep leading zeroes by storing codes as strings.
+// GUARD codes identify accounts, not secret credentials or proof of theft.
+// Keep leading zeroes by storing codes as strings.
 const GUARD_CODE_SPACE = 1_000_000_000;
 const GUARD_CODE_RANDOM_CEILING =
   Math.floor(0x100000000 / GUARD_CODE_SPACE) * GUARD_CODE_SPACE;
@@ -158,8 +157,7 @@ function guardCaseAuthMessage(body, action, caseId = "") {
 }
 
 function guardCasePublicRecord(record) {
-  // Do not expose a target nickname. Under automatic theft policy,
-  // an approved status may reveal that the submitted code matched.
+  // Never expose the target nickname or reveal whether a code matched.
   return {
     caseId: record.caseId,
     status: record.status,
@@ -395,12 +393,7 @@ async function handleGuardCaseAction(storage, fields, action, caseId = "") {
         if ((await verifyGuardAudit(txn, existing)).state === "corrupt") {
           return { error: "Guard audit integrity violation", httpStatus: 409 };
         }
-        return {
-          ...guardCasePublicRecord(existing),
-          ...(existing.reason === "theft" && existing.status === "approved" &&
-            existing.targetNickname
-            ? { autoCleanupNickname: existing.targetNickname } : {}),
-        };
+        return guardCasePublicRecord(existing);
       }
 
       const activeIndex =
@@ -441,14 +434,6 @@ async function handleGuardCaseAction(storage, fields, action, caseId = "") {
       const targetNickname = indexedUser?.guardCode === fields.targetCode
         ? indexedNickname : null;
 
-      // Project policy: a signed theft report with an exact live Guard code
-      // is immediately approved. This is NOT independent proof of theft.
-      const autoTheft = fields.reason === "theft" &&
-        fields.autoTheftEnabled === true && targetNickname !== null;
-      if (autoTheft && (!indexedUser?.bundle?.identityKey ||
-          await txn.get(guardRevocationKey(targetNickname)))) {
-        return { error: "Target identity no longer matches", httpStatus: 409 };
-      }
       const record = {
         caseId: crypto.randomUUID(),
         requester: fields.nickname,
@@ -465,32 +450,13 @@ async function handleGuardCaseAction(storage, fields, action, caseId = "") {
       await appendGuardAudit(
         txn, record, "case_submitted", fields.nickname, null, now,
       );
-      if (autoTheft) {
-        await txn.put(guardRevocationKey(targetNickname), {
-          identityKey: indexedUser.bundle.identityKey,
-          deviceId: indexedUser.bundle.deviceId,
-          registrationId: indexedUser.bundle.registrationId,
-          caseId: record.caseId, revokedAt: now,
-        });
-        await txn.delete(`user:${targetNickname}`);
-        await txn.delete(profilePhotoStorageKey(targetNickname));
-        record.status = "approved";
-        record.reviewNote = "Automatic theft approval: exact Guard code matched";
-        await appendGuardAudit(
-          txn, record, "case_auto_approved_account_revoked",
-          "guard-auto-theft", "pending_review", now,
-        );
-      }
       await txn.put(`guard-case:${record.caseId}`, record);
       await txn.put(idempotencyIndex, record.caseId);
-      if (!autoTheft) await txn.put(activeIndex, record.caseId);
+      await txn.put(activeIndex, record.caseId);
       await txn.put(`guard-case-submit-limit:${fields.nickname}`, {
         ...window, count: window.count + 1,
       });
-      return {
-        ...guardCasePublicRecord(record),
-        ...(autoTheft ? { autoCleanupNickname: targetNickname } : {}),
-      };
+      return guardCasePublicRecord(record);
     }
 
     const key = `guard-case:${caseId}`;
@@ -1406,32 +1372,6 @@ export class DirectoryStore {
         Object.assign(fields, { targetCode, reason, details, idempotencyKey });
       }
 
-      let autoSecret;
-      if (action === "submit" && fields.reason === "theft" &&
-          this.env.GUARD_THEFT_AUTO_APPROVAL === "true") {
-        fields.autoTheftEnabled = true;
-        autoSecret = this.env.GUARD_MODERATOR_ACTION_SECRET;
-        if (typeof autoSecret !== "string" || autoSecret.length < 32 ||
-            autoSecret === this.env.GUARD_REVIEW_SECRET ||
-            autoSecret === this.env.RELAY_SHARED_SECRET ||
-            !this.env.GUARD_RELAY?.fetch) {
-          return json({ error: "Automatic Guard processing unavailable" }, 503);
-        }
-        // Check the Relay service version before any irreversible revocation.
-        try {
-          const ready = await this.env.GUARD_RELAY.fetch(new Request(
-            "https://relay.internal/v1/internal/guard-theft-ready", {
-              headers: { Authorization: `Bearer ${autoSecret}` },
-            },
-          ));
-          if (!ready.ok) {
-            return json({ error: "Automatic Guard processing unavailable" }, 503);
-          }
-        } catch (_) {
-          return json({ error: "Automatic Guard processing unavailable" }, 503);
-        }
-      }
-
       const result = await handleGuardCaseAction(
         this.ctx.storage, fields, action, caseId,
       );
@@ -1443,29 +1383,7 @@ export class DirectoryStore {
             : {}),
         }, result.httpStatus);
       }
-      const { autoCleanupNickname, ...publicResult } = result;
-      if (autoCleanupNickname) {
-        try {
-          const cleanup = await this.env.GUARD_RELAY.fetch(new Request(
-            "https://relay.internal/v1/internal/guard-theft-cleanup", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${autoSecret}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                caseId: result.caseId, nickname: autoCleanupNickname,
-              }),
-            },
-          ));
-          if (!cleanup.ok) {
-            return json({ error: "Account revoked; relay cleanup needs retry" }, 502);
-          }
-        } catch (_) {
-          return json({ error: "Account revoked; relay cleanup needs retry" }, 502);
-        }
-      }
-      return json(publicResult);
+      return json(result);
     }
 
     // Read-only operations access for eventual Moderator integration. This

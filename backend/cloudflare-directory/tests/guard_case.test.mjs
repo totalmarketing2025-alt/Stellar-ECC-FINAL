@@ -509,20 +509,9 @@ function installTheftRelay(directory, { failCleanupOnce = false } = {}) {
   return calls;
 }
 
-test("theft auto-approval fails closed without server-side relay readiness", async () => {
-  const { directory, storage, alice } = await setup();
-  directory.env.GUARD_THEFT_AUTO_APPROVAL = "true";
-  const code = (await storage.get("user:bob")).guardCode;
-  const submitted = await action(directory, "alice", alice, "submit", submission(code, {
-    reason: "theft", details: "Reported theft with the target Guard code.",
-  }));
-  assert.equal(submitted.status, 503);
-  assert.ok(await storage.get("user:bob"));
-  assert.equal([...storage.items.keys()].filter((key) => key.startsWith("guard-case:")).length, 0);
-});
-
-test("signed theft case automatically revokes the exact Guard-code identity without moderator", async () => {
+test("theft reports always remain pending until a moderator decision", async () => {
   const { directory, storage, alice, bob } = await setup();
+  directory.env.GUARD_THEFT_AUTO_APPROVAL = "true";
   const calls = installTheftRelay(directory);
   const code = (await storage.get("user:bob")).guardCode;
   const report = submission(code, {
@@ -530,39 +519,21 @@ test("signed theft case automatically revokes the exact Guard-code identity with
   });
   const submitted = await action(directory, "alice", alice, "submit", report);
   assert.equal(submitted.status, 200);
-  assert.equal(submitted.body.status, "approved");
+  assert.equal(submitted.body.status, "pending_review");
   assert.equal(submitted.body.targetNickname, undefined);
-  assert.equal(await storage.get("user:bob"), undefined);
+  assert.ok(await storage.get("user:bob"));
   assert.deepEqual((await accountStatus(directory, "bob", bob)).body,
-    { revoked: true, status: "revoked" });
+    { revoked: false, status: "active" });
+  assert.deepEqual(calls, []);
   const saved = await storage.get(`guard-case:${submitted.body.caseId}`);
   assert.equal(saved.reason, "theft");
-  assert.equal(saved.auditSequence, 2);
-  assert.equal(saved.status, "approved");
-  assert.equal((await storage.get(`guard-case-audit:${saved.caseId}:000002`)).actor,
-    "guard-auto-theft");
-  assert.deepEqual(calls, [{ caseId: saved.caseId, nickname: "bob" }]);
+  assert.equal(saved.auditSequence, 1);
+  assert.equal(saved.status, "pending_review");
   const retry = await action(directory, "alice", alice, "submit", report);
   assert.equal(retry.status, 200);
   assert.equal(retry.body.caseId, submitted.body.caseId);
-  assert.equal((await storage.get(`guard-case:${saved.caseId}`)).auditSequence, 2);
-  assert.equal(calls.length, 2);
-});
-
-test("automatic theft cleanup is retried idempotently after relay failure", async () => {
-  const { directory, storage, alice } = await setup();
-  const calls = installTheftRelay(directory, { failCleanupOnce: true });
-  const code = (await storage.get("user:bob")).guardCode;
-  const report = submission(code, {
-    reason: "theft", details: "Reported theft with the matching nine-digit Guard code.",
-  });
-  const first = await action(directory, "alice", alice, "submit", report);
-  assert.equal(first.status, 502);
-  assert.equal(await storage.get("user:bob"), undefined);
-  const retry = await action(directory, "alice", alice, "submit", report);
-  assert.equal(retry.status, 200);
-  assert.equal(retry.body.status, "approved");
-  assert.equal(calls.length, 2);
+  assert.equal((await storage.get(`guard-case:${saved.caseId}`)).auditSequence, 1);
+  assert.deepEqual(calls, []);
 });
 
 test("unknown theft code cannot revoke another identity", async () => {

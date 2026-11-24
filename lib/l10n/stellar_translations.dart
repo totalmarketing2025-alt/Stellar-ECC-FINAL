@@ -323,6 +323,9 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "My 9-digit Guard code": "Мој 9-цифрен Guard-код",
     "9 digits": "9 цифри",
     "Disabled": "Оневозможено"
+    "All reports, including theft reports, go to moderators. Submitting a report does not disable the account immediately; moderators may take action after review.": "Сите пријави, вклучувајќи ги и пријавите за кражба, одат кај модераторите. Поднесувањето не ја исклучува сметката веднаш; модераторите може да преземат мерки по проверката.",
+    "GUARD lets you report a Stellar account using its nine-digit Guard code. The code identifies the account; it is not your app PIN. All reports, including theft reports, are reviewed by moderators before any account action. A code match does not prove theft.": "GUARD ти овозможува да пријавиш Stellar-сметка со нејзиниот деветцифрен Guard-код. Кодот ја идентификува сметката; не е PIN-кодот на апликацијата. Сите пријави, вклучувајќи ги и пријавите за кражба, ги проверуваат модераторите пред да преземат мерки. Совпаѓањето на кодот не докажува кражба.",
+    "Theft reports are reviewed by a moderator. A matching code identifies the account but does not verify that theft occurred.": "Пријавите за кражба ги проверува модератор. Совпаѓањето на кодот ја идентификува сметката, но не потврдува дека се случила кражба.",
   },
   "sq": {
     "Delete for me": "Fshije për mua",
@@ -645,6 +648,9 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "My 9-digit Guard code": "Kodi im Guard me 9 shifra",
     "9 digits": "9 shifra",
     "Disabled": "Çaktivizuar"
+    "All reports, including theft reports, go to moderators. Submitting a report does not disable the account immediately; moderators may take action after review.": "Të gjitha raportet, përfshirë raportet për vjedhje, u dërgohen moderatorëve. Dërgimi nuk e çaktivizon menjëherë llogarinë; moderatorët mund të veprojnë pas shqyrtimit.",
+    "GUARD lets you report a Stellar account using its nine-digit Guard code. The code identifies the account; it is not your app PIN. All reports, including theft reports, are reviewed by moderators before any account action. A code match does not prove theft.": "GUARD të lejon të raportosh një llogari Stellar me kodin nëntëshifror Guard. Kodi identifikon llogarinë; nuk është PIN-i i aplikacionit. Të gjitha raportet, përfshirë raportet për vjedhje, shqyrtohen nga moderatorët para çdo veprimi ndaj llogarisë. Përputhja e kodit nuk provon vjedhje.",
+    "Theft reports are reviewed by a moderator. A matching code identifies the account but does not verify that theft occurred.": "Raportet për vjedhje shqyrtohen nga një moderator. Përputhja e kodit identifikon llogarinë, por nuk vërteton se ka ndodhur vjedhje.",
   },
   "ru": {
     "Delete for me": "Удалить у меня",
@@ -968,6 +974,9 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "9 digits": "9 цифр",
     "Disabled": "Выключено"
   }
+    "All reports, including theft reports, go to moderators. Submitting a report does not disable the account immediately; moderators may take action after review.": "Все жалобы, включая сообщения о краже, передаются модераторам. Отправка жалобы не отключает аккаунт сразу; модераторы могут принять меры после проверки.",
+    "GUARD lets you report a Stellar account using its nine-digit Guard code. The code identifies the account; it is not your app PIN. All reports, including theft reports, are reviewed by moderators before any account action. A code match does not prove theft.": "GUARD позволяет сообщить об аккаунте Stellar по его девятизначному коду Guard. Код идентифицирует аккаунт и не является PIN-кодом приложения. Все сообщения, включая сообщения о краже, проверяются модераторами до любых действий с аккаунтом. Совпадение кода не доказывает факт кражи.",
+    "Theft reports are reviewed by a moderator. A matching code identifies the account but does not verify that theft occurred.": "Сообщения о краже проверяет модератор. Совпадение кода идентифицирует аккаунт, но не подтверждает факт кражи.",
 };
 
 String stellarText(BuildContext context, String source) {

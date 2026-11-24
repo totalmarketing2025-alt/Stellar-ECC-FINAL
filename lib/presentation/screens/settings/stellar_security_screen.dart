@@ -41,12 +41,7 @@ class StellarSecurityScreen extends StatelessWidget {
           _SecuritySection(
             icon: Icons.report_gmailerrorred_outlined,
             title: stellarText(context, "Stellar GUARD"),
-            body: stellarText(context, "Stellar GUARD lets you report an account using its nine-digit Guard code. The code identifies the account; it is not your app PIN. Reports for harassment, threats, scams, impersonation and other reasons go to moderators. Submitting one does not disable the account immediately; moderators may take action after review."),
-          ),
-          _SecuritySection(
-            icon: Icons.warning_amber_rounded,
-            title: stellarText(context, "Theft reports"),
-            body: stellarText(context, "Theft reports are different in the current server setup: if the code matches an active account, the server revokes that account automatically, without moderator review. A code match identifies the account; it does not prove theft. Check the code carefully. This action cannot be reversed in Stellar."),
+            body: stellarText(context, "Stellar GUARD lets you report an account using its nine-digit Guard code. The code identifies the account; it is not your app PIN. All reports, including theft reports, go to moderators. Submitting a report does not disable the account immediately; moderators may take action after review."),
           ),
           _SecuritySection(
             icon: Icons.history,

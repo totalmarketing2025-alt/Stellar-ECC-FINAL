@@ -9,7 +9,7 @@ import '../../../core/theme/stellar_theme.dart';
 import '../../../l10n/stellar_translations.dart';
 import '../../state/app_providers.dart';
 
-/// Guard case submission. Signed theft reports may trigger immediate revocation.
+/// Guard case submission. All reports require moderator review.
 class StellarGuardScreen extends ConsumerStatefulWidget {
   const StellarGuardScreen({super.key});
 
@@ -148,21 +148,16 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
     final account = _account;
     if (account == null || _submitting || _busyCase != null ||
         !_form.currentState!.validate()) return;
-    final autoTheft = _reason == 'theft';
     final confirmed = await _confirm(
-      stellarText(context, autoTheft
-          ? 'Submit theft report and revoke account?'
-          : 'Submit Guard report?'),
-      stellarText(context, autoTheft
-          ? 'If the nine-digit code matches an active account, this report permanently revokes that account immediately, without moderator review. A code match identifies the account but does not prove theft. The target app may clear its local account data after it detects the revocation. This cannot be undone in Stellar. Check every digit before submitting.'
-          : 'This creates a request for moderator review. It does NOT remove or disable any user account immediately; moderators may take action after reviewing the report.'),
-      stellarText(context, autoTheft ? 'Submit theft report' : 'Submit for review'),
+      stellarText(context, 'Submit Guard report?'),
+      stellarText(context, 'This creates a request for moderator review. Submitting a report does not remove or disable the target account immediately. A moderator reviews the details before taking action.'),
+      stellarText(context, 'Submit for review'),
     );
     if (!confirmed || !mounted || _account != account) return;
 
     setState(() => _submitting = true);
     try {
-      final receipt = await _service.submit(
+      await _service.submit(
         account: account,
         targetCode: _target.text,
         reason: _reason,
@@ -177,11 +172,9 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
         _details.clear();
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(autoTheft
-            ? (receipt.status == 'approved'
-                ? stellarText(context, 'Theft report approved automatically; matched account revoked.')
-                : stellarText(context, 'Theft report recorded; no matching account was revoked.'))
-            : stellarText(context, 'Guard report saved for moderator review.'))),
+        SnackBar(content: Text(stellarText(
+          context, 'Guard report saved for moderator review.',
+        ))),
       );
     } catch (error) {
       try {
@@ -307,7 +300,7 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
                 color: StellarColors.danger.withOpacity(0.12),
                 child: Padding(
                   padding: const EdgeInsets.all(12),
-                  child: Text(stellarText(context, 'Theft report: automatic revocation if the code matches an active account. A code match does not verify that theft occurred. Review all nine digits before submitting.'),
+                  child: Text(stellarText(context, 'Theft reports are reviewed by a moderator. A matching code identifies the account but does not verify that theft occurred.'),
                       style: const TextStyle(color: StellarColors.textPrimary, height: 1.4)),
                 ),
               )
@@ -446,11 +439,11 @@ class _StellarGuardScreenState extends ConsumerState<StellarGuardScreen> {
           Text(stellarText(context, "Stellar GUARD"), textAlign: TextAlign.center,
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Text(stellarText(context, 'GUARD lets you report a Stellar account using its nine-digit Guard code. The code identifies the account; it is not your app PIN. Most reports go to moderators, but theft reports can revoke a matching active account automatically without review. A code match does not prove theft.'),
+          Text(stellarText(context, 'GUARD lets you report a Stellar account using its nine-digit Guard code. The code identifies the account; it is not your app PIN. All reports, including theft reports, are reviewed by moderators before any account action. A code match does not prove theft.'),
               textAlign: TextAlign.center,
               style: const TextStyle(color: StellarColors.textSecondary, height: 1.4)),
           const SizedBox(height: 6),
-          Text(stellarText(context, 'Review the target code carefully before submitting a theft report. Its effect cannot be undone in Stellar.'),
+          Text(stellarText(context, 'Review the target code carefully before submitting a report. undone in Stellar.'),
               textAlign: TextAlign.center,
               style: const TextStyle(color: StellarColors.danger, height: 1.4)),
           if (!ready)
