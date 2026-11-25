@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -20,7 +21,9 @@ import '../../widgets/expiry_ring.dart';
 import '../stories/stories_bar.dart';
 
 class ChatListScreen extends ConsumerStatefulWidget {
-  const ChatListScreen({super.key});
+  const ChatListScreen({super.key, this.selectedChatId});
+
+  final String? selectedChatId;
 
   @override
   ConsumerState<ChatListScreen> createState() => _ChatListScreenState();
@@ -175,6 +178,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                     }
                     return _ChatListTile(
                       chat: filtered[index - visibleBroadcasts.length],
+                      selected: widget.selectedChatId ==
+                          filtered[index - visibleBroadcasts.length].chatId,
                       onLongPress: () => _showChatActions(filtered[index - visibleBroadcasts.length]),
                     );
                   },
@@ -387,61 +392,98 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       peerDeviceId: 1,
     );
     ref.invalidate(chatListProvider);
-    if (mounted) context.push('/chat/$chatId');
+    if (mounted) {
+      if (Platform.isWindows) {
+        context.go('/chat/$chatId');
+      } else {
+        context.push('/chat/$chatId');
+      }
+    }
   }
 }
 
 class _ChatListTile extends ConsumerWidget {
-  const _ChatListTile({required this.chat, required this.onLongPress});
+  const _ChatListTile({
+    required this.chat,
+    required this.onLongPress,
+    this.selected = false,
+  });
   final Chat chat;
   final VoidCallback onLongPress;
+  final bool selected;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return ListTile(
-      onTap: () => context.push('/chat/${chat.chatId}'),
-      onLongPress: onLongPress,
-      leading: StellarAvatar(
-        seed: chat.chatId,
-        label: chat.displayName,
-        photoBytes: chat.chatType == ChatType.direct && chat.peerName != null
-            ? ref
-                .watch(profilePhotoBytesProvider(chat.peerName!))
-                .asData
-                ?.value
-            : null,
-      ),
-      title: Row(children: [
-        Flexible(child: Text(chat.displayName, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w600))),
-        if (chat.isPinned) const Padding(padding: EdgeInsets.only(left: 6),
-          child: Icon(Icons.push_pin, size: 15, color: StellarColors.textSecondary)),
-      ]),
-      subtitle: Text(
-        chat.lastMessagePreview ?? 'No messages yet',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: StellarColors.textSecondary),
-      ),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (chat.oldestVisibleExpiry != null)
-            ExpiryRing(expiresAt: chat.oldestVisibleExpiry!, size: 18),
-          if (chat.unreadCount > 0) ...[
-            const SizedBox(height: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: StellarColors.accentPurple,
-                borderRadius: BorderRadius.circular(10),
+    return GestureDetector(
+      onSecondaryTap: Platform.isWindows ? onLongPress : null,
+      child: ListTile(
+        selected: selected,
+        selectedTileColor: StellarColors.accentBlue.withOpacity(0.12),
+        onTap: () {
+          final location = '/chat/${chat.chatId}';
+          if (Platform.isWindows) {
+            context.go(location);
+          } else {
+            context.push(location);
+          }
+        },
+        onLongPress: onLongPress,
+        leading: StellarAvatar(
+          seed: chat.chatId,
+          label: chat.displayName,
+          photoBytes: chat.chatType == ChatType.direct && chat.peerName != null
+              ? ref
+                  .watch(profilePhotoBytesProvider(chat.peerName!))
+                  .asData
+                  ?.value
+              : null,
+        ),
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(
+                chat.displayName,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
-              child: Text('${chat.unreadCount}',
-                  style: const TextStyle(color: Colors.white, fontSize: 12)),
             ),
+            if (chat.isPinned)
+              const Padding(
+                padding: EdgeInsets.only(left: 6),
+                child: Icon(
+                  Icons.push_pin,
+                  size: 15,
+                  color: StellarColors.textSecondary,
+                ),
+              ),
           ],
-        ],
+        ),
+        subtitle: Text(
+          chat.lastMessagePreview ?? 'No messages yet',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: StellarColors.textSecondary),
+        ),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            if (chat.oldestVisibleExpiry != null)
+              ExpiryRing(expiresAt: chat.oldestVisibleExpiry!, size: 18),
+            if (chat.unreadCount > 0) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: StellarColors.accentPurple,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text('${chat.unreadCount}',
+                    style: const TextStyle(color: Colors.white, fontSize: 12)),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

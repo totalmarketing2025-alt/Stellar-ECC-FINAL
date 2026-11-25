@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../domain/models/call_session.dart';
@@ -13,6 +15,7 @@ import '../presentation/screens/onboarding/app_lock_setup_screen.dart';
 import '../presentation/screens/onboarding/pin_unlock_screen.dart';
 import '../presentation/screens/chat_list/chat_list_screen.dart';
 import '../presentation/screens/chat/chat_screen.dart';
+import '../presentation/screens/desktop/windows_desktop_chat_shell.dart';
 import '../presentation/screens/calls/voice_call_screen.dart';
 import '../presentation/screens/calls/video_call_screen.dart';
 import '../presentation/screens/calls/group_call_screen.dart';
@@ -103,10 +106,22 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/onboarding/nickname', builder: (c, s) => const ChooseNicknameScreen()),
       GoRoute(path: '/onboarding/recovery', builder: (c, s) => const RecoverySetupScreen()),
       GoRoute(path: '/onboarding/restore', builder: (c, s) => const RecoveryRestoreScreen()),
-      GoRoute(path: '/settings/recovery', builder: (c, s) => const RecoverySetupScreen(isOnboarding: false)),
+      GoRoute(
+        path: '/settings/recovery',
+        builder: (c, s) => Platform.isWindows
+            ? const WindowsDesktopChatShell(
+                mainContent: RecoverySetupScreen(isOnboarding: false),
+              )
+            : const RecoverySetupScreen(isOnboarding: false),
+      ),
       GoRoute(path: '/onboarding/app-lock', builder: (c, s) => const AppLockSetupScreen()),
       GoRoute(path: '/unlock', builder: (c, s) => const PinUnlockScreen()),
-      GoRoute(path: '/chats', builder: (c, s) => const ChatListScreen()),
+      GoRoute(
+        path: '/chats',
+        builder: (c, s) => Platform.isWindows
+            ? const WindowsDesktopChatShell()
+            : const ChatListScreen(),
+      ),
       GoRoute(
         path: '/share',
         builder: (c, s) => ShareTargetScreen(
@@ -117,7 +132,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/chat/:chatId',
-        builder: (c, s) => ChatScreen(chatId: s.pathParameters['chatId']!),
+        builder: (c, s) => Platform.isWindows
+            ? WindowsDesktopChatShell(
+                chatId: s.pathParameters['chatId'],
+              )
+            : ChatScreen(chatId: s.pathParameters['chatId']!),
       ),
       GoRoute(
         path: '/call/voice/:chatId',
@@ -141,30 +160,70 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           video: s.uri.queryParameters['video'] == '1',
         ),
       ),
-      GoRoute(path: '/settings', builder: (c, s) => const SettingsScreen()),
+      GoRoute(
+        path: '/settings',
+        builder: (c, s) => Platform.isWindows
+            ? const WindowsDesktopChatShell(
+                mainContent: SettingsScreen(),
+              )
+            : const SettingsScreen(),
+      ),
       GoRoute(
         path: '/profile/:userId',
-        builder: (c, s) => ProfileScreen(userId: s.pathParameters['userId']!),
+        builder: (c, s) => Platform.isWindows
+            ? WindowsDesktopChatShell(
+                mainContent: ProfileScreen(
+                  userId: s.pathParameters['userId']!,
+                ),
+              )
+            : ProfileScreen(userId: s.pathParameters['userId']!),
       ),
       GoRoute(
         path: '/group/:chatId/manage',
-        builder: (c, s) => GroupManagementScreen(chatId: s.pathParameters['chatId']!),
+        builder: (c, s) {
+          final chatId = s.pathParameters['chatId']!;
+          final screen = GroupManagementScreen(chatId: chatId);
+          return Platform.isWindows
+              ? WindowsDesktopChatShell(
+                  chatId: chatId,
+                  mainContent: screen,
+                )
+              : screen;
+        },
       ),
-      GoRoute(path: '/group/new', builder: (c, s) => const NewGroupScreen()),
+      GoRoute(
+        path: '/group/new',
+        builder: (c, s) => Platform.isWindows
+            ? const WindowsDesktopChatShell(mainContent: NewGroupScreen())
+            : const NewGroupScreen(),
+      ),
       GoRoute(
         path: '/security',
-        builder: (c, s) => SecurityCenterScreen(
-          openWanted: s.uri.queryParameters['wanted'] == '1',
-          wantedChallengeId: s.uri.queryParameters['challengeId'],
-        ),
+        builder: (c, s) {
+          final screen = SecurityCenterScreen(
+            openWanted: s.uri.queryParameters['wanted'] == '1',
+            wantedChallengeId: s.uri.queryParameters['challengeId'],
+          );
+          return Platform.isWindows
+              ? WindowsDesktopChatShell(mainContent: screen)
+              : screen;
+        },
       ),
       GoRoute(
         path: '/moderation',
-        builder: (c, s) => const ModerationRoomScreen(),
+        builder: (c, s) => Platform.isWindows
+            ? const WindowsDesktopChatShell(
+                mainContent: ModerationRoomScreen(),
+              )
+            : const ModerationRoomScreen(),
       ),
       GoRoute(
         path: '/broadcasts',
-        builder: (c, s) => const BroadcastInboxScreen(),
+        builder: (c, s) => Platform.isWindows
+            ? const WindowsDesktopChatShell(
+                mainContent: BroadcastInboxScreen(),
+              )
+            : const BroadcastInboxScreen(),
       ),
     ],
   );

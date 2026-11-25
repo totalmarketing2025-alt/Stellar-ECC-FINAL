@@ -927,6 +927,9 @@ class MessageBubble extends StatelessWidget {
         onLongPress: message.isEphemeralAttachment
             ? null
             : () => _showReactionTray(context),
+        onSecondaryTap: message.isEphemeralAttachment
+            ? null
+            : () => _showReactionTray(context),
         child: Column(
           crossAxisAlignment: alignment,
           children: [
@@ -934,16 +937,23 @@ class MessageBubble extends StatelessWidget {
               alignment: bubbleAlignment,
               child: Container(
                 margin: const EdgeInsets.symmetric(vertical: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-              decoration: BoxDecoration(
-                color: bubbleColor,
-                border: Border.all(color: borderColor),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width > 760
+                      ? 560
+                      : MediaQuery.of(context).size.width * 0.75,
+                ),
+                decoration: BoxDecoration(
+                  color: bubbleColor,
+                  border: Border.all(color: borderColor),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                   if (!isOutgoing)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 2),

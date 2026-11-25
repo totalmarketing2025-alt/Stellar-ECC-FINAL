@@ -24,8 +24,9 @@ import '../../widgets/attachment_view_policy_sheet.dart';
 import '../../../core/media/attachment_payload.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
-  const ChatScreen({super.key, required this.chatId});
+  const ChatScreen({super.key, required this.chatId, this.desktopMode = false});
   final String chatId;
+  final bool desktopMode;
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
@@ -89,18 +90,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          tooltip: stellarText(context, "Back"),
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/chats');
-            }
-          },
-        ),
+        automaticallyImplyLeading: !widget.desktopMode,
+        leading: widget.desktopMode
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: stellarText(context, "Back"),
+                onPressed: () {
+                  if (context.canPop()) {
+                    context.pop();
+                  } else {
+                    context.go('/chats');
+                  }
+                },
+              ),
         titleSpacing: 0,
         title: InkWell(
           borderRadius: BorderRadius.circular(20),

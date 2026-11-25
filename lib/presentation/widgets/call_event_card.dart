@@ -124,7 +124,9 @@ class CallEventCard extends StatelessWidget {
       alignment: outgoing ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.82,
+          maxWidth: MediaQuery.of(context).size.width > 760
+              ? 560
+              : MediaQuery.of(context).size.width * 0.82,
         ),
         margin: const EdgeInsets.symmetric(vertical: 5),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
