@@ -1465,6 +1465,7 @@ export class DirectoryStore {
           cases.push({
             ...guardCasePublicRecord(record),
             requester: record.requester,
+            reason: record.reason,
             auditStatus: audit.state,
           });
         }
