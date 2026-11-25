@@ -133,6 +133,12 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
 
   Future<void> _load() async {
     try {
+      // Wanted Mode depends on Android's native event monitor. Keep the saved
+      // preference intact on desktop, but do not claim it is active there.
+      if (!Platform.isAndroid) {
+        state = false;
+        return;
+      }
       final enabled = await _keyStore.readWantedModeWipeEnabled();
 
       final mirrorResult = await _monitorChannel.invokeMethod<bool>(
@@ -182,6 +188,9 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
   }
 
   Future<void> setEnabled(bool enabled) async {
+    if (!Platform.isAndroid) {
+      throw UnsupportedError('Wanted Mode monitoring is currently Android-only.');
+    }
     if (_operationInProgress || _loadInProgress) {
       throw StateError(
         'Wanted Mode settings are still being initialized or updated.',

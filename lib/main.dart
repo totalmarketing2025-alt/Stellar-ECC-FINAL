@@ -28,6 +28,18 @@ import 'presentation/state/security_providers.dart';
 const MethodChannel _wantedWipeChannel =
     MethodChannel('ecc.stellar.app/wanted_mode_monitor');
 
+Future<bool> _hasPendingNativeWipe() async {
+  if (!Platform.isAndroid) return false;
+  try {
+    return await _wantedWipeChannel.invokeMethod<bool>(
+          'hasPendingLocalWipe',
+        ) ??
+        false;
+  } on MissingPluginException {
+    return false;
+  }
+}
+
 Future<void> _wipeLocalFilesAndKeys() async {
   // Поддршка-директориумот ја содржи SQLCipher базата и локалните медиуми.
   final support = await getApplicationSupportDirectory();
@@ -50,9 +62,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Ова мора да се провери пред Firebase.initializeApp() и пред отворање DB.
-  final wipePendingAtStartup =
-      await _wantedWipeChannel.invokeMethod<bool>('hasPendingLocalWipe') ??
-          false;
+  final wipePendingAtStartup = await _hasPendingNativeWipe();
 
   if (wipePendingAtStartup) {
     await _wipeLocalFilesAndKeys();
@@ -185,9 +195,7 @@ Future<void> main() async {
   });
 
   // Покрива истекување што се случило додека Flutter ги отворал ресурсите.
-  final wipePendingAfterOpen =
-      await _wantedWipeChannel.invokeMethod<bool>('hasPendingLocalWipe') ??
-          false;
+  final wipePendingAfterOpen = await _hasPendingNativeWipe();
   if (wipePendingAfterOpen) {
     await performWantedModeLocalWipe();
     return;
@@ -216,12 +224,14 @@ Future<void> main() async {
         // Interrupted cleanup is retried on next launch, then the native
         // Activity restart returns to the welcome screen.
         bool? armed;
-        try {
-          armed = await _wantedWipeChannel.invokeMethod<bool>(
-            'requestVerifiedGuardWipe',
-          );
-        } on MissingPluginException {
-          // iOS/older platforms have no native marker yet.
+        if (Platform.isAndroid) {
+          try {
+            armed = await _wantedWipeChannel.invokeMethod<bool>(
+              'requestVerifiedGuardWipe',
+            );
+          } on MissingPluginException {
+            // The local cleanup fallback handles platforms without a marker.
+          }
         }
         if (armed == true) {
           await performWantedModeLocalWipe();
@@ -235,10 +245,7 @@ Future<void> main() async {
         }
       } else {
       final wipePendingBeforeDirectorySync =
-          await _wantedWipeChannel.invokeMethod<bool>(
-                'hasPendingLocalWipe',
-              ) ??
-              false;
+          await _hasPendingNativeWipe();
 
       if (!wipePendingBeforeDirectorySync) {
         final sessionManager = container.read(sessionManagerProvider);
@@ -246,20 +253,12 @@ Future<void> main() async {
 
         await sessionManager.ensureMinimumPreKeys();
 
-        final wipePendingAfterPreKeys =
-            await _wantedWipeChannel.invokeMethod<bool>(
-                  'hasPendingLocalWipe',
-                ) ??
-                false;
+        final wipePendingAfterPreKeys = await _hasPendingNativeWipe();
 
         if (!wipePendingAfterPreKeys) {
           final bundle = await sessionManager.buildLocalDirectoryBundle();
 
-          final wipePendingBeforeUpdate =
-              await _wantedWipeChannel.invokeMethod<bool>(
-                    'hasPendingLocalWipe',
-                  ) ??
-                  false;
+          final wipePendingBeforeUpdate = await _hasPendingNativeWipe();
 
           if (!wipePendingBeforeUpdate) {
             try {
@@ -293,24 +292,24 @@ Future<void> main() async {
     );
   }
 
-  final wipePendingBeforePush =
-      await _wantedWipeChannel.invokeMethod<bool>('hasPendingLocalWipe') ??
-          false;
+  final wipePendingBeforePush = await _hasPendingNativeWipe();
   if (wipePendingBeforePush) {
     await performWantedModeLocalWipe();
     return;
   }
 
   // Request Android runtime permissions once, after all wipe guards.
-  try {
-    await _wantedWipeChannel.invokeMethod('requestStartupPermissions');
-  } catch (e, st) {
-    developer.log(
-      'Startup permission request failed; continuing without blocking app.',
-      name: 'stellar_ecc.startup',
-      error: e,
-      stackTrace: st,
-    );
+  if (Platform.isAndroid) {
+    try {
+      await _wantedWipeChannel.invokeMethod('requestStartupPermissions');
+    } catch (e, st) {
+      developer.log(
+        'Startup permission request failed; continuing without blocking app.',
+        name: 'stellar_ecc.startup',
+        error: e,
+        stackTrace: st,
+      );
+    }
   }
 
   if (firebaseAvailable) {
@@ -358,15 +357,17 @@ Future<void> main() async {
   }
 
   // Android 14+ requires separate special access for full-screen call UI.
-  try {
-    await _wantedWipeChannel.invokeMethod('requestFullScreenCallAccess');
-  } catch (e, st) {
-    developer.log(
-      'Full-screen call access request failed; continuing.',
-      name: 'stellar_ecc.startup',
-      error: e,
-      stackTrace: st,
-    );
+  if (Platform.isAndroid) {
+    try {
+      await _wantedWipeChannel.invokeMethod('requestFullScreenCallAccess');
+    } catch (e, st) {
+      developer.log(
+        'Full-screen call access request failed; continuing.',
+        name: 'stellar_ecc.startup',
+        error: e,
+        stackTrace: st,
+      );
+    }
   }
 
   // The live Relay endpoint is configured in

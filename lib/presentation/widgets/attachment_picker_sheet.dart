@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
@@ -15,22 +17,23 @@ class AttachmentPickerSheet extends StatelessWidget {
     return SafeArea(
       child: Wrap(
         children: [
-          _AttachmentOption(
-            icon: Icons.camera_alt_outlined,
-            label: stellarText(context, "Camera"),
-            color: StellarColors.accentBlue,
-            onTap: () async {
-              final picker = ImagePicker();
-              final file = await picker.pickImage(
-                source: ImageSource.camera,
-                maxWidth: 2048,
-                maxHeight: 2048,
-                imageQuality: 75,
-                requestFullMetadata: false,
-              );
-              if (context.mounted) Navigator.pop(context, file?.path);
-            },
-          ),
+          if (!Platform.isWindows)
+            _AttachmentOption(
+              icon: Icons.camera_alt_outlined,
+              label: stellarText(context, "Camera"),
+              color: StellarColors.accentBlue,
+              onTap: () async {
+                final picker = ImagePicker();
+                final file = await picker.pickImage(
+                  source: ImageSource.camera,
+                  maxWidth: 2048,
+                  maxHeight: 2048,
+                  imageQuality: 75,
+                  requestFullMetadata: false,
+                );
+                if (context.mounted) Navigator.pop(context, file?.path);
+              },
+            ),
           _AttachmentOption(
             icon: Icons.photo_outlined,
             label: stellarText(context, "Gallery"),

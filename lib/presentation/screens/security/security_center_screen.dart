@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -518,6 +519,7 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (!Platform.isAndroid) return;
     _refreshChallenges();
     _challengePollTimer = Timer.periodic(
       const Duration(seconds: 1),
@@ -541,7 +543,7 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
   }
 
   Future<void> _refreshChallenges() async {
-    if (_checkingChallenges || !mounted) return;
+    if (!Platform.isAndroid || _checkingChallenges || !mounted) return;
 
     _checkingChallenges = true;
     try {
@@ -827,6 +829,36 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
 
   @override
   Widget build(BuildContext context) {
+    if (!Platform.isAndroid) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(stellarText(context, "Wanted Mode"),
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+              const SizedBox(height: 12),
+              Text(stellarText(context,
+                  'Wanted Mode event monitoring is currently available on Android only. Windows data can still be locked using the app lock.')),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.lock),
+                  label: Text(stellarText(context, "Lock now")),
+                  onPressed: () {
+                    ref.read(wantedModeControllerProvider).lockNow();
+                    Navigator.pop(context);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     final wipeEnabled = ref.watch(wantedModeWipeEnabledProvider);
 
     return SafeArea(

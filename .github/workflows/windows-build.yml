@@ -1,0 +1,55 @@
+name: Stellar ECC Windows Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.4'
+          channel: stable
+          cache: true
+
+      - name: Get packages
+        run: flutter pub get
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Package installer
+        shell: pwsh
+        run: |
+          $iscc = Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'
+          & $iscc /DAppVersion=0.1.1 /DBuildDir="$PWD\build\windows\x64\runner\Release" windows\installer\StellarECC.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload Windows release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-ecc-windows-x64-release
+          path: build/windows/x64/runner/Release/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-ecc-windows-x64-installer
+          path: dist/StellarECCSetup-*-x64.exe
+          if-no-files-found: error
+          retention-days: 30

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -36,8 +37,10 @@ class AppLockController {
 
       final authenticated = await _localAuth.authenticate(
         localizedReason: 'Confirm biometric lock for Stellar ECC',
-        options: const AuthenticationOptions(
-          biometricOnly: true,
+        options: AuthenticationOptions(
+          // Windows Hello can require a PIN or password as a device
+          // credential, so allow the platform's configured authentication.
+          biometricOnly: !Platform.isWindows,
           stickyAuth: true,
         ),
       );
@@ -72,8 +75,8 @@ class AppLockController {
 
       final authenticated = await _localAuth.authenticate(
         localizedReason: 'Unlock Stellar ECC',
-        options: const AuthenticationOptions(
-          biometricOnly: true,
+        options: AuthenticationOptions(
+          biometricOnly: !Platform.isWindows,
           stickyAuth: true,
         ),
       );
