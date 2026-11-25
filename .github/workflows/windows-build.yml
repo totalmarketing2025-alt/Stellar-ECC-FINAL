@@ -10,7 +10,9 @@ permissions:
 
 jobs:
   windows:
-    runs-on: windows-latest
+    # Flutter 3.27 maps the installed VS 2022 toolchain to this CMake
+    # generator. Pin the runner so the toolchain remains predictable.
+    runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v4
