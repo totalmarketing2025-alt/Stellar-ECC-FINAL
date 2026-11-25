@@ -169,7 +169,7 @@ class _DesktopWelcomePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: StellarColors.bgBase,
+      color: StellarColors.bgPrimary,
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
