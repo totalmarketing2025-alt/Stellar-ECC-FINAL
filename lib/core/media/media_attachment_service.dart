@@ -74,7 +74,7 @@ class MediaAttachmentService {
         messageId: messageId,
         mimeType: mimeType,
         filePath: filePath,
-        expiresAt: now + ttlSeconds,
+        expiresAt: ttlSeconds <= 0 ? 253402300799 : now + ttlSeconds,
       );
 
       return blobId;

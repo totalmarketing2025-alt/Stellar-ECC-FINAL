@@ -21,6 +21,9 @@ class Message {
     this.editRevision = 0,
     this.isDeleted = false,
     this.isPinned = false,
+    this.attachmentViewMode = 'normal',
+    this.attachmentViewSeconds = 0,
+    this.attachmentViewOpenedAt,
   });
 
   final String messageId;
@@ -40,6 +43,11 @@ class Message {
   final int editRevision;
   final bool isDeleted;
   final bool isPinned;
+  final String attachmentViewMode;
+  final int attachmentViewSeconds;
+  final DateTime? attachmentViewOpenedAt;
+
+  bool get isEphemeralAttachment => attachmentViewMode != 'normal';
 
   Duration get timeUntilExpiry => expiresAt.difference(DateTime.now());
   bool get isExpired => timeUntilExpiry.isNegative;
@@ -72,6 +80,9 @@ class Message {
       editRevision: editRevision ?? this.editRevision,
       isDeleted: isDeleted ?? this.isDeleted,
       isPinned: isPinned ?? this.isPinned,
+      attachmentViewMode: attachmentViewMode,
+      attachmentViewSeconds: attachmentViewSeconds,
+      attachmentViewOpenedAt: attachmentViewOpenedAt,
     );
   }
 
@@ -98,6 +109,15 @@ class Message {
       editRevision: row['edit_revision'] as int? ?? 0,
       isDeleted: (row['is_deleted'] as int? ?? 0) == 1,
       isPinned: (row['is_pinned'] as int? ?? 0) == 1,
+      attachmentViewMode:
+          row['attachment_view_mode'] as String? ?? 'normal',
+      attachmentViewSeconds:
+          row['attachment_view_seconds'] as int? ?? 0,
+      attachmentViewOpenedAt: row['attachment_view_opened_at'] == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(
+              (row['attachment_view_opened_at'] as int) * 1000,
+            ),
       status: MessageStatus.values.firstWhere(
         (s) => s.name == row['status'],
         orElse: () => MessageStatus.sent,

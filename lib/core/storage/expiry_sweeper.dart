@@ -22,9 +22,16 @@ class ExpirySweeper {
   void start() {
     _timer?.cancel();
     _timer = Timer.periodic(interval, (_) => sweepOnce());
-    // Run once immediately on startup too, in case the app was closed for
-    // longer than `interval` and messages are already stale on launch.
-    sweepOnce();
+    // An opened View Once item is always consumed if the process stopped
+    // before its viewer closed. This is a startup-only recovery step.
+    unawaited(
+      _db.messageDao
+          .expireInterruptedViewOnce()
+          .then((_) => sweepOnce())
+          .catchError((Object error) {
+            print('EXPIRY_SWEEPER_STARTUP_ERROR: $error');
+          }),
+    );
   }
 
   void stop() => _timer?.cancel();

@@ -90,6 +90,24 @@ class StellarDatabase {
     }
   }
 
+  static void _ensureMessageAttachmentViewColumns(Database db) {
+    final names = db
+        .select('PRAGMA table_info(message);')
+        .map((row) => row['name'])
+        .toSet();
+    for (final entry in const {
+      'attachment_view_mode': "TEXT NOT NULL DEFAULT 'normal'",
+      'attachment_view_seconds': 'INTEGER NOT NULL DEFAULT 0',
+      'attachment_view_opened_at': 'INTEGER',
+    }.entries) {
+      if (!names.contains(entry.key)) {
+        db.execute(
+          'ALTER TABLE message ADD COLUMN ${entry.key} ${entry.value};',
+        );
+      }
+    }
+  }
+
   static void _ensureTransportOutboxSchema(Database db) {
     final columns = db.select('PRAGMA table_info(transport_outbox);');
     final hasTransportId =
@@ -188,6 +206,7 @@ class StellarDatabase {
 
     _ensureMessageDeliveryTokenColumn(db);
     _ensureMessageEnhancementColumns(db);
+    _ensureMessageAttachmentViewColumns(db);
 
     // Per-recipient delivery/read receipts for outgoing direct and group messages.
     // Existing message rows are preserved; tracking begins for newly sent messages.
@@ -751,6 +770,7 @@ class ChatDao {
 class MessageDao {
   MessageDao(this._db);
   final Database _db;
+  static const _neverExpiresAt = 253402300799;
 
   Future<void> insert({
     required String messageId,
@@ -760,24 +780,109 @@ class MessageDao {
     required int ttlSeconds,
     String? replyToId,
     Uint8List? deliveryToken,
+    String attachmentViewMode = 'normal',
+    int attachmentViewSeconds = 0,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     _db.execute(
       'INSERT INTO message '
-      '(message_id, chat_id, sender_id, body_plaintext, sent_at, expires_at, reply_to_id, status, delivery_token) '
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      '(message_id, chat_id, sender_id, body_plaintext, sent_at, expires_at, reply_to_id, status, delivery_token, attachment_view_mode, attachment_view_seconds) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         messageId,
         chatId,
         senderId,
         plaintext,
         now,
-        now + ttlSeconds,
+        ttlSeconds <= 0 ? _neverExpiresAt : now + ttlSeconds,
         replyToId,
         'sending',
         deliveryToken,
+        attachmentViewMode,
+        attachmentViewSeconds,
       ],
     );
+  }
+
+  /// Atomically starts an attachment viewing session. A view-once item can
+  /// be opened only once on this device. Timed items remain reopenable until
+  /// their first-open deadline (or the original message TTL, if earlier).
+  Future<bool> beginAttachmentView(String messageId) async {
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+      final rows = _db.select(
+        'SELECT attachment_view_mode, attachment_view_seconds, '
+        'attachment_view_opened_at, expires_at FROM message WHERE message_id = ?',
+        [messageId],
+      );
+      if (rows.isEmpty) {
+        _db.execute('ROLLBACK');
+        return false;
+      }
+      final row = rows.first;
+      final mode = row['attachment_view_mode'] as String? ?? 'normal';
+      final expiresAt = row['expires_at'] as int;
+      final openedAt = row['attachment_view_opened_at'] as int?;
+      if (mode == 'normal' || expiresAt <= now) {
+        _db.execute('ROLLBACK');
+        return false;
+      }
+      if (mode == 'view_once' && openedAt != null) {
+        _db.execute('ROLLBACK');
+        return false;
+      }
+      if (mode == 'timed' && openedAt == null) {
+        final seconds = row['attachment_view_seconds'] as int? ?? 0;
+        if (!const {10, 30, 60}.contains(seconds)) {
+          _db.execute('ROLLBACK');
+          return false;
+        }
+        final deadline = (now + seconds < expiresAt) ? now + seconds : expiresAt;
+        _db.execute(
+          'UPDATE message SET attachment_view_opened_at = ?, expires_at = ? '
+          'WHERE message_id = ?',
+          [now, deadline, messageId],
+        );
+      } else if (mode == 'view_once') {
+        _db.execute(
+          'UPDATE message SET attachment_view_opened_at = ? WHERE message_id = ?',
+          [now, messageId],
+        );
+      }
+      _db.execute('COMMIT');
+      return true;
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
+  }
+
+  Future<void> consumeViewOnce(String messageId) async {
+    _db.execute(
+      "UPDATE message SET expires_at = 0 WHERE message_id = ? "
+      "AND attachment_view_mode = 'view_once'",
+      [messageId],
+    );
+  }
+
+  Future<void> expireInterruptedViewOnce() async {
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+    _db.execute(
+      "UPDATE message SET expires_at = 0 WHERE attachment_view_mode = 'view_once' "
+      'AND attachment_view_opened_at IS NOT NULL',
+    );
+    _db.execute(
+      "UPDATE media_blob SET expires_at = 0 WHERE message_id IN ("
+      "SELECT message_id FROM message WHERE attachment_view_mode = 'view_once' "
+      'AND attachment_view_opened_at IS NOT NULL)',
+    );
+    _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
   }
 
   Future<void> setMessageFlags({
@@ -1257,6 +1362,13 @@ class MediaBlobDao {
 
   Future<void> delete(String blobId) async {
     _db.execute('DELETE FROM media_blob WHERE blob_id = ?', [blobId]);
+  }
+
+  Future<void> setExpiryForMessage(String messageId, int expiresAt) async {
+    _db.execute(
+      'UPDATE media_blob SET expires_at = ? WHERE message_id = ?',
+      [expiresAt, messageId],
+    );
   }
 }
 

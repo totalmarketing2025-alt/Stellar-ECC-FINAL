@@ -11,6 +11,7 @@ import '../../../domain/models/chat.dart';
 import '../../../l10n/stellar_translations.dart';
 import '../../state/app_providers.dart';
 import '../../widgets/stellar_avatar.dart';
+import '../../widgets/attachment_view_policy_sheet.dart';
 import '../../../core/sharing/shared_content_item.dart';
 
 class ShareTargetScreen extends ConsumerStatefulWidget {
@@ -67,6 +68,24 @@ class _ShareTargetScreenState extends ConsumerState<ShareTargetScreen> {
     );
     if (approved != true || !mounted) return;
 
+    final hasViewableMedia = validItems.any((item) =>
+        item.path != null &&
+        (item.mimeType.toLowerCase().startsWith('image/') ||
+            item.mimeType.toLowerCase().startsWith('video/')));
+    var viewPolicy = const AttachmentViewPolicy.normal();
+    if (hasViewableMedia) {
+      final selectedPolicy = await showModalBottomSheet<AttachmentViewPolicy>(
+        context: context,
+        backgroundColor: StellarColors.bgElevated,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (_) => const AttachmentViewPolicySheet(),
+      );
+      if (!mounted || selectedPolicy == null) return;
+      viewPolicy = selectedPolicy;
+    }
+
     setState(() => _sending = true);
     var sent = 0;
     try {
@@ -101,6 +120,16 @@ class _ShareTargetScreenState extends ConsumerState<ShareTargetScreen> {
           ttlSeconds: target.defaultTtlSeconds,
           attachmentBytes: bytes,
           attachmentMimeType: item.mimeType,
+          attachmentViewMode:
+              item.mimeType.toLowerCase().startsWith('image/') ||
+                      item.mimeType.toLowerCase().startsWith('video/')
+                  ? viewPolicy.mode
+                  : 'normal',
+          attachmentViewSeconds:
+              item.mimeType.toLowerCase().startsWith('image/') ||
+                      item.mimeType.toLowerCase().startsWith('video/')
+                  ? viewPolicy.seconds
+                  : 0,
         );
         sent++;
       }

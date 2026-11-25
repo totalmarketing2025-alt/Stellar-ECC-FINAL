@@ -3,16 +3,32 @@ import 'dart:typed_data';
 
 class AttachmentPayload {
   static const String _magic = 'STELLAR_ATTACH_V1:';
+  static const String _ephemeralMagic = 'STELLAR_ATTACH_V2:';
   static const int maxBytes = 8 * 1024 * 1024;
 
   static Uint8List encode({
     required String mimeType,
     required Uint8List bytes,
+    String viewMode = 'normal',
+    int viewSeconds = 0,
   }) {
     if (bytes.length > maxBytes) {
       throw StateError(
         'Attachment is too large. Maximum size is 8 MB.',
       );
+    }
+
+    if (viewMode != 'normal' &&
+        !mimeType.toLowerCase().startsWith('image/') &&
+        !mimeType.toLowerCase().startsWith('video/')) {
+      throw ArgumentError('View-once media must be an image or video');
+    }
+    if (viewMode == 'timed' && !const {10, 30, 60}.contains(viewSeconds)) {
+      throw ArgumentError('Unsupported attachment view duration');
+    }
+    if (viewMode == 'view_once') viewSeconds = 0;
+    if (viewMode != 'normal' && viewMode != 'timed' && viewMode != 'view_once') {
+      throw ArgumentError('Unsupported attachment view mode');
     }
 
     final mimeBytes = Uint8List.fromList(utf8.encode(mimeType));
@@ -22,9 +38,17 @@ class AttachmentPayload {
     }
 
     final builder = BytesBuilder();
-    builder.add(Uint8List.fromList(utf8.encode(_magic)));
+    builder.add(Uint8List.fromList(
+      utf8.encode(viewMode == 'normal' ? _magic : _ephemeralMagic),
+    ));
     builder.add(_u16(mimeBytes.length));
     builder.add(mimeBytes);
+    if (viewMode != 'normal') {
+      builder.add(Uint8List.fromList([
+        viewMode == 'view_once' ? 1 : 2,
+        viewSeconds,
+      ]));
+    }
     builder.add(_u32(bytes.length));
     builder.add(bytes);
 
@@ -32,12 +56,12 @@ class AttachmentPayload {
   }
 
   static AttachmentPayloadData? decode(Uint8List bytes) {
-    final magic = Uint8List.fromList(
-      utf8.encode(_magic),
-    );
+    final v1Magic = Uint8List.fromList(utf8.encode(_magic));
+    final v2Magic = Uint8List.fromList(utf8.encode(_ephemeralMagic));
+    final isV2 = _startsWith(bytes, v2Magic);
+    final magic = isV2 ? v2Magic : v1Magic;
 
-    if (bytes.length < magic.length ||
-        !_startsWith(bytes, magic)) {
+    if (bytes.length < magic.length || !_startsWith(bytes, magic)) {
       return null;
     }
 
@@ -55,6 +79,29 @@ class AttachmentPayload {
     );
     offset += mimeLength;
 
+    var viewMode = 'normal';
+    var viewSeconds = 0;
+    if (isV2) {
+      if (offset + 2 > bytes.length) {
+        throw FormatException('Truncated attachment view policy');
+      }
+      final mode = bytes[offset++];
+      viewSeconds = bytes[offset++];
+      viewMode = switch (mode) {
+        1 => 'view_once',
+        2 => 'timed',
+        _ => throw FormatException('Invalid attachment view mode'),
+      };
+      if (viewMode == 'view_once' && viewSeconds != 0 ||
+          viewMode == 'timed' && !const {10, 30, 60}.contains(viewSeconds)) {
+        throw FormatException('Invalid attachment view duration');
+      }
+      if (!mimeType.toLowerCase().startsWith('image/') &&
+          !mimeType.toLowerCase().startsWith('video/')) {
+        throw FormatException('View-once mode requires image or video');
+      }
+    }
+
     final dataLength = _readU32(bytes, offset);
     offset += 4;
 
@@ -71,6 +118,8 @@ class AttachmentPayload {
       bytes: Uint8List.fromList(
         bytes.sublist(offset, offset + dataLength),
       ),
+      viewMode: viewMode,
+      viewSeconds: viewSeconds,
     );
   }
 
@@ -119,8 +168,12 @@ class AttachmentPayloadData {
   const AttachmentPayloadData({
     required this.mimeType,
     required this.bytes,
+    this.viewMode = 'normal',
+    this.viewSeconds = 0,
   });
 
   final String mimeType;
   final Uint8List bytes;
+  final String viewMode;
+  final int viewSeconds;
 }

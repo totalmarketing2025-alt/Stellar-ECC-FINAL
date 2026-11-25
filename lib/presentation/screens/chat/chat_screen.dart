@@ -20,6 +20,7 @@ import '../../widgets/typing_indicator.dart';
 import '../../widgets/call_event_card.dart';
 import '../../widgets/ttl_picker_sheet.dart';
 import '../../widgets/attachment_picker_sheet.dart';
+import '../../widgets/attachment_view_policy_sheet.dart';
 import '../../../core/media/attachment_payload.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
@@ -308,6 +309,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             onLoadAttachment: (blobId) => ref
                                 .read(chatRepositoryProvider)
                                 .loadAttachment(blobId),
+                            onBeginEphemeralView: (messageId) => ref
+                                .read(chatRepositoryProvider)
+                                .beginAttachmentView(messageId),
+                            onFinishEphemeralView: (messageId) => ref
+                                .read(chatRepositoryProvider)
+                                .finishAttachmentView(messageId),
                           );
                         },
                       );
@@ -371,6 +378,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _forwardMessage(Message message) async {
+    if (message.isEphemeralAttachment) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            stellarText(context, 'View-once media cannot be forwarded.'),
+          ),
+        ),
+      );
+      return;
+    }
     final chatsAsync = ref.read(chatListProvider);
     final chats = chatsAsync.maybeWhen(
       data: (items) => items
@@ -487,6 +504,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final bytes = await file.readAsBytes();
     final mimeType = _guessMimeType(path);
+    var viewPolicy = const AttachmentViewPolicy.normal();
+    if (mimeType.startsWith('image/') || mimeType.startsWith('video/')) {
+      final selectedPolicy = await showModalBottomSheet<AttachmentViewPolicy>(
+        context: context,
+        backgroundColor: StellarColors.bgElevated,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (_) => const AttachmentViewPolicySheet(),
+      );
+      if (!mounted || selectedPolicy == null) return;
+      viewPolicy = selectedPolicy;
+    }
 
     final chatsAsync = ref.read(chatListProvider);
     final chat = chatsAsync.maybeWhen(
@@ -502,6 +532,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ttlSeconds: ttl,
             attachmentBytes: bytes,
             attachmentMimeType: mimeType,
+            attachmentViewMode: viewPolicy.mode,
+            attachmentViewSeconds: viewPolicy.seconds,
             replyToId: _replyingTo?.messageId,
           );
 

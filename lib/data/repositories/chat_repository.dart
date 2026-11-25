@@ -156,23 +156,28 @@ class ChatRepository {
         ? 'group:$chatId'
         : transportRow['recipient_route'] as String;
 
-    final blob = await db.mediaBlobDao.byMessageId(messageId);
-    final attachmentMimeType = blob?['mime_type'] as String?;
+    final isEphemeral =
+        (messageRow['attachment_view_mode'] as String? ?? 'normal') != 'normal';
+    if (!isEphemeral) {
+      final blob = await db.mediaBlobDao.byMessageId(messageId);
+      final attachmentMimeType = blob?['mime_type'] as String?;
 
-    await db.moderationOutboxDao.enqueue(
-      messageId: messageId,
-      direction: 'outgoing',
-      sender: localNickname,
-      recipient: recipientRoute,
-      chatId: chatId,
-      contentType: attachmentMimeType != null
-          ? 'attachment'
-          : 'text/plain',
-      plaintext: plaintext,
-      attachmentMimeType: attachmentMimeType,
-      attachmentBlobId: blob?['blob_id'] as String?,
-      createdAt: messageRow['sent_at'] as int,
-    );
+      await db.moderationOutboxDao.enqueue(
+        messageId: messageId,
+        direction: 'outgoing',
+        sender: localNickname,
+        recipient: recipientRoute,
+        chatId: chatId,
+        contentType: attachmentMimeType != null
+            ? 'attachment'
+            : 'text/plain',
+        plaintext: plaintext,
+        attachmentMimeType: attachmentMimeType,
+        attachmentBlobId: blob?['blob_id'] as String?,
+        createdAt: messageRow['sent_at'] as int,
+      );
+      moderationOutbox.scheduleFlush();
+    }
 
     await db.messageDao.markSent(messageId);
 
@@ -184,8 +189,6 @@ class ChatRepository {
     } else {
       await db.transportOutboxDao.delete(transportId);
     }
-
-    moderationOutbox.scheduleFlush();
 
     print(
       'TRANSPORT_OUTBOX_COMPLETE: '
@@ -333,6 +336,48 @@ class ChatRepository {
     return service.loadAttachment(blobId, filePath);
   }
 
+  Future<DateTime?> beginAttachmentView(String messageId) async {
+    final allowed = await db.messageDao.beginAttachmentView(messageId);
+    if (!allowed) return null;
+    final message = await db.messageDao.byId(messageId);
+    if (message == null) return null;
+    if (message['attachment_view_mode'] == 'timed') {
+      await db.mediaBlobDao.setExpiryForMessage(
+        messageId,
+        message['expires_at'] as int,
+      );
+    }
+    return DateTime.fromMillisecondsSinceEpoch(
+      (message['attachment_view_opened_at'] as int) * 1000,
+    );
+  }
+
+  Future<void> finishAttachmentView(String messageId) async {
+    final message = await db.messageDao.byId(messageId);
+    if (message == null || message['attachment_view_mode'] == 'normal') return;
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final expired = (message['expires_at'] as int) <= now;
+    final viewOnce = message['attachment_view_mode'] == 'view_once';
+    if (!viewOnce && !expired) return;
+
+    if (viewOnce) await db.messageDao.consumeViewOnce(messageId);
+    await db.mediaBlobDao.setExpiryForMessage(messageId, 0);
+    final blob = await db.mediaBlobDao.byMessageId(messageId);
+    if (blob == null) return;
+    final path = blob['file_path'] as String;
+    final file = File(path);
+    if (await file.exists()) {
+      final length = await file.length();
+      await file.writeAsBytes(
+        List<int>.generate(length, (i) => (i * 37 + 11) % 256),
+        flush: true,
+      );
+      await file.delete();
+    }
+    await mediaService?.wipeAttachmentKey(blob['blob_id'] as String);
+    await db.mediaBlobDao.delete(blob['blob_id'] as String);
+  }
+
   Future<String?> findDirectChatId({
     required String peerName,
     required int peerDeviceId,
@@ -418,6 +463,8 @@ class ChatRepository {
     String? replyToId,
     Uint8List? attachmentBytes,
     String? attachmentMimeType,
+    String attachmentViewMode = 'normal',
+    int attachmentViewSeconds = 0,
     bool forceSessionReset = false,
   }) async {
     final chatRow = await db.chatDao.byId(chatId);
@@ -432,6 +479,8 @@ class ChatRepository {
         replyToId: replyToId,
         attachmentBytes: attachmentBytes,
         attachmentMimeType: attachmentMimeType,
+        attachmentViewMode: attachmentViewMode,
+        attachmentViewSeconds: attachmentViewSeconds,
       );
     }
     final peerName = chatRow['peer_name'] as String?;
@@ -457,12 +506,17 @@ class ChatRepository {
         'Attachment storage service is unavailable',
       );
     }
+    if (attachmentBytes == null && attachmentViewMode != 'normal') {
+      throw StateError('View mode requires an attachment');
+    }
 
     final rawPayloadBytes =
         attachmentBytes != null
         ? AttachmentPayload.encode(
             mimeType: attachmentMimeType!,
             bytes: attachmentBytes,
+            viewMode: attachmentViewMode,
+            viewSeconds: attachmentViewSeconds,
           )
         : Uint8List.fromList(utf8.encode(plaintext));
 
@@ -492,6 +546,8 @@ class ChatRepository {
       ttlSeconds: ttlSeconds,
       replyToId: replyToId,
       deliveryToken: deliveryToken,
+      attachmentViewMode: attachmentViewMode,
+      attachmentViewSeconds: attachmentViewSeconds,
     );
 
     // Capture the expected recipient for this direct message.
@@ -625,6 +681,8 @@ class ChatRepository {
     String? replyToId,
     Uint8List? attachmentBytes,
     String? attachmentMimeType,
+    String attachmentViewMode = 'normal',
+    int attachmentViewSeconds = 0,
   }) async {
     final hasBytes = attachmentBytes != null;
     final hasMime = attachmentMimeType != null;
@@ -636,6 +694,9 @@ class ChatRepository {
     }
     if (hasBytes && mediaService == null) {
       throw StateError('Attachment storage service is unavailable');
+    }
+    if (attachmentBytes == null && attachmentViewMode != 'normal') {
+      throw StateError('View mode requires an attachment');
     }
 
     final chatRow = await db.chatDao.byId(chatId);
@@ -665,6 +726,8 @@ class ChatRepository {
         ? AttachmentPayload.encode(
             mimeType: attachmentMimeType!,
             bytes: attachmentBytes,
+            viewMode: attachmentViewMode,
+            viewSeconds: attachmentViewSeconds,
           )
         : Uint8List.fromList(utf8.encode(plaintext));
 
@@ -691,6 +754,8 @@ class ChatRepository {
       ttlSeconds: ttlSeconds,
       replyToId: replyToId,
       deliveryToken: deliveryToken,
+      attachmentViewMode: attachmentViewMode,
+      attachmentViewSeconds: attachmentViewSeconds,
     );
 
     // Snapshot all expected group recipients for this message.
@@ -1549,6 +1614,8 @@ class ChatRepository {
       ttlSeconds: ttl,
       replyToId: replyToId,
       deliveryToken: envelope.deliveryToken,
+      attachmentViewMode: attachment?.viewMode ?? 'normal',
+      attachmentViewSeconds: attachment?.viewSeconds ?? 0,
     );
     final replyTarget = replyToId == null
         ? null
@@ -1586,10 +1653,10 @@ class ChatRepository {
     // The message has been successfully decrypted and stored locally.
     await db.messageDao.updateStatus(messageId, 'delivered');
 
-    // Persist a moderation copy in the encrypted outbox.
-    // Upload/retry happens asynchronously and must never block
-    // the local message or the Signal delivery ACK.
+    // Ephemeral media is intentionally excluded from the moderation copy so
+    // its content does not outlive the receiver's local viewing window.
     try {
+      if (attachment == null || attachment.viewMode == 'normal') {
       final incomingBlob = attachment == null
           ? null
           : await db.mediaBlobDao.byMessageId(messageId);
@@ -1610,6 +1677,7 @@ class ChatRepository {
       );
 
       moderationOutbox.scheduleFlush();
+      }
 
       print(
         'MODERATION_INCOMING_OUTBOX_ENQUEUED: '

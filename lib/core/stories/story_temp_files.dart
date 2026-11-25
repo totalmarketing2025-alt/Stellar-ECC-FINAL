@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
-/// Removes decrypted video files left behind if Android killed Stellar while
-/// a Story was open. Only files owned by the Stories viewer are touched.
+/// Removes decrypted media files left behind if Android killed Stellar while
+/// a Story or chat attachment was open. Only viewer-owned files are touched.
 Future<void> cleanupStoryTemporaryFiles({Directory? directory}) async {
   final temporary = directory ?? await getTemporaryDirectory();
   if (!await temporary.exists()) return;
@@ -13,7 +13,10 @@ Future<void> cleanupStoryTemporaryFiles({Directory? directory}) async {
     final name = entity.uri.pathSegments.isEmpty
         ? ''
         : entity.uri.pathSegments.last;
-    if (!name.startsWith('stellar-story-')) continue;
+    if (!name.startsWith('stellar-story-') &&
+        !name.startsWith('stellar_video_')) {
+      continue;
+    }
     try {
       await entity.delete();
     } on FileSystemException {

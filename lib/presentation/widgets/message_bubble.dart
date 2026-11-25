@@ -629,6 +629,244 @@ class _AttachmentPreviewState extends State<_AttachmentPreview> {
   }
 }
 
+class _EphemeralAttachmentPreview extends StatefulWidget {
+  const _EphemeralAttachmentPreview({
+    required this.message,
+    required this.isOutgoing,
+    required this.onLoadAttachment,
+    required this.onBeginView,
+    required this.onFinishView,
+  });
+
+  final Message message;
+  final bool isOutgoing;
+  final Future<Uint8List> Function(String blobId) onLoadAttachment;
+  final Future<DateTime?> Function(String messageId) onBeginView;
+  final Future<void> Function(String messageId) onFinishView;
+
+  @override
+  State<_EphemeralAttachmentPreview> createState() =>
+      _EphemeralAttachmentPreviewState();
+}
+
+class _EphemeralAttachmentPreviewState
+    extends State<_EphemeralAttachmentPreview> {
+  bool _opening = false;
+  bool _unavailable = false;
+
+  Future<void> _open() async {
+    if (_opening || widget.isOutgoing || widget.message.mediaBlobId == null) {
+      return;
+    }
+    setState(() => _opening = true);
+    var started = false;
+    try {
+      final openedAt = await widget.onBeginView(widget.message.messageId);
+      started = openedAt != null;
+      if (openedAt == null) {
+        if (mounted) setState(() => _unavailable = true);
+        return;
+      }
+      final bytes = await widget.onLoadAttachment(widget.message.mediaBlobId!);
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        barrierColor: Colors.black,
+        builder: (_) => _EphemeralAttachmentViewer(
+          bytes: bytes,
+          mimeType: widget.message.mediaMimeType ?? '',
+          mode: widget.message.attachmentViewMode,
+          seconds: widget.message.attachmentViewSeconds,
+          openedAt: openedAt,
+        ),
+      );
+    } catch (_) {
+      if (mounted) setState(() => _unavailable = true);
+    } finally {
+      if (started) {
+        await widget.onFinishView(widget.message.messageId);
+      }
+      if (mounted) setState(() => _opening = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = widget.message.attachmentViewMode;
+    final opened = widget.message.attachmentViewOpenedAt != null;
+    final expired = widget.message.expiresAt.isBefore(DateTime.now());
+    final label = _unavailable || (mode == 'view_once' && opened) || expired
+        ? stellarText(context, 'This media is no longer available')
+        : widget.isOutgoing
+            ? mode == 'view_once'
+                ? stellarText(context, 'View once photo/video sent')
+                : stellarText(context, 'Timed photo/video sent')
+            : mode == 'view_once'
+                ? stellarText(context, 'Tap to view once')
+                : '${stellarText(context, 'Tap to view')} · ${widget.message.attachmentViewSeconds}s';
+    return InkWell(
+      onTap: (!widget.isOutgoing && !expired &&
+              !(mode == 'view_once' && opened))
+          ? _open
+          : null,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 220,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: StellarColors.bgElevated,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_opening)
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Icon(
+                mode == 'view_once'
+                    ? Icons.visibility_off_outlined
+                    : Icons.timer_outlined,
+                color: StellarColors.accentBlue,
+              ),
+            const SizedBox(width: 10),
+            Flexible(child: Text(label)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EphemeralAttachmentViewer extends StatefulWidget {
+  const _EphemeralAttachmentViewer({
+    required this.bytes,
+    required this.mimeType,
+    required this.mode,
+    required this.seconds,
+    required this.openedAt,
+  });
+
+  final Uint8List bytes;
+  final String mimeType;
+  final String mode;
+  final int seconds;
+  final DateTime openedAt;
+
+  @override
+  State<_EphemeralAttachmentViewer> createState() =>
+      _EphemeralAttachmentViewerState();
+}
+
+class _EphemeralAttachmentViewerState extends State<_EphemeralAttachmentViewer>
+    with WidgetsBindingObserver {
+  Timer? _timer;
+  int _remaining = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    if (widget.mode == 'timed') {
+      _updateRemaining();
+      _timer = Timer.periodic(const Duration(milliseconds: 250), (_) {
+        _updateRemaining();
+      });
+    }
+  }
+
+  void _updateRemaining() {
+    final deadline = widget.openedAt.add(Duration(seconds: widget.seconds));
+    final remaining = deadline.difference(DateTime.now()).inSeconds;
+    if (remaining <= 0) {
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+    if (mounted && remaining != _remaining) {
+      setState(() => _remaining = remaining);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed && mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timer?.cancel();
+    if (!widget.mimeType.toLowerCase().startsWith('video/')) {
+      PaintingBinding.instance.imageCache.evict(MemoryImage(widget.bytes));
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isVideo = widget.mimeType.toLowerCase().startsWith('video/');
+    final extension = switch (widget.mimeType.toLowerCase()) {
+      'video/quicktime' => 'mov',
+      _ => 'mp4',
+    };
+    return Dialog.fullscreen(
+      backgroundColor: Colors.black,
+      child: SafeArea(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Center(
+                child: isVideo
+                    ? _VideoAttachmentPlayer(
+                        bytesFuture: Future.value(widget.bytes),
+                        extension: extension,
+                      )
+                    : InteractiveViewer(
+                        child: Image.memory(
+                          widget.bytes,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const Icon(
+                            Icons.broken_image,
+                            color: Colors.white,
+                            size: 48,
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              left: 12,
+              child: Text(
+                widget.mode == 'view_once'
+                    ? stellarText(context, 'View once')
+                    : '${_remaining}s',
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+            Positioned(
+              top: 0,
+              right: 8,
+              child: IconButton(
+                tooltip: stellarText(context, 'Close'),
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class MessageBubble extends StatelessWidget {
   const MessageBubble({
     super.key,
@@ -643,6 +881,8 @@ class MessageBubble extends StatelessWidget {
     this.onDeleteForEveryone,
     this.onTogglePin,
     required this.onLoadAttachment,
+    required this.onBeginEphemeralView,
+    required this.onFinishEphemeralView,
   });
 
   final Message message;
@@ -656,6 +896,8 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback? onDeleteForEveryone;
   final VoidCallback? onTogglePin;
   final Future<Uint8List> Function(String blobId) onLoadAttachment;
+  final Future<DateTime?> Function(String messageId) onBeginEphemeralView;
+  final Future<void> Function(String messageId) onFinishEphemeralView;
 
   static const _quickReactions = ['❤️', '😂', '👍', '😮', '😢', '🙏'];
 
@@ -681,7 +923,9 @@ class MessageBubble extends StatelessWidget {
         ),
       ),
       child: GestureDetector(
-        onLongPress: () => _showReactionTray(context),
+        onLongPress: message.isEphemeralAttachment
+            ? null
+            : () => _showReactionTray(context),
         child: Column(
           crossAxisAlignment: alignment,
           children: [
@@ -744,11 +988,19 @@ class MessageBubble extends StatelessWidget {
                   if (message.isDeleted)
                     Text(stellarText(context, "This message was deleted"), style: const TextStyle(fontSize: 14, fontStyle: FontStyle.italic, color: StellarColors.textSecondary))
                   else if (message.mediaBlobId != null)
-                    _AttachmentPreview(
-                      blobId: message.mediaBlobId!,
-                      mimeType: message.mediaMimeType,
-                      onLoadAttachment: onLoadAttachment,
-                    )
+                    message.isEphemeralAttachment
+                        ? _EphemeralAttachmentPreview(
+                            message: message,
+                            isOutgoing: isOutgoing,
+                            onLoadAttachment: onLoadAttachment,
+                            onBeginView: onBeginEphemeralView,
+                            onFinishView: onFinishEphemeralView,
+                          )
+                        : _AttachmentPreview(
+                            blobId: message.mediaBlobId!,
+                            mimeType: message.mediaMimeType,
+                            onLoadAttachment: onLoadAttachment,
+                          )
                   else if (!message.isDeleted)
                     Text(
                       message.bodyPlaintext,
@@ -833,6 +1085,7 @@ class MessageBubble extends StatelessWidget {
                 ListTile(leading: const Icon(Icons.edit_outlined), title: Text(stellarText(context, "Edit message")), onTap: () { Navigator.pop(sheetContext); onEdit?.call(); }),
               if (isOutgoing && !message.isDeleted)
                 ListTile(leading: const Icon(Icons.delete_forever_outlined, color: StellarColors.danger), title: Text(stellarText(context, "Delete for everyone")), onTap: () { Navigator.pop(sheetContext); onDeleteForEveryone?.call(); }),
+              if (!message.isEphemeralAttachment)
               ListTile(
                 leading: const Icon(Icons.forward, color: StellarColors.accentBlue),
                 title: Text(stellarText(context, "Forward message")),

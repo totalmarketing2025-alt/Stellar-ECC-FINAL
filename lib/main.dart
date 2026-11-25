@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'core/security/platform_key_store.dart';
+import 'core/media/media_attachment_service.dart';
 import 'core/stories/story_temp_files.dart';
 import 'app/app.dart';
 import 'app/firebase_options.dart';
@@ -104,7 +105,13 @@ Future<void> main() async {
 
   // Background + foreground TTL sweeper — enforces "messages disappear"
   // at the app layer, independent of the OS scheduler's exact timing.
-  final sweeper = ExpirySweeper(database);
+  final sweeper = ExpirySweeper(
+    database,
+    mediaService: MediaAttachmentService(
+      db: database,
+      keyStore: PlatformKeyStore(),
+    ),
+  );
   sweeper.start();
 
   // Build the ProviderContainer up front (rather than letting ProviderScope
