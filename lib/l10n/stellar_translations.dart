@@ -111,7 +111,6 @@ const Map<String, Map<String, String>> _stellarTranslations = {
     "Add @nickname": "Додај @прекар",
     "Unable to display this image.": "Сликата не може да се прикаже.",
     "Text attachment": "Текстуален прилог",
-    "Close": "Затвори",
     "Attachment received": "Примен е прилог",
     "Try again": "Обиди се повторно",
     "No broadcasts yet": "Сè уште нема објави",
