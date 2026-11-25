@@ -36,7 +36,13 @@ jobs:
       - name: Package installer
         shell: pwsh
         run: |
-          $iscc = Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'
+          $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+          if ($command) {
+            $iscc = $command.Source
+          } else {
+            $iscc = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Inno Setup 6\ISCC.exe'
+          }
+          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler not found at $iscc" }
           & $iscc /DAppVersion=0.1.1 /DBuildDir="$PWD\build\windows\x64\runner\Release" windows\installer\StellarECC.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
