@@ -391,7 +391,6 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
     });
 
     final router = ref.watch(appRouterProvider);
-    final wantedModeEnabled = ref.watch(wantedModeWipeEnabledProvider);
 
     return MaterialApp.router(
       title: 'Stellar ECC',
@@ -408,14 +407,25 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
       supportedLocales: AppLocalizations.supportedLocales,
       routerConfig: router,
       builder: (context, child) {
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            child ?? const SizedBox.shrink(),
-            if (wantedModeEnabled)
-              const _WantedModePurpleBottomGlow(),
-            const _StellarIncomingEdgeGlow(),
-          ],
+        // Keep Wanted Mode's visual toggle below MaterialApp.router. Watching
+        // this provider in StellarEccApp.build rebuilt the entire router while
+        // the Wanted Mode PIN dialog/bottom sheet was active. That can leave
+        // inherited dependents in an inactive route subtree and trip Flutter's
+        // InheritedElement.debugDeactivated assertion when monitoring starts.
+        return Consumer(
+          builder: (context, ref, _) {
+            final wantedModeEnabled =
+                ref.watch(wantedModeWipeEnabledProvider);
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                child ?? const SizedBox.shrink(),
+                if (wantedModeEnabled)
+                  const _WantedModePurpleBottomGlow(),
+                const _StellarIncomingEdgeGlow(),
+              ],
+            );
+          },
         );
       },
     );
