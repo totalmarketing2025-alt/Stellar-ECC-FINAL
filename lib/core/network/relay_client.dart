@@ -376,7 +376,7 @@ class RelayClient {
                       ? value['index'] as int
                       : null;
                   final waiter = _uploadAckWaiters[
-                    _uploadAckKey(uploadId, type, index),
+                    _uploadAckKey(uploadId, type, index)
                   ];
                   if (waiter != null && !waiter.isCompleted) {
                     waiter.complete(value);
