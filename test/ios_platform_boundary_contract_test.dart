@@ -8,6 +8,8 @@ void main() {
   final wantedMode =
       File('lib/presentation/state/security_providers.dart').readAsStringSync();
   final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+  final launchScreen =
+      File('ios/Runner/Base.lproj/LaunchScreen.storyboard').readAsStringSync();
   final infoPlist = File('ios/Runner/Info.plist').readAsStringSync();
   final podfile = File('ios/Podfile').readAsStringSync();
   final entitlements =
@@ -28,6 +30,10 @@ void main() {
       wantedMode,
       contains('Wanted Mode monitoring is currently Android-only.'),
     );
+  });
+
+  test('iOS launch screen avoids unsupported runtime attributes', () {
+    expect(launchScreen, isNot(contains('userDefinedRuntimeAttributes')));
   });
 
   test('iOS initializes Firebase through the guarded Flutter setup', () {
