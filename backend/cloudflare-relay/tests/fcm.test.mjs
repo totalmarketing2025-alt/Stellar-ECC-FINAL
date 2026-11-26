@@ -176,6 +176,7 @@ test("incoming call sends the expected high-priority FCM payload", async () => {
     const message = body.message;
 
     assert.equal(message.data.wake, "1");
+    assert.match(message.data.wakeId, /^[0-9a-f-]{36}$/i);
     assert.equal(message.data.type, "call");
     assert.equal(message.data.callId, "call-123");
     assert.equal(message.data.remoteNickname, "bob");
@@ -194,6 +195,13 @@ test("incoming call sends the expected high-priority FCM payload", async () => {
       JSON.parse(request.options.body).message.token,
     ).sort(),
     ["android-test-token", "ios-test-token"],
+  );
+  assert.equal(
+    new Set(fcmRequests.map((request) =>
+      JSON.parse(request.options.body).message.data.wakeId,
+    )).size,
+    1,
+    "all device registrations for one wake share its deduplication ID",
   );
 });
 
@@ -416,6 +424,36 @@ test("ordinary wake uses high priority and no call metadata", async () => {
   await room.sendPushWake("alice");
 
   assert.equal(fcmMessages.length, 1);
-  assert.deepEqual(fcmMessages[0].data, { wake: "1" });
+  assert.equal(fcmMessages[0].data.wake, "1");
+  assert.match(fcmMessages[0].data.wakeId, /^[0-9a-f-]{36}$/i);
+  assert.deepEqual(Object.keys(fcmMessages[0].data).sort(), ["wake", "wakeId"]);
   assert.equal(fcmMessages[0].android.priority, "high");
+});
+
+test("separate message wakes receive different notification deduplication IDs", async () => {
+  const wakeIds = [];
+  const room = configuredRoom(async (url, options = {}) => {
+    const hostname = new URL(url).hostname;
+    if (hostname === "directory.test") {
+      return jsonResponse({
+        pushRegistrations: [
+          { token: "message-wake-token", platform: "android" },
+        ],
+      });
+    }
+    if (hostname === "oauth2.googleapis.com") {
+      return jsonResponse({ access_token: "mock-access-token" });
+    }
+    if (hostname === "fcm.googleapis.com") {
+      wakeIds.push(JSON.parse(options.body).message.data.wakeId);
+      return jsonResponse({ name: "mock-message-id" });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  await room.sendPushWake("alice");
+  await room.sendPushWake("alice");
+
+  assert.equal(wakeIds.length, 2);
+  assert.notEqual(wakeIds[0], wakeIds[1]);
 });

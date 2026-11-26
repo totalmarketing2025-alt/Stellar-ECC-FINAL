@@ -2,6 +2,7 @@
 <resources>
     <string name="app_name">Stellar ECC</string>
     <string name="notification_new_message">You have a new message</string>
+    <string name="notification_new_messages">New messages</string>
     <string name="notification_channel_messages">Messages</string>
     <string name="notification_channel_incoming_calls">Incoming calls</string>
     <string name="notification_channel_incoming_calls_description">Encrypted Stellar incoming calls</string>

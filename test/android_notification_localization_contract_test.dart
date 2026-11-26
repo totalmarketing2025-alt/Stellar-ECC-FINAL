@@ -12,6 +12,7 @@ void main() {
   const requiredResources = <String>[
     'app_name',
     'notification_new_message',
+    'notification_new_messages',
     'notification_channel_messages',
     'notification_channel_incoming_calls',
     'notification_channel_incoming_calls_description',
@@ -69,6 +70,7 @@ void main() {
 
   test('native notification surfaces use Android localized resources', () {
     final files = <String>[
+      'android/app/src/main/kotlin/ecc/stellar/app/StellarMessageNotifications.kt',
       'android/app/src/main/kotlin/ecc/stellar/app/StellarFirebaseMessagingService.kt',
       'android/app/src/main/kotlin/ecc/stellar/app/StellarPushBackgroundRunner.kt',
       'android/app/src/main/kotlin/ecc/stellar/app/WantedModeForegroundService.kt',

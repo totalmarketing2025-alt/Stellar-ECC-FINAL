@@ -11,19 +11,24 @@ void main() {
     'android/app/src/main/kotlin/ecc/stellar/app/'
     'StellarPushBackgroundRunner.kt',
   ).readAsStringSync();
+  final helper = File(
+    'android/app/src/main/kotlin/ecc/stellar/app/'
+    'StellarMessageNotifications.kt',
+  ).readAsStringSync();
 
-  test('FCM message wake coalesces into one stable notification', () {
-    expect(service, contains('manager.notify('));
-    expect(service, contains('MESSAGE_ID_BASE'));
-    expect(service, isNot(contains('System.currentTimeMillis() % 100000')));
+  test('distinct FCM wakes keep separate grouped notifications', () {
+    expect(service, contains('data["wakeId"]'));
+    expect(service, contains('StellarMessageNotifications.show('));
+    expect(helper, contains('manager.notify(notificationTag(wakeId)'));
+    expect(helper, contains('.setGroup(GROUP_KEY)'));
+    expect(helper, contains('.setGroupSummary(true)'));
+    expect(helper, contains('POST_NOTIFICATIONS'));
     expect(service, contains('scheduleBackgroundMessageSync()'));
   });
 
-  test('headless background notifications share the same stable ID', () {
-    expect(runner, contains('private const val MESSAGE_ID_BASE = 1001'));
-    expect(service, contains('private const val MESSAGE_ID_BASE = 1001'));
-    expect(runner, isNot(contains('System.currentTimeMillis() % 100000')));
-    expect(runner, contains('manager.notify('));
+  test('headless notifications use the same deduplicating notification helper', () {
+    expect(runner, contains('StellarMessageNotifications.show('));
+    expect(runner, isNot(contains('MESSAGE_ID_BASE')));
   });
 
   test('call push stays on separate call notification path', () {

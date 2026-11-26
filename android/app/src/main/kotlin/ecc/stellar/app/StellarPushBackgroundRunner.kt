@@ -1,11 +1,6 @@
 package ecc.stellar.app
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.graphics.Color
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -22,70 +17,14 @@ object StellarPushBackgroundRunner {
     private const val CHANNEL = "ecc.stellar.app/push_background"
     private const val TIMEOUT_SECONDS = 45L
 
-    private const val MESSAGE_CHANNEL = "stellar_messages"
-    private const val MESSAGE_ID_BASE = 1001
-
     private val engineLock = Any()
 
     private fun showMessageNotification(context: Context) {
         try {
-            val manager =
-                context.getSystemService(Context.NOTIFICATION_SERVICE)
-                    as NotificationManager
-
-            if (Build.VERSION.SDK_INT >= 26) {
-                manager.createNotificationChannel(
-                    NotificationChannel(
-                        MESSAGE_CHANNEL,
-                        context.getString(R.string.notification_channel_messages),
-                        NotificationManager.IMPORTANCE_DEFAULT
-                    ).apply {
-                        enableLights(true)
-                        lightColor = Color.rgb(139, 92, 246)
-                    }
-                )
-            }
-
-            val launch =
-                context.packageManager
-                    .getLaunchIntentForPackage(context.packageName)
-
-            val pending = launch?.let {
-                PendingIntent.getActivity(
-                    context,
-                    0,
-                    it,
-                    PendingIntent.FLAG_UPDATE_CURRENT or
-                        PendingIntent.FLAG_IMMUTABLE
-                )
-            }
-
-            val builder =
-                if (Build.VERSION.SDK_INT >= 26) {
-                    android.app.Notification.Builder(
-                        context,
-                        MESSAGE_CHANNEL
-                    )
-                } else {
-                    @Suppress("DEPRECATION")
-                    android.app.Notification.Builder(context)
-                }
-
-            builder
-                .setSmallIcon(R.drawable.ic_stat_stellar)
-                .setContentTitle(context.getString(R.string.app_name))
-                .setContentText(context.getString(R.string.notification_new_message))
-                .setAutoCancel(true)
-
-            if (pending != null) {
-                builder.setContentIntent(pending)
-            }
-
-            manager.notify(
-                MESSAGE_ID_BASE,
-                builder.build()
+            StellarMessageNotifications.show(
+                context,
+                java.util.UUID.randomUUID().toString(),
             )
-
             Log.d(
                 "StellarFCM",
                 "Background local message notification shown"

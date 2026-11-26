@@ -2,6 +2,7 @@
 <resources>
     <string name="app_name">Stellar ECC</string>
     <string name="notification_new_message">Имате нова порака</string>
+    <string name="notification_new_messages">Имате нови пораки</string>
     <string name="notification_channel_messages">Пораки</string>
     <string name="notification_channel_incoming_calls">Дојдовни повици</string>
     <string name="notification_channel_incoming_calls_description">Шифрирани дојдовни повици во Stellar</string>

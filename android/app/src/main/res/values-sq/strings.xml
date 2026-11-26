@@ -2,6 +2,7 @@
 <resources>
     <string name="app_name">Stellar ECC</string>
     <string name="notification_new_message">Ke një mesazh të ri</string>
+    <string name="notification_new_messages">Ke mesazhe të reja</string>
     <string name="notification_channel_messages">Mesazhet</string>
     <string name="notification_channel_incoming_calls">Telefonatat hyrëse</string>
     <string name="notification_channel_incoming_calls_description">Telefonata hyrëse të enkriptuara në Stellar</string>

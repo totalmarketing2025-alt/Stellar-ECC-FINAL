@@ -1709,6 +1709,11 @@ export class RelayRoom {
 
     console.log("FCM_VALID_REGISTRATIONS", validRegistrations.length);
 
+    // One opaque event ID is shared across this wake's device registrations.
+    // Android uses it as a notification tag: retries replace that same alert,
+    // while wakes for different messages remain independently visible.
+    const wakeId = crypto.randomUUID();
+
     let accessToken;
 
     try {
@@ -1728,6 +1733,7 @@ export class RelayRoom {
         token: registration.token,
         data: {
           wake: "1",
+          wakeId,
           ...(callMeta?.group === true
             ? { type: "group-call", roomId: callMeta.callId, sentAt: String(callMeta.sentAt) }
             : callMeta

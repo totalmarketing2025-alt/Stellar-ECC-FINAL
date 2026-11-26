@@ -1,11 +1,5 @@
 package ecc.stellar.app
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.content.Intent
-import android.graphics.Color
-import android.os.Build
 import android.util.Log
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -17,14 +11,6 @@ import ecc.stellar.app.calls.StellarCallManager
 import ecc.stellar.app.calls.StellarIncomingCallNotification
 
 class StellarFirebaseMessagingService : FirebaseMessagingService() {
-
-    companion object {
-        private const val MESSAGE_CHANNEL = "stellar_messages"
-        private const val MESSAGE_ID_BASE = 1001
-
-
-    }
-
     override fun onMessageReceived(
         remoteMessage: RemoteMessage
     ) {
@@ -53,13 +39,16 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         if (data["wake"] == "1") {
-            // Show notification immediately; background sync handles delivery.
-            showGenericMessageNotification()
+            // Each server wake is stable across FCM retries and gets its own
+            // grouped notification entry; sync handles encrypted delivery.
+            showGenericMessageNotification(
+                data["wakeId"] ?: remoteMessage.messageId,
+            )
             scheduleBackgroundMessageSync()
             return
         }
 
-        showGenericMessageNotification()
+        showGenericMessageNotification(remoteMessage.messageId)
     }
 
     private fun scheduleBackgroundMessageSync() {
@@ -133,71 +122,10 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
         }
     }
 
-    private fun showGenericMessageNotification() {
-        val manager =
-            getSystemService(NOTIFICATION_SERVICE)
-                as NotificationManager
-
-        if (Build.VERSION.SDK_INT >= 26) {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    MESSAGE_CHANNEL,
-                    getString(R.string.notification_channel_messages),
-                    NotificationManager.IMPORTANCE_DEFAULT
-                ).apply {
-                    enableLights(true)
-                    lightColor = Color.rgb(139, 92, 246)
-                }
-            )
-        }
-
-        val launch =
-            packageManager.getLaunchIntentForPackage(packageName)
-
-        val pending = launch?.let {
-            PendingIntent.getActivity(
-                this,
-                0,
-                it,
-                PendingIntent.FLAG_UPDATE_CURRENT or
-                    PendingIntent.FLAG_IMMUTABLE
-            )
-        }
-
-        val builder =
-            if (Build.VERSION.SDK_INT >= 26) {
-                android.app.Notification.Builder(
-                    this,
-                    MESSAGE_CHANNEL
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                android.app.Notification.Builder(this)
-            }
-
-        builder
-            .setSmallIcon(
-                ecc.stellar.app.R.drawable.ic_stat_stellar
-            )
-            .setContentTitle(getString(R.string.app_name))
-            .setContentText(getString(R.string.notification_new_message))
-            .setAutoCancel(true)
-
-        if (pending != null) {
-            builder.setContentIntent(pending)
-        }
-
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-                android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            Log.w("StellarFCM", "FCM-11 notification blocked: POST_NOTIFICATIONS denied")
-            return
-        }
-
-        manager.notify(
-            MESSAGE_ID_BASE,
-            builder.build()
+    private fun showGenericMessageNotification(wakeId: String?) {
+        StellarMessageNotifications.show(
+            this,
+            wakeId ?: java.util.UUID.randomUUID().toString(),
         )
 
         // Optional two-pulse purple edge light. The notification above
