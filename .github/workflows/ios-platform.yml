@@ -63,4 +63,5 @@ jobs:
           xcrun simctl bootstatus "$device_id" -b
 
       - name: Verify iOS SQLCipher and Keychain startup
-        run: flutter test integration_test/ios_sqlcipher_smoke_test.dart -d '${{ steps.simulator.outputs.device_id }}'
+        timeout-minutes: 8
+        run: flutter test integration_test/ios_sqlcipher_smoke_test.dart -d '${{ steps.simulator.outputs.device_id }}' --reporter expanded
