@@ -76,6 +76,49 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
     return status;
   }
 
+  Future<bool> hasPendingIOSLockChallenge() async {
+    if (!Platform.isIOS) return false;
+    return await _monitorChannel.invokeMethod<bool>(
+          'getPendingLockChallenge',
+        ) == true;
+  }
+
+  Future<void> clearPendingIOSLockChallenge() async {
+    if (!Platform.isIOS) return;
+    final cleared = await _monitorChannel.invokeMethod<bool>(
+      'clearPendingLockChallenge',
+    );
+    if (cleared != true) {
+      throw StateError('Could not clear the iOS Wanted Mode lock challenge.');
+    }
+  }
+
+  Future<void> revealPendingIOSLockChallenge() async {
+    if (!Platform.isIOS) return;
+    final revealed = await _monitorChannel.invokeMethod<bool>(
+      'revealPendingLockChallenge',
+    );
+    if (revealed != true) {
+      throw StateError('Could not present the iOS Wanted Mode lock challenge.');
+    }
+  }
+
+  Future<void> disableAfterLocalWipe() async {
+    state = false;
+    try {
+      await _keyStore.writeWantedModeWipeEnabled(false);
+    } catch (_) {}
+    try {
+      await _monitorChannel.invokeMethod<bool>(
+        'setWipeEnabled',
+        <String, dynamic>{'enabled': false},
+      );
+    } catch (_) {}
+    try {
+      await _monitorChannel.invokeMethod<bool>('stopMonitoring');
+    } catch (_) {}
+  }
+
   Future<List<Map<String, dynamic>>> getPendingChallenges() async {
     final result = await _monitorChannel.invokeListMethod<dynamic>(
       'getPendingChallenges',
@@ -133,13 +176,25 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
 
   Future<void> _load() async {
     try {
-      // Wanted Mode depends on Android's native event monitor. Keep the saved
-      // preference intact on desktop, but do not claim it is active there.
-      if (!Platform.isAndroid) {
+      // Desktop platforms cannot provide Wanted Mode monitoring. iOS uses a
+      // narrower protected-data lock signal; Android retains its event monitor.
+      if (!Platform.isAndroid && !Platform.isIOS) {
         state = false;
         return;
       }
       final enabled = await _keyStore.readWantedModeWipeEnabled();
+
+      if (Platform.isIOS) {
+        final nativeResult = await _monitorChannel.invokeMethod<bool>(
+          enabled ? 'startMonitoring' : 'stopMonitoring',
+        );
+        if (nativeResult != true) {
+          await _disableAfterLoadFailure();
+          return;
+        }
+        state = enabled;
+        return;
+      }
 
       final mirrorResult = await _monitorChannel.invokeMethod<bool>(
         'setWipeEnabled',
@@ -188,8 +243,8 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
   }
 
   Future<void> setEnabled(bool enabled) async {
-    if (!Platform.isAndroid) {
-      throw UnsupportedError('Wanted Mode monitoring is currently Android-only.');
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      throw UnsupportedError('Wanted Mode monitoring is unavailable on this platform.');
     }
     if (_operationInProgress || _loadInProgress) {
       throw StateError(
@@ -205,8 +260,37 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
       previousEnabled = await _keyStore.readWantedModeWipeEnabled();
       previousValueRead = true;
 
+      if (Platform.isIOS && enabled) {
+        final passcodeAvailable = await _monitorChannel.invokeMethod<bool>(
+          'isDevicePasscodeAvailable',
+        );
+        if (passcodeAvailable != true) {
+          throw StateError(
+            'Set an iPhone passcode before enabling Wanted Mode.',
+          );
+        }
+      }
+
       // Persist the requested preference before updating native monitoring.
       await _keyStore.writeWantedModeWipeEnabled(enabled);
+
+      if (Platform.isIOS) {
+        final nativeMirror = await _monitorChannel.invokeMethod<bool>(
+          'setWipeEnabled',
+          <String, dynamic>{'enabled': enabled},
+        );
+        if (nativeMirror != true) {
+          throw StateError('iOS Wanted Mode setting could not be saved.');
+        }
+        final nativeResult = await _monitorChannel.invokeMethod<bool>(
+          enabled ? 'startMonitoring' : 'stopMonitoring',
+        );
+        if (nativeResult != true) {
+          throw StateError('iOS Wanted Mode monitoring could not be updated.');
+        }
+        state = enabled;
+        return;
+      }
 
       final mirrorResult = await _monitorChannel.invokeMethod<bool>(
         'setWipeEnabled',
@@ -238,6 +322,17 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
       var preferenceRestored = false;
       try {
         await _keyStore.writeWantedModeWipeEnabled(previousEnabled);
+        if (Platform.isIOS) {
+          final restored = await _monitorChannel.invokeMethod<bool>(
+            'setWipeEnabled',
+            <String, dynamic>{'enabled': previousEnabled},
+          );
+          if (restored != true) {
+            throw StateError('iOS Wanted Mode rollback failed.');
+          }
+          preferenceRestored = true;
+        }
+        if (!Platform.isIOS) {
         final mirrorRestored = await _monitorChannel.invokeMethod<bool>(
           'setWipeEnabled',
           <String, dynamic>{'enabled': previousEnabled},
@@ -246,6 +341,7 @@ class WantedModeWipeEnabledNotifier extends StateNotifier<bool> {
           throw StateError('Native Wanted Mode rollback mirror failed.');
         }
         preferenceRestored = true;
+        }
       } catch (_) {
         // Do not restart native monitoring if persisted state is uncertain.
         state = false;
@@ -325,6 +421,9 @@ class WantedModeController {
       }
 
       await keyStore.wipeAllExceptDatabaseKey();
+      await ref
+          .read(wantedModeWipeEnabledProvider.notifier)
+          .disableAfterLocalWipe();
 
       ref.invalidate(chatRepositoryProvider);
       ref.invalidate(groupCryptoProvider);

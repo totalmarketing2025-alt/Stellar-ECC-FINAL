@@ -829,6 +829,66 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
 
   @override
   Widget build(BuildContext context) {
+    final wipeEnabled = ref.watch(wantedModeWipeEnabledProvider);
+    if (Platform.isIOS) {
+      return SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(stellarText(context, "Wanted Mode"),
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+              const SizedBox(height: 12),
+              Text(stellarText(context,
+                  'iPhone Wanted Mode detects when iOS locks protected device data. The next time you open Stellar, it requires your app PIN. Set an iPhone passcode first.')),
+              const SizedBox(height: 8),
+              Text(stellarText(context,
+                  'iOS does not allow continuous USB, Wi-Fi, Bluetooth or battery monitoring, or a reliable countdown while Stellar is suspended.')),
+              const SizedBox(height: 12),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(stellarText(context, 'Require PIN after iPhone locks')),
+                subtitle: Text(wipeEnabled
+                    ? stellarText(context, 'Wanted Mode is enabled. A protected-data lock will require your app PIN when Stellar is opened again.')
+                    : stellarText(context, 'Requires an iPhone passcode and your existing Stellar app PIN.')),
+                value: wipeEnabled,
+                onChanged: _updatingMonitor ? null : _setMonitoring,
+              ),
+              const SizedBox(height: 8),
+              Text(stellarText(context,
+                  'Lock now only locks Stellar. It does not erase data.'),
+                  style: const TextStyle(color: StellarColors.textSecondary)),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.lock),
+                  label: Text(stellarText(context, "Lock now")),
+                  onPressed: () {
+                    ref.read(wantedModeControllerProvider).lockNow();
+                    Navigator.pop(context);
+                  },
+                ),
+              ),
+              if (wipeEnabled) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(foregroundColor: StellarColors.danger),
+                    icon: const Icon(Icons.delete_forever),
+                    label: Text(stellarText(context, "Wipe local data and lock")),
+                    onPressed: () => _wipeNow(context),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
     if (!Platform.isAndroid) {
       return SafeArea(
         child: Padding(
@@ -859,8 +919,6 @@ class _WantedModeSheetState extends ConsumerState<_WantedModeSheet>
         ),
       );
     }
-    final wipeEnabled = ref.watch(wantedModeWipeEnabledProvider);
-
     return SafeArea(
       child: SingleChildScrollView(
         child: Padding(

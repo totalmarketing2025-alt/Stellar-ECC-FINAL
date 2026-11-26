@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -39,6 +41,20 @@ class _PinUnlockScreenState extends ConsumerState<PinUnlockScreen> {
     if (!mounted) return;
 
     if (valid) {
+      if (Platform.isIOS) {
+        try {
+          await ref
+              .read(wantedModeWipeEnabledProvider.notifier)
+              .clearPendingIOSLockChallenge();
+        } catch (_) {
+          if (!mounted) return;
+          setState(() {
+            _checking = false;
+            _error = 'Could not verify the iPhone lock event. Try again.';
+          });
+          return;
+        }
+      }
       await keyStore.resetPinFailedAttempts();
       ref.read(isUnlockedProvider.notifier).state = true;
       final pendingCallId = ref.read(pendingIncomingCallNavigationProvider);

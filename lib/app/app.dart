@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' show cos;
 
 import 'package:flutter/material.dart';
@@ -40,6 +41,7 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
   StreamSubscription<List<SharedContentItem>>? _sharedContentSubscription;
   List<SharedContentItem>? _pendingSharedContent;
   bool _sharedContentNavigationScheduled = false;
+  bool _iosWantedLockCheckInProgress = false;
   final Set<String> _incomingNavigationPendingCallIds = <String>{};
 
   static const MethodChannel _wantedModeNavigationChannel =
@@ -67,6 +69,7 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         unawaited(_consumePendingWantedSecurityNavigation());
+        unawaited(_checkIOSWantedModeLock());
         unawaited(_checkGuardAccountRevocation());
       }
     });
@@ -85,8 +88,32 @@ class _StellarEccAppState extends ConsumerState<StellarEccApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(_checkIOSWantedModeLock());
       unawaited(_checkGuardAccountRevocation());
       _scheduleSharedContentNavigation();
+    }
+  }
+
+  Future<void> _checkIOSWantedModeLock() async {
+    if (!Platform.isIOS || !mounted || _iosWantedLockCheckInProgress) return;
+    _iosWantedLockCheckInProgress = true;
+    try {
+      final pending = await ref
+          .read(wantedModeWipeEnabledProvider.notifier)
+          .hasPendingIOSLockChallenge();
+      if (!pending || !mounted) return;
+      ref.read(isUnlockedProvider.notifier).state = false;
+      ref.read(appRouterProvider).go('/unlock');
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      await ref
+          .read(wantedModeWipeEnabledProvider.notifier)
+          .revealPendingIOSLockChallenge();
+    } catch (_) {
+      // If native state cannot be read, keep the privacy blur in place and
+      // retry the protected-data check on the next app activation.
+    } finally {
+      _iosWantedLockCheckInProgress = false;
     }
   }
 

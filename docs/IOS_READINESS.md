@@ -36,9 +36,15 @@ device testing.
 4. Add iOS share-sheet intake if receiving files from other apps is required.
    The current share-intent native channel is Android-only; in-app media picking
    is a separate supported flow.
-5. Keep Wanted Mode hardware monitoring Android-only. iOS may expose app PIN,
-   Face ID, and user-triggered local wipe, but must not claim Android's
-   continuous hardware-event monitoring or unattended wipe behavior.
+5. Wanted Mode on iOS is a limited protected-data lock response. When enabled,
+   UIKit's `protectedDataWillBecomeUnavailable` notification records a local
+   pending challenge. On the next app activation, Stellar keeps its privacy
+   blur in place until it routes to the app PIN screen; the valid PIN clears
+   that marker. Enabling requires an iPhone device passcode. iOS does not
+   provide continuous USB, Wi-Fi, Bluetooth, or battery monitoring, nor a
+   reliable background countdown or unattended wipe while the app is
+   suspended. The iOS UI must state these limits and label any erase control as
+   an explicit, user-triggered local wipe.
 6. Confirm `PRAGMA cipher_version` at runtime on an iOS simulator and physical
    iPhone. Debug and Release xcconfigs select the SQLCipher framework because
    Firebase Messaging may also link regular SQLite.

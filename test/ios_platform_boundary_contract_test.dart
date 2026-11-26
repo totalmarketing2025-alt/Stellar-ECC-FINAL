@@ -25,11 +25,18 @@ void main() {
     expect(backgroundHandler, contains("'backgroundComplete'"));
   });
 
-  test('Wanted Mode remains explicitly Android-only', () {
-    expect(wantedMode, contains('if (!Platform.isAndroid) {'));
+  test('iOS Wanted Mode is limited to protected-data lock verification', () {
+    expect(wantedMode, contains('Platform.isIOS'));
+    expect(wantedMode, contains("'getPendingLockChallenge'"));
+    expect(wantedMode, contains("'clearPendingLockChallenge'"));
+    expect(wantedMode, contains("'isDevicePasscodeAvailable'"));
+    expect(appDelegate, contains('protectedDataWillBecomeUnavailableNotification'));
+    expect(appDelegate, contains('wantedModePendingLockKey'));
+    expect(appDelegate, contains('revealPendingLockChallenge'));
     expect(
-      wantedMode,
-      contains('Wanted Mode monitoring is currently Android-only.'),
+      File('lib/presentation/screens/security/security_center_screen.dart')
+          .readAsStringSync(),
+      contains('iOS does not allow continuous USB, Wi-Fi, Bluetooth or battery monitoring'),
     );
   });
 
