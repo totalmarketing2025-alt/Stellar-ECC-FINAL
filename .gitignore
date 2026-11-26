@@ -1,0 +1,31 @@
+# Flutter and Dart generated files
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+coverage/
+*.iml
+
+# IDE files
+.idea/
+.vscode/
+
+# Android generated/local configuration
+android/.gradle/
+android/local.properties
+android/key.properties
+
+# iOS generated Flutter/CocoaPods files (keep source xcconfigs and Xcode project)
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Flutter/ephemeral/
+ios/Pods/
+ios/Runner.xcworkspace/xcuserdata/
+ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
+ios/Runner.xcodeproj/xcuserdata/
+
+# Windows generated build output
+windows/flutter/ephemeral/

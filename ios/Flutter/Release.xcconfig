@@ -1,0 +1,7 @@
+#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
+#include "Generated.xcconfig"
+
+// Firebase Messaging can also link system sqlite3. Prefer SQLCipher so the
+// encrypted Stellar database cannot silently fall back to plain SQLite.
+OTHER_LDFLAGS = $(inherited) -framework SQLCipher
+APS_ENVIRONMENT = production

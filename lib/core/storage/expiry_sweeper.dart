@@ -4,12 +4,11 @@ import 'dart:io';
 import 'database.dart';
 import '../media/media_attachment_service.dart';
 
-/// Enforces the "messages disappear after their TTL" guarantee while the
-/// app is running (a foreground ticker), and is additionally invoked from
-/// a platform-scheduled background task (WorkManager on Android /
-/// BGTaskScheduler on iOS — wired up in the native platform channels,
-/// see android/app and ios/Runner background task registration) since
-/// neither OS guarantees a Dart isolate timer fires while backgrounded.
+/// Purges expired messages and media while the app process is active, and
+/// performs startup recovery for content that expired while the app was
+/// suspended or terminated. Android also has a native background runner;
+/// iOS does not yet register a BGTaskScheduler task, so its filesystem purge
+/// is best-effort until the app next resumes or starts.
 class ExpirySweeper {
   ExpirySweeper(this._db, {this.interval = const Duration(seconds: 15), MediaAttachmentService? mediaService})
       : _mediaService = mediaService;

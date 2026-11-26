@@ -2,7 +2,7 @@ name: Internal Audit
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/ios-platform]
   pull_request:
     branches: [main]
   workflow_dispatch:

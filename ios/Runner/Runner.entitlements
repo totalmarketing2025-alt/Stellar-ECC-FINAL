@@ -8,7 +8,7 @@
 	     the "no cloud backups" requirement (Phase 12 checklist). -->
 
 	<key>aps-environment</key>
-	<string>development</string>
+	<string>$(APS_ENVIRONMENT)</string>
 
 	<key>keychain-access-groups</key>
 	<array>

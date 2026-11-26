@@ -54,19 +54,12 @@
 	<key>NSContactsUsageDescription</key>
 	<string>Optional: Stellar ECC can help you find contacts already using the app. This is never required.</string>
 
-	<!-- Background modes: voip for incoming call wake, remote-notification
-	     for the opaque push wake ping, audio for ongoing calls. -->
+	<!-- Remote notifications support FCM wake messages; audio is for active calls.
+	     VoIP and scheduled processing remain disabled until implemented natively. -->
 	<key>UIBackgroundModes</key>
 	<array>
-		<string>voip</string>
 		<string>remote-notification</string>
 		<string>audio</string>
-		<string>processing</string>
-		<string>fetch</string>
-	</array>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>ecc.stellar.app.expiry-sweep</string>
 	</array>
 
 	<key>CADisableMinimumFrameDurationOnPhone</key>

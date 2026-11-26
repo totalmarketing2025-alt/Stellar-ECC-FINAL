@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feature/ios-platform
       - 'block6-*'
       - 'fix/notification-call-actions-20261112'
       - 'fix/push-notification-dedup-final-20261117'

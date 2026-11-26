@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -29,9 +30,12 @@ Future<void> stellarPushBackgroundMain() async {
   const backgroundChannel =
       MethodChannel('ecc.stellar.app/push_background');
 
-  final wipePending =
-      await backgroundChannel.invokeMethod<bool>('hasPendingLocalWipe') ??
-          false;
+  // This channel is provided by the Android background runner only. iOS
+  // background delivery must proceed without Android's native wipe marker.
+  final wipePending = Platform.isAndroid
+      ? await backgroundChannel.invokeMethod<bool>('hasPendingLocalWipe') ??
+          false
+      : false;
   if (wipePending) {
     await backgroundChannel.invokeMethod<bool>('backgroundComplete', true);
     return;
@@ -75,18 +79,20 @@ Future<void> stellarPushBackgroundMain() async {
       database?.close();
     } catch (_) {}
 
-    try {
-      await backgroundChannel.invokeMethod(
-        'backgroundComplete',
-        success,
-      );
-    } catch (error, stackTrace) {
-      developer.log(
-        'FIX5-B backgroundComplete failed.',
-        name: 'stellar_ecc.push.background',
-        error: error,
-        stackTrace: stackTrace,
-      );
+    if (Platform.isAndroid) {
+      try {
+        await backgroundChannel.invokeMethod(
+          'backgroundComplete',
+          success,
+        );
+      } catch (error, stackTrace) {
+        developer.log(
+          'FIX5-B backgroundComplete failed.',
+          name: 'stellar_ecc.push.background',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
     }
   }
 
