@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:stellar_ecc/core/storage/database.dart';
@@ -6,7 +8,12 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('iOS opens the local database with SQLCipher', (tester) async {
-    final database = await StellarDatabase.open();
+    final database = await StellarDatabase.open().timeout(
+      const Duration(minutes: 2),
+      onTimeout: () => throw TimeoutException(
+        'Opening SQLCipher with the iOS Keychain exceeded two minutes.',
+      ),
+    );
     addTearDown(database.close);
 
     // StellarDatabase.open fails closed unless PRAGMA cipher_version is
