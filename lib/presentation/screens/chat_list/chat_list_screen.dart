@@ -35,6 +35,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   Timer? _broadcastRefreshTimer;
   List<StellarBroadcast> _broadcasts = [];
   String _chatFilter = 'All';
+  bool _searchExpanded = false;
 
   @override
   void initState() {
@@ -68,10 +69,36 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: wantedModeEnabled
-            ? const _WantedHeaderTitle()
-            : Text(l10n.appName),
+        title: _searchExpanded
+            ? TextField(
+                key: const ValueKey('chat-list-search-field'),
+                controller: _searchController,
+                autofocus: true,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: l10n.searchChatsContacts,
+                  border: InputBorder.none,
+                  isDense: true,
+                ),
+                onChanged: (_) => setState(() {}),
+              )
+            : wantedModeEnabled
+                ? const _WantedHeaderTitle()
+                : const _StellarHeaderTitle(),
         actions: [
+          IconButton(
+            key: const ValueKey('chat-list-search-toggle'),
+            tooltip: _searchExpanded
+                ? stellarText(context, 'Close search')
+                : l10n.searchChatsContacts,
+            icon: Icon(_searchExpanded ? Icons.close : Icons.search),
+            onPressed: () {
+              setState(() {
+                if (_searchExpanded) _searchController.clear();
+                _searchExpanded = !_searchExpanded;
+              });
+            },
+          ),
           IconButton(
             tooltip: stellarText(context, "My Profile"),
             icon: const Icon(Icons.account_circle_outlined),
@@ -117,17 +144,6 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           ),
           Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: l10n.searchChatsContacts,
-                prefixIcon: Icon(Icons.search, color: StellarColors.textSecondary),
-              ),
-              onChanged: (_) => setState(() {}),
-            ),
-          ),
           const StoriesBar(),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -756,6 +772,31 @@ class _BroadcastAnnouncementCardState
           fontWeight: FontWeight.bold,
           letterSpacing: 0.5,
         ),
+      ),
+    );
+  }
+}
+
+class _StellarHeaderTitle extends StatelessWidget {
+  const _StellarHeaderTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(text: 'Stellar '),
+          TextSpan(
+            text: '✨️',
+            style: TextStyle(
+              color: StellarColors.accentPurple,
+              shadows: [
+                Shadow(color: StellarColors.accentPurple, blurRadius: 12),
+                Shadow(color: StellarColors.accentPurple, blurRadius: 5),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
