@@ -7,6 +7,7 @@ void main() {
       File('lib/core/network/push_background_handler.dart').readAsStringSync();
   final wantedMode =
       File('lib/presentation/state/security_providers.dart').readAsStringSync();
+  final database = File('lib/core/storage/database.dart').readAsStringSync();
   final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
   final launchScreen =
       File('ios/Runner/Base.lproj/LaunchScreen.storyboard').readAsStringSync();
@@ -30,6 +31,11 @@ void main() {
       wantedMode,
       contains('Wanted Mode monitoring is currently Android-only.'),
     );
+  });
+
+  test('iOS explicitly loads SQLCipher instead of system SQLite', () {
+    expect(database, contains('OperatingSystem.iOS'));
+    expect(database, contains("DynamicLibrary.open('SQLCipher.framework/SQLCipher')"));
   });
 
   test('iOS launch screen avoids unsupported runtime attributes', () {
