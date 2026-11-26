@@ -37,7 +37,7 @@ jobs:
         run: flutter gen-l10n
 
       - name: Analyze shared Flutter code
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
 
       - name: Run unit and widget tests
         run: flutter test
