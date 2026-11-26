@@ -49,6 +49,7 @@ void main() {
   test('iOS CI builds and runs the SQLCipher simulator smoke test', () {
     expect(iosWorkflow, contains('runs-on: macos-15'));
     expect(iosWorkflow, contains('tool/prepare_ios_project.sh'));
+    expect(iosWorkflow, contains('flutter analyze --no-fatal-infos'));
     expect(iosWorkflow, contains('flutter build ios --simulator --no-codesign'));
     expect(
       iosWorkflow,
