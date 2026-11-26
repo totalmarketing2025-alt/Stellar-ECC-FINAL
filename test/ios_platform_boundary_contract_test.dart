@@ -48,6 +48,7 @@ void main() {
 
   test('Runner links SQLCipher and selects APNs by build configuration', () {
     expect(podfile, contains("'-framework', 'SQLCipher'"));
+    expect(podfile, contains("config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'"));
     expect(podfile, contains("config.name == 'Debug' ? 'development' : 'production'"));
     expect(entitlements, contains(r'$(APS_ENVIRONMENT)'));
   });
