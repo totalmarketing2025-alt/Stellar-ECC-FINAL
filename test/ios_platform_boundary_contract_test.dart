@@ -43,11 +43,11 @@ void main() {
   test('Runner links SQLCipher and selects APNs by build configuration', () {
     expect(podfile, contains("'-framework', 'SQLCipher'"));
     expect(podfile, contains("config.name == 'Debug' ? 'development' : 'production'"));
-    expect(entitlements, contains('$(APS_ENVIRONMENT)'));
+    expect(entitlements, contains(r'$(APS_ENVIRONMENT)'));
   });
 
   test('iOS CI builds and runs the SQLCipher simulator smoke test', () {
-    expect(iosWorkflow, contains('runs-on: macos-14'));
+    expect(iosWorkflow, contains('runs-on: macos-15'));
     expect(iosWorkflow, contains('tool/prepare_ios_project.sh'));
     expect(iosWorkflow, contains('flutter build ios --simulator --no-codesign'));
     expect(
