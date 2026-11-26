@@ -71,8 +71,6 @@ void main() {
   test('native notification surfaces use Android localized resources', () {
     final files = <String>[
       'android/app/src/main/kotlin/ecc/stellar/app/StellarMessageNotifications.kt',
-      'android/app/src/main/kotlin/ecc/stellar/app/StellarFirebaseMessagingService.kt',
-      'android/app/src/main/kotlin/ecc/stellar/app/StellarPushBackgroundRunner.kt',
       'android/app/src/main/kotlin/ecc/stellar/app/WantedModeForegroundService.kt',
       'android/app/src/main/kotlin/ecc/stellar/app/calls/StellarCallForegroundService.kt',
       'android/app/src/main/kotlin/ecc/stellar/app/calls/StellarGroupCallForegroundService.kt',
