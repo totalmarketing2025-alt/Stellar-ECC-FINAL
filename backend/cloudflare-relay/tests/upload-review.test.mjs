@@ -68,13 +68,15 @@ function createHarness() {
 
       if (query.startsWith("INSERT INTO relay_upload_transfers")) {
         const [
-          id, sender, recipient, totalBytes, chunkCount, createdAt, expiresAt,
+          id, sender, recipient, receiptId, totalBytes, chunkCount,
+          createdAt, expiresAt,
         ] = params;
 
         transfers.set(id, {
           upload_id: id,
           sender,
           recipient,
+          receipt_id: receiptId,
           total_bytes: totalBytes,
           chunk_count: chunkCount,
           received_count: 0,
@@ -170,6 +172,17 @@ function createHarness() {
           row.status === "finalizing"
         ) {
           row.status = "completed";
+        }
+        return { one: () => null, toArray: () => [] };
+      }
+
+      if (
+        query.startsWith("UPDATE relay_upload_transfers") &&
+        query.includes("SET status = 'uploading'")
+      ) {
+        const row = transfers.get(params[0]);
+        if (row && row.sender === params[1] && row.status === "finalizing") {
+          row.status = "uploading";
         }
         return { one: () => null, toArray: () => [] };
       }
@@ -503,6 +516,116 @@ test("DONE delivers a complete envelope and marks transfer completed", async () 
     totalBytes: envelope.length,
     delivery: "queued",
   });
+});
+
+test("receipt upload durably queues the envelope before acknowledging completion", async () => {
+  const { room, ws, sent, transfers } = createHarness();
+  const envelope = makeEnvelope("bob");
+  const receiptId = "attachment-receipt-001";
+  const queueCalls = [];
+
+  room.queueEnvelopeWithReceipt = async (...args) => {
+    queueCalls.push(args);
+    return { deliveryId: 42, duplicate: false };
+  };
+
+  await room.handleUploadStart(
+    ws,
+    startPayload({
+      totalBytes: envelope.length,
+      receiptId,
+    }),
+    "alice",
+  );
+  await room.handleUploadChunk(
+    ws,
+    makeChunkFrame(envelope, { totalBytes: envelope.length }),
+    "alice",
+  );
+  sent.length = 0;
+
+  await room.handleUploadDone(ws, JSON.stringify({ uploadId }), "alice");
+
+  assert.equal(queueCalls.length, 1);
+  assert.equal(queueCalls[0][0], "bob");
+  assert.equal(queueCalls[0][1], "alice");
+  assert.deepEqual([...queueCalls[0][2]], [...envelope]);
+  assert.equal(queueCalls[0][3], receiptId);
+  assert.equal(transfers.get(uploadId).receipt_id, receiptId);
+  assert.equal(transfers.get(uploadId).status, "completed");
+  assert.deepEqual(parsePrefixed(sent, ACK), {
+    type: "done",
+    uploadId,
+    totalBytes: envelope.length,
+    delivery: "accepted",
+  });
+});
+
+test("legacy uploaded envelopes are queued before online delivery", async () => {
+  const { room } = createHarness();
+  const order = [];
+  const senderSocket = {};
+  const recipientSocket = {
+    deserializeAttachment() {
+      return {
+        peer: "bob",
+        authenticated: true,
+        authState: "authenticated",
+      };
+    },
+  };
+  room.ctx.getWebSockets = () => [senderSocket, recipientSocket];
+  room.queueEnvelope = async () => {
+    order.push("durable-queue");
+    return 17;
+  };
+  room.flushQueue = async () => {
+    order.push("online-flush");
+    return true;
+  };
+
+  const delivery = await room.deliverUploadedEnvelope(
+    senderSocket,
+    "bob",
+    "alice",
+    new Uint8Array([1, 2, 3]),
+  );
+
+  assert.equal(delivery, "online");
+  assert.deepEqual(order, ["durable-queue", "online-flush"]);
+});
+
+test("failed durable receipt insertion leaves completed upload retryable", async () => {
+  const { room, ws, sent, transfers } = createHarness();
+  const envelope = makeEnvelope("bob");
+  let attempts = 0;
+
+  room.queueEnvelopeWithReceipt = async () => {
+    attempts++;
+    if (attempts === 1) throw new Error("temporary storage failure");
+    return { deliveryId: 43, duplicate: false };
+  };
+
+  await room.handleUploadStart(
+    ws,
+    startPayload({ totalBytes: envelope.length, receiptId: "receipt-retry" }),
+    "alice",
+  );
+  await room.handleUploadChunk(
+    ws,
+    makeChunkFrame(envelope, { totalBytes: envelope.length }),
+    "alice",
+  );
+
+  await room.handleUploadDone(ws, JSON.stringify({ uploadId }), "alice");
+  assert.equal(transfers.get(uploadId).status, "uploading");
+  assert.equal(parsePrefixed(sent, ERROR).code, "finalize_failed");
+
+  sent.length = 0;
+  await room.handleUploadDone(ws, JSON.stringify({ uploadId }), "alice");
+  assert.equal(transfers.get(uploadId).status, "completed");
+  assert.equal(attempts, 2);
+  assert.equal(parsePrefixed(sent, ACK).delivery, "accepted");
 });
 
 test("DONE rejects an envelope whose recipient differs from transfer", async () => {

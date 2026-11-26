@@ -35,6 +35,8 @@ class ChatRepository {
     this.mediaService,
     this.onTypingChanged,
     this.onChatChanged,
+    this.onUploadProgress,
+    this.onUploadFinished,
     required this.moderationClient,
   }) {
     moderationOutbox = ModerationOutboxService(
@@ -48,6 +50,8 @@ class ChatRepository {
       db: db,
       relayClient: relayClient,
       onRelaySent: _onTransportRelaySent,
+      onUploadProgress: onUploadProgress,
+      onUploadFinished: onUploadFinished,
     );
 
     unawaited(moderationOutbox.start());
@@ -65,6 +69,9 @@ class ChatRepository {
   final void Function(String chatId, String nickname, bool isTyping)?
       onTypingChanged;
   final void Function(String chatId)? onChatChanged;
+  final void Function(String messageId, int receivedBytes, int totalBytes)?
+      onUploadProgress;
+  final void Function(String messageId)? onUploadFinished;
 
   static const messageEditWindow = Duration(minutes: 15);
   static const _typingSignalLifetime = Duration(seconds: 6);
@@ -304,6 +311,31 @@ class ChatRepository {
         // preventing other receipts from being attempted.
         print('READ_RECEIPT_SEND_ERROR: sender=$sender error=$error');
       }
+    }
+  }
+
+  Future<void> markMessageRead(String messageId) async {
+    final row = await db.messageDao.markMessageReadAndGetReceipt(messageId);
+    if (row == null) return;
+
+    final sender = row['sender_id'];
+    final rawToken = row['delivery_token'];
+    if (sender is! String ||
+        sender.trim().isEmpty ||
+        sender.toLowerCase() == localNickname.toLowerCase() ||
+        rawToken is! Uint8List ||
+        rawToken.length != 16) {
+      return;
+    }
+
+    try {
+      await _sendReadReceipt(
+        recipient: SignalProtocolAddress(sender, 1),
+        recipientRoute: sender,
+        deliveryToken: rawToken,
+      );
+    } catch (error) {
+      print('READ_RECEIPT_SEND_ERROR: sender=$sender error=$error');
     }
   }
 

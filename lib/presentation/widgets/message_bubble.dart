@@ -872,6 +872,8 @@ class MessageBubble extends StatelessWidget {
   const MessageBubble({
     super.key,
     required this.message,
+    this.uploadReceivedBytes,
+    this.uploadTotalBytes,
     this.replyMessage,
     required this.onForward,
     required this.isOutgoing,
@@ -887,6 +889,8 @@ class MessageBubble extends StatelessWidget {
   });
 
   final Message message;
+  final int? uploadReceivedBytes;
+  final int? uploadTotalBytes;
   final Message? replyMessage;
   final VoidCallback onForward;
   final bool isOutgoing;
@@ -1017,6 +1021,37 @@ class MessageBubble extends StatelessWidget {
                       message.bodyPlaintext,
                       style: const TextStyle(fontSize: 15),
                     ),
+                  if (isOutgoing &&
+                      uploadTotalBytes != null &&
+                      uploadTotalBytes! > 0 &&
+                      message.status == MessageStatus.sending) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: 220,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          LinearProgressIndicator(
+                            value: (uploadReceivedBytes ?? 0) /
+                                uploadTotalBytes!,
+                            minHeight: 3,
+                            backgroundColor: StellarColors.bgElevated,
+                            color: StellarColors.accentBlue,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Uploading ${(((uploadReceivedBytes ?? 0) / uploadTotalBytes!) * 100).floor()}% · '
+                            '${_formatBytes(uploadReceivedBytes ?? 0)} / '
+                            '${_formatBytes(uploadTotalBytes!)}',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: StellarColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 4),
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1128,6 +1163,13 @@ class MessageBubble extends StatelessWidget {
     final minute = dt.minute.toString().padLeft(2, '0');
     final period = dt.hour >= 12 ? 'PM' : 'AM';
     return '$hour:$minute $period';
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    }
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 }
 

@@ -1256,6 +1256,25 @@ class MessageDao {
     );
   }
 
+  Future<Map<String, Object?>?> markMessageReadAndGetReceipt(
+    String messageId,
+  ) async {
+    final rows = _db.select(
+      'SELECT sender_id, delivery_token, read_at FROM message '
+      'WHERE message_id = ? LIMIT 1',
+      [messageId],
+    );
+    if (rows.isEmpty || rows.first['read_at'] != null) return null;
+
+    final row = Map<String, Object?>.from(rows.first);
+    _db.execute(
+      "UPDATE message SET status = 'read', read_at = ? "
+      'WHERE message_id = ? AND read_at IS NULL',
+      [DateTime.now().millisecondsSinceEpoch ~/ 1000, messageId],
+    );
+    return row;
+  }
+
   Future<List<Map<String, Object?>>> markChatRead({
     required String chatId,
     required String localNickname,

@@ -13,6 +13,8 @@ class OutgoingTransportOutboxService {
     required this.db,
     required this.relayClient,
     required this.onRelaySent,
+    this.onUploadProgress,
+    this.onUploadFinished,
   });
 
   final StellarDatabase db;
@@ -21,6 +23,9 @@ class OutgoingTransportOutboxService {
   /// Called after an envelope has definitely been handed to the relay
   /// and the durable outbox has transitioned to relay_sent.
   final Future<void> Function(String messageId) onRelaySent;
+  final void Function(String messageId, int receivedBytes, int totalBytes)?
+      onUploadProgress;
+  final void Function(String messageId)? onUploadFinished;
 
   Timer? _timer;
   bool _flushRequested = false;
@@ -105,15 +110,23 @@ class OutgoingTransportOutboxService {
 
       if (transportType == 'message_receipt') {
         if (state == 'pending') {
-          // Small envelopes use durable receipt acceptance.
-          // Large attachments retain the existing upload protocol.
+          // Both direct and uploaded envelopes use durable receipt acceptance.
           if (relayClient.supportsSendReceipt(envelopeBytes)) {
             await relayClient.sendWithReceipt(
               receiptId: transportId,
               envelopeBytes: envelopeBytes,
             );
           } else {
-            await relayClient.send(envelopeBytes);
+            await relayClient.sendWithReceipt(
+              receiptId: transportId,
+              envelopeBytes: envelopeBytes,
+              onUploadProgress: (received, total) =>
+                  onUploadProgress?.call(
+                row['message_id'] as String,
+                received,
+                total,
+              ),
+            );
           }
 
           await db.transportOutboxDao.markRelaySent(transportId);
@@ -127,6 +140,7 @@ class OutgoingTransportOutboxService {
 
         // For relay_sent rows, recover only the post-send lifecycle.
         await onRelaySent(transportId);
+        onUploadFinished?.call(row['message_id'] as String);
         return;
       }
 
@@ -156,6 +170,7 @@ class OutgoingTransportOutboxService {
         );
       }
     } catch (error, stackTrace) {
+      onUploadFinished?.call(row['message_id'] as String);
       final attempt = (row['attempt_count'] as int) + 1;
       final delaySeconds = _retryDelaySeconds(attempt);
       final nextAttemptAt =

@@ -703,6 +703,7 @@ export class RelayRoom {
         upload_id TEXT PRIMARY KEY,
         sender TEXT NOT NULL,
         recipient TEXT NOT NULL,
+        receipt_id TEXT,
         total_bytes INTEGER NOT NULL,
         chunk_count INTEGER NOT NULL,
         received_count INTEGER NOT NULL DEFAULT 0,
@@ -711,6 +712,15 @@ export class RelayRoom {
         status TEXT NOT NULL DEFAULT 'uploading'
       )
     `);
+
+    const uploadColumns = Array.from(this.ctx.storage.sql.exec(
+      `PRAGMA table_info(relay_upload_transfers)`,
+    )).map((column) => column.name);
+    if (!uploadColumns.includes("receipt_id")) {
+      this.ctx.storage.sql.exec(
+        `ALTER TABLE relay_upload_transfers ADD COLUMN receipt_id TEXT`,
+      );
+    }
 
     this.ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS relay_upload_chunks (
@@ -1049,6 +1059,9 @@ export class RelayRoom {
         .toLowerCase();
       const totalBytes = Number(meta.totalBytes);
       const chunkCount = Number(meta.chunkCount);
+      const receiptId = meta.receiptId == null
+        ? null
+        : String(meta.receiptId).trim();
 
       if (
         !sender ||
@@ -1061,7 +1074,9 @@ export class RelayRoom {
         !Number.isInteger(chunkCount) ||
         chunkCount !== Math.ceil(
           totalBytes / RELAY_UPLOAD_CHUNK_SIZE,
-        )
+        ) ||
+        (receiptId !== null &&
+          !/^[A-Za-z0-9_-]{1,128}$/.test(receiptId))
       ) {
         this.sendUploadError(ws, uploadId, "invalid_start");
         return;
@@ -1096,12 +1111,13 @@ export class RelayRoom {
 
       this.ctx.storage.sql.exec(
         `INSERT INTO relay_upload_transfers
-          (upload_id, sender, recipient, total_bytes, chunk_count,
+          (upload_id, sender, recipient, receipt_id, total_bytes, chunk_count,
            received_count, created_at, expires_at, status)
-         VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'uploading')`,
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 'uploading')`,
         uploadId,
         sender,
         recipient,
+        receiptId,
         totalBytes,
         chunkCount,
         now,
@@ -1147,7 +1163,7 @@ export class RelayRoom {
       }
 
       const transfer = this.ctx.storage.sql.exec(
-        `SELECT upload_id, sender, recipient, total_bytes, chunk_count,
+        `SELECT upload_id, sender, recipient, receipt_id, total_bytes, chunk_count,
                 received_count, expires_at, status
          FROM relay_upload_transfers WHERE upload_id = ?`,
         uploadId,
@@ -1375,12 +1391,45 @@ export class RelayRoom {
         return;
       }
 
-      const delivery = await this.deliverUploadedEnvelope(
-        ws,
-        transfer.recipient,
-        sender,
-        envelope,
-      );
+      let delivery;
+      if (transfer.receipt_id) {
+        // Receipt-based uploads are placed in the durable recipient queue
+        // before the sender receives completion. Retries with the same
+        // receipt ID reuse the original queue row.
+        await this.queueEnvelopeWithReceipt(
+          transfer.recipient,
+          sender,
+          envelope,
+          transfer.receipt_id,
+        );
+        delivery = "accepted";
+        for (const peer of this.ctx.getWebSockets()) {
+          if (peer === ws) continue;
+          try {
+            const peerAttachment = peer.deserializeAttachment();
+            if (
+              peerAttachment?.authenticated === true &&
+              peerAttachment?.authState === "authenticated" &&
+              String(peerAttachment.peer || "").trim().toLowerCase() ===
+                transfer.recipient
+            ) {
+              delivery = await this.flushQueue(peer, transfer.recipient)
+                ? "online"
+                : "queued";
+              break;
+            }
+          } catch (_) {
+            // The durable row remains available for a reconnect.
+          }
+        }
+      } else {
+        delivery = await this.deliverUploadedEnvelope(
+          ws,
+          transfer.recipient,
+          sender,
+          envelope,
+        );
+      }
 
       this.ctx.storage.sql.exec(
         `UPDATE relay_upload_transfers
@@ -1402,11 +1451,25 @@ export class RelayRoom {
         delivery,
       })}`);
     } catch (_) {
+      // A failed durable queue transaction must be retryable with the same
+      // completed upload bytes instead of leaving the transfer stuck in
+      // finalizing until its TTL expires.
+      try {
+        this.ctx.storage.sql.exec(
+          `UPDATE relay_upload_transfers
+           SET status = 'uploading'
+           WHERE upload_id = ? AND sender = ? AND status = 'finalizing'`,
+          uploadId,
+          sender,
+        );
+      } catch (_) {}
       this.sendUploadError(ws, uploadId, "finalize_failed");
     }
   }
 
   async deliverUploadedEnvelope(senderSocket, recipient, sender, envelope) {
+    await this.queueEnvelope(recipient, sender, envelope);
+    let deliveredOnline = false;
     for (const peer of this.ctx.getWebSockets()) {
       if (peer === senderSocket) continue;
 
@@ -1418,24 +1481,22 @@ export class RelayRoom {
           peerAttachment?.authState === "authenticated" &&
           String(peerAttachment.peer || "").trim().toLowerCase() === recipient
         ) {
-          peer.send(`${RELAY_SENDER_PREFIX}${sender}`);
-          peer.send(envelope);
-          return "online";
+          deliveredOnline = await this.flushQueue(peer, recipient);
+          break;
         }
       } catch (_) {
         // Ignore disconnected peers; continue to the durable queue.
       }
     }
 
-    await this.queueEnvelope(recipient, sender, envelope);
-
-    this.ctx.waitUntil(
-      this.sendPushWake(recipient).catch(() => {
-        console.error("FCM_UPLOAD_WAKE_FAILED");
-      }),
-    );
-
-    return "queued";
+    if (!deliveredOnline) {
+      this.ctx.waitUntil(
+        this.sendPushWake(recipient).catch(() => {
+          console.error("FCM_UPLOAD_WAKE_FAILED");
+        }),
+      );
+    }
+    return deliveredOnline ? "online" : "queued";
   }
 
   async flushQueue(ws, recipient) {

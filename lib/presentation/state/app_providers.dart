@@ -33,6 +33,16 @@ const _directoryUrl =
 const _moderationUrl =
     'https://stellar-ecc-final.totalmarketing2025.workers.dev';
 
+class AttachmentUploadProgress {
+  const AttachmentUploadProgress(this.receivedBytes, this.totalBytes);
+
+  final int receivedBytes;
+  final int totalBytes;
+}
+
+final attachmentUploadProgressProvider =
+    StateProvider<Map<String, AttachmentUploadProgress>>((ref) => {});
+
 final platformKeyStoreProvider = Provider<PlatformKeyStore>(
   (ref) => PlatformKeyStore(),
 );
@@ -466,6 +476,20 @@ final Provider<ChatRepository> chatRepositoryProvider =
     onChatChanged: (chatId) {
       ref.invalidate(chatMessagesProvider(chatId));
       ref.invalidate(chatListProvider);
+    },
+    onUploadProgress: (messageId, receivedBytes, totalBytes) {
+      final notifier = ref.read(attachmentUploadProgressProvider.notifier);
+      notifier.state = {
+        ...notifier.state,
+        messageId: AttachmentUploadProgress(receivedBytes, totalBytes),
+      };
+    },
+    onUploadFinished: (messageId) {
+      final notifier = ref.read(attachmentUploadProgressProvider.notifier);
+      final updated = Map<String, AttachmentUploadProgress>.from(
+        notifier.state,
+      )..remove(messageId);
+      notifier.state = updated;
     },
   );
 

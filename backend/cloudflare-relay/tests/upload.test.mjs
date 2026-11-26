@@ -66,13 +66,15 @@ function createHarness() {
 
       if (query.startsWith("INSERT INTO relay_upload_transfers")) {
         const [
-          id, sender, recipient, totalBytes, chunkCount, createdAt, expiresAt,
+          id, sender, recipient, receiptId, totalBytes, chunkCount,
+          createdAt, expiresAt,
         ] = params;
 
         transfers.set(id, {
           upload_id: id,
           sender,
           recipient,
+          receipt_id: receiptId,
           total_bytes: totalBytes,
           chunk_count: chunkCount,
           received_count: 0,
@@ -157,6 +159,17 @@ function createHarness() {
           row.status === "finalizing"
         ) {
           row.status = "completed";
+        }
+        return { one: () => null, toArray: () => [] };
+      }
+
+      if (
+        query.startsWith("UPDATE relay_upload_transfers") &&
+        query.includes("SET status = 'uploading'")
+      ) {
+        const row = transfers.get(params[0]);
+        if (row && row.sender === params[1] && row.status === "finalizing") {
+          row.status = "uploading";
         }
         return { one: () => null, toArray: () => [] };
       }

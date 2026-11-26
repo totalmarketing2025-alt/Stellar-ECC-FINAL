@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'dart:typed_data';
@@ -36,6 +37,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _composerController = TextEditingController();
   final _scrollController = ScrollController();
   final _searchController = TextEditingController();
+  final _messageViewportKey = GlobalKey();
+  final Map<String, GlobalKey> _messageKeys = {};
+  final Set<String> _readMarkInFlight = {};
+  List<Message> _lastLoadedMessages = const [];
   bool _searchMode = false;
   Timer? _typingStopTimer;
   Timer? _typingHeartbeatTimer;
@@ -48,9 +53,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void initState() {
     super.initState();
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _markChatRead();
-    });
+    _scrollController.addListener(_scheduleVisibleReadCheck);
 
     _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       ref.invalidate(chatMessagesProvider(widget.chatId));
@@ -58,17 +61,52 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
-  Future<void> _markChatRead() async {
-    try {
-      await ref.read(chatRepositoryProvider).markChatRead(widget.chatId);
-      ref.invalidate(chatListProvider);
-    } catch (_) {
-      // Read-state failure must not break the chat UI.
+  void _scheduleVisibleReadCheck() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _markVisibleMessagesRead(_lastLoadedMessages);
+    });
+  }
+
+  void _markVisibleMessagesRead(List<Message> messages) {
+    final viewport = _messageViewportKey.currentContext?.findRenderObject();
+    if (viewport is! RenderBox || !viewport.hasSize) return;
+    final viewportRect = viewport.localToGlobal(Offset.zero) & viewport.size;
+    final localNickname = ref.read(localNicknameProvider)?.toLowerCase();
+    if (localNickname == null) return;
+
+    for (final message in messages) {
+      if (message.readAt != null ||
+          message.senderId.toLowerCase() == localNickname ||
+          _readMarkInFlight.contains(message.messageId)) {
+        continue;
+      }
+      final box = _messageKeys[message.messageId]
+          ?.currentContext
+          ?.findRenderObject();
+      if (box is! RenderBox || !box.hasSize) continue;
+      final messageRect = box.localToGlobal(Offset.zero) & box.size;
+      if (!messageRect.overlaps(viewportRect)) continue;
+
+      _readMarkInFlight.add(message.messageId);
+      unawaited(
+        ref
+            .read(chatRepositoryProvider)
+            .markMessageRead(message.messageId)
+            .then((_) {
+          if (mounted) {
+            ref.invalidate(chatMessagesProvider(widget.chatId));
+            ref.invalidate(chatListProvider);
+          }
+        }).catchError((Object _) {}).whenComplete(() {
+          _readMarkInFlight.remove(message.messageId);
+        }),
+      );
     }
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_scheduleVisibleReadCheck);
     _refreshTimer?.cancel();
     _typingStopTimer?.cancel();
     _typingHeartbeatTimer?.cancel();
@@ -83,6 +121,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final messagesAsync = ref.watch(chatMessagesProvider(widget.chatId));
     final chatsAsync = ref.watch(chatListProvider);
+    final uploadProgress = ref.watch(attachmentUploadProgressProvider);
     final chat = chatsAsync.maybeWhen(
       data: (chats) => chats.where((c) => c.chatId == widget.chatId).cast<Chat?>().firstOrNull,
       orElse: () => null,
@@ -213,6 +252,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                     ),
                     data: (messages) {
+                      _lastLoadedMessages = messages;
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) _markVisibleMessagesRead(messages);
+                      });
                       final query = _searchController.text.trim().toLowerCase();
                       final visibleMessages = query.isEmpty
                           ? messages
@@ -234,7 +277,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           entry.messageId: entry,
                       };
                       final timeline = _buildChatTimeline(visibleMessages);
-                      return ListView.builder(
+                      return SizedBox.expand(
+                        key: _messageViewportKey,
+                        child: ListView.builder(
                         controller: _scrollController,
                         reverse: true,
                         padding: const EdgeInsets.symmetric(
@@ -256,7 +301,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
                           final message = item.message!;
                           return MessageBubble(
+                            key: _messageKeys.putIfAbsent(
+                              message.messageId,
+                              () => GlobalKey(),
+                            ),
                             message: message,
+                            uploadReceivedBytes:
+                                message.status == MessageStatus.sending
+                                    ? uploadProgress[message.messageId]
+                                        ?.receivedBytes
+                                    : null,
+                            uploadTotalBytes:
+                                message.status == MessageStatus.sending
+                                    ? uploadProgress[message.messageId]
+                                        ?.totalBytes
+                                    : null,
                             replyMessage: message.replyToId == null
                                 ? null
                                 : messagesById[message.replyToId],
@@ -320,6 +379,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 .finishAttachmentView(messageId),
                           );
                         },
+                        ),
                       );
                     },
                   ),
@@ -332,13 +392,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             _NewMessagesBanner(
               count: chat!.unreadCount,
               onTap: () async {
-                await _markChatRead();
                 if (mounted && _scrollController.hasClients) {
                   await _scrollController.animateTo(
                     0,
                     duration: const Duration(milliseconds: 250),
                     curve: Curves.easeOut,
                   );
+                  _scheduleVisibleReadCheck();
                 }
               },
             ),
