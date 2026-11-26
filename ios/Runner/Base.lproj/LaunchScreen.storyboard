@@ -30,11 +30,6 @@
                                     <constraint firstAttribute="width" constant="96" id="w96"/>
                                     <constraint firstAttribute="height" constant="96" id="h96"/>
                                 </constraints>
-                                <userDefinedRuntimeAttributes>
-                                    <userDefinedRuntimeAttribute type="number" keyPath="layer.cornerRadius">
-                                        <integer key="value" value="48"/>
-                                    </userDefinedRuntimeAttribute>
-                                </userDefinedRuntimeAttributes>
                             </view>
                         </subviews>
                         <color key="backgroundColor" red="0.019" green="0.023" blue="0.039" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
