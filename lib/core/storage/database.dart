@@ -1,3 +1,4 @@
+import 'dart:ffi';
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
@@ -30,6 +31,10 @@ class StellarDatabase {
 
   static Future<StellarDatabase> open() async {
     sqlite3_open.open.overrideFor(sqlite3_open.OperatingSystem.android, openCipherOnAndroid);
+    sqlite3_open.open.overrideFor(
+      sqlite3_open.OperatingSystem.iOS,
+      () => DynamicLibrary.open('SQLCipher.framework/SQLCipher'),
+    );
     final dir = await getApplicationSupportDirectory();
     final dbPath = p.join(dir.path, 'stellar_ephemeral.sqlite');
 
