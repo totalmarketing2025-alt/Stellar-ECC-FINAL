@@ -17,12 +17,24 @@ fi
 # The repository contains selected Runner resources but not the generated
 # Xcode project. Generate only the missing iOS platform files; do not use
 # --overwrite because it would replace the customized Runner files.
+widget_test_preexisted=false
+if [[ -e test/widget_test.dart ]]; then
+  widget_test_preexisted=true
+fi
+
 flutter create \
   --platforms=ios \
   --org=ecc.stellar \
   --project-name=app \
   --no-pub \
   .
+
+# `flutter create` also writes its stock widget test when it bootstraps a
+# project. This repository has a mature test suite and no `MyApp` test, so
+# remove only the file that this invocation generated.
+if [[ "$widget_test_preexisted" == false && -e test/widget_test.dart ]]; then
+  rm test/widget_test.dart
+fi
 
 project_file="ios/Runner.xcodeproj/project.pbxproj"
 if [[ ! -f "$project_file" ]]; then
