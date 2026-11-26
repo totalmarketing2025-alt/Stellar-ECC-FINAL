@@ -793,7 +793,7 @@ class RelayClient {
     String type, {
     int? index,
     Duration timeout = const Duration(seconds: 90),
-  ) async {
+  }) async {
     final waiterKey = _uploadAckKey(uploadId, type, index);
     if (_uploadAckWaiters.containsKey(waiterKey)) {
       throw StateError('Upload ACK waiter already exists');
