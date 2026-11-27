@@ -6,6 +6,7 @@ import '../../../core/theme/stellar_theme.dart';
 import '../../../l10n/stellar_translations.dart';
 import '../../state/app_providers.dart';
 import '../../state/app_lock_controller.dart';
+import '../../widgets/stellar_onboarding_background.dart';
 
 class AppLockSetupScreen extends ConsumerStatefulWidget {
   const AppLockSetupScreen({super.key});
@@ -85,20 +86,11 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          Image.asset(
-            'assets/images/stellar_background.jpg',
-            fit: BoxFit.cover,
-          ),
-          Container(
-            color: Colors.black.withOpacity(0.58),
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
+      body: StellarOnboardingBackground(
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Icon(
@@ -153,7 +145,7 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
                   ),
                 ),
               ],
-              const Spacer(),
+              const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -173,10 +165,8 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
                 ),
               ),
             ],
-              ),
-            ),
           ),
-        ],
+        ),
       ),
     );
   }

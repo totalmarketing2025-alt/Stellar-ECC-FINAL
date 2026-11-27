@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/stellar_theme.dart';
 import '../../../l10n/stellar_translations.dart';
 import '../../state/app_providers.dart';
+import '../../widgets/stellar_onboarding_background.dart';
 
 class IdentityCreationScreen extends ConsumerStatefulWidget {
   const IdentityCreationScreen({super.key});
@@ -52,11 +53,11 @@ class _IdentityCreationScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: StellarColors.bgPrimary,
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
+      body: StellarOnboardingBackground(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const SizedBox(
@@ -86,6 +87,7 @@ class _IdentityCreationScreenState
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),

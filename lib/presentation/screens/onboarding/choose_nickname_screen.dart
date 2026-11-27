@@ -6,6 +6,7 @@ import '../../../core/theme/stellar_theme.dart';
 import '../../../l10n/stellar_translations.dart';
 import '../../../core/network/directory_client.dart';
 import '../../state/app_providers.dart';
+import '../../widgets/stellar_onboarding_background.dart';
 
 class ChooseNicknameScreen extends ConsumerStatefulWidget {
   const ChooseNicknameScreen({super.key});
@@ -122,15 +123,16 @@ class _ChooseNicknameScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: StellarColors.bgPrimary,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
+      body: StellarOnboardingBackground(
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Icon(
@@ -174,7 +176,7 @@ class _ChooseNicknameScreenState
                   }
                 },
               ),
-              const Spacer(),
+              const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -192,6 +194,7 @@ class _ChooseNicknameScreenState
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),

@@ -31,11 +31,9 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
           ),
         ],
       ),
-      body: Padding(
+      body: ListView(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        children: [
             TextField(
               controller: _nameController,
               decoration: InputDecoration(hintText: stellarText(context, "Group name")),
@@ -70,7 +68,6 @@ class _NewGroupScreenState extends ConsumerState<NewGroupScreen> {
                   .toList(),
             ),
           ],
-        ),
       ),
     );
   }

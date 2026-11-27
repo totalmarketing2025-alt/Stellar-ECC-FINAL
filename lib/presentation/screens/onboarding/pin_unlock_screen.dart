@@ -7,6 +7,7 @@ import '../../../l10n/stellar_translations.dart';
 import '../../../domain/models/call_session.dart';
 import '../../state/app_providers.dart';
 import '../../state/security_providers.dart';
+import '../../widgets/stellar_onboarding_background.dart';
 
 class PinUnlockScreen extends ConsumerStatefulWidget {
   const PinUnlockScreen({super.key});
@@ -101,14 +102,13 @@ class _PinUnlockScreenState extends ConsumerState<PinUnlockScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: StellarColors.bgPrimary,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
+      body: StellarOnboardingBackground(
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Spacer(),
               const Icon(
                 Icons.lock_outline,
                 color: StellarColors.accentBlue,
@@ -151,8 +151,9 @@ class _PinUnlockScreenState extends ConsumerState<PinUnlockScreen> {
                   child: Text(_checking ? stellarText(context, "Checking...") : stellarText(context, "Unlock")),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(height: 24),
             ],
+          ),
           ),
         ),
       ),

@@ -9,6 +9,7 @@ import '../../../core/security/account_recovery.dart';
 import '../../../core/theme/stellar_theme.dart';
 import '../../../l10n/stellar_translations.dart';
 import '../../state/app_providers.dart';
+import '../../widgets/stellar_onboarding_background.dart';
 
 class RecoveryRestoreScreen extends ConsumerStatefulWidget {
   const RecoveryRestoreScreen({super.key});
@@ -95,12 +96,13 @@ class _RecoveryRestoreScreenState extends ConsumerState<RecoveryRestoreScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: StellarColors.bgPrimary,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
+      body: StellarOnboardingBackground(
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Icon(Icons.settings_backup_restore,
@@ -128,7 +130,7 @@ class _RecoveryRestoreScreenState extends ConsumerState<RecoveryRestoreScreen> {
                   border: const OutlineInputBorder(),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
@@ -141,6 +143,7 @@ class _RecoveryRestoreScreenState extends ConsumerState<RecoveryRestoreScreen> {
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),

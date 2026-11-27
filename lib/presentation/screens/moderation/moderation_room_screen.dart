@@ -255,10 +255,10 @@ class _ModerationRoomScreenState
 
   Widget _buildLogin(BuildContext context) {
     return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
           child: Card(
             child: Padding(
               padding: const EdgeInsets.all(24),

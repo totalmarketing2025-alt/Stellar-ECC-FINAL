@@ -9,6 +9,7 @@ import '../../../core/security/account_recovery.dart';
 import '../../../core/theme/stellar_theme.dart';
 import '../../../l10n/stellar_translations.dart';
 import '../../state/app_providers.dart';
+import '../../widgets/stellar_onboarding_background.dart';
 
 class RecoverySetupScreen extends ConsumerStatefulWidget {
   const RecoverySetupScreen({super.key, this.isOnboarding = true});
@@ -104,12 +105,13 @@ class _RecoverySetupScreenState extends ConsumerState<RecoverySetupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: StellarColors.bgPrimary,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
+      body: StellarOnboardingBackground(
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Icon(Icons.backup_outlined,
