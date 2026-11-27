@@ -9,8 +9,8 @@ not changed. Shared Dart entry points call the Windows adapters only when
 
 - Incoming messages create separate Windows toast notifications. Toast text is
   generic and does not expose message contents or sender names.
-- Incoming voice/video offers create a toast and play a bundled Windows-only
-  ringtone. Outgoing calls play a separate ringback tone. Existing call
+- Incoming voice/video offers create a toast and play a Windows-only
+  ringtone generated into the temporary folder. Outgoing calls play a separate ringback tone. Existing call
   cleanup paths stop either sound on answer, reject, timeout, failure, or end.
 - The Windows runner registers a stable AppUserModelID and Start Menu shortcut
   required by classic desktop toast notifications.
