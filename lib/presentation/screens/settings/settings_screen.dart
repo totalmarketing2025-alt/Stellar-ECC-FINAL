@@ -1,166 +1,530 @@
-YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíë¯5N‹Z–‹­¦ëeŠw¬Õ¥µÁ½ÉÐ€‘…ÉÐé…Íå¹Œœì)¥µÁ½ÉÐ€‘…ÉÐé¥¼œì)¥µÁ½ÉÐ€Á…­…”é™±ÕÑÑ•È½Í•ÉÙ¥•Ì¹‘…ÉÐœì)¥µÁ½ÉÐ€Á…­…”é™±ÕÑÑ•È½µ…Ñ•É¥…°¹‘…ÉÐœì)¥µÁ½ÉÐ€Á…­…”é™±ÕÑÑ•É}É¥Ù•ÉÁ½½™±ÕÑÑ•É}É¥Ù•ÉÁ½¹‘…ÉÐœì)¥µÁ½ÉÐ€Á…­…”éÁ…Ñ¡}ÁÉ½Ù¥‘•È½Á…Ñ¡}ÁÉ½Ù¥‘•È¹‘…ÉÐœì)¥µÁ½ÉÐ€Á…­…”é½}É½ÕÑ•È½½}É½ÕÑ•È¹‘…ÉÐœì)¥µÁ½ÉÐ€Á…­…”éÕÉ±}±…Õ¹¡•È½ÕÉ±}±…Õ¹¡•È¹‘…ÉÐœì()¥µÁ½ÉÐ€œ¸¸¼¸¸¼¸¸½½É”½Ñ¡•µ”½ÍÑ•±±…É}Ñ¡•µ”¹‘…ÉÐœì)¥µÁ½ÉÐ€œ¸¸¼¸¸¼¸¸½°ÄÁ¸½ÍÑ•±±…É}ÑÉ…¹Í±…Ñ¥½¹Ì¹‘…ÉÐœì)¥µÁ½ÉÐ€œ¸¸¼¸¸¼¸¸½°ÄÁ¸½…ÁÁ}±½…±¥é…Ñ¥½¹Ì¹‘…ÉÐœì)¥µÁ½ÉÐ€ÍÑ•±±…É}Í•ÕÉ¥Ñå}ÍÉ••¸¹‘…ÉÐœì)¥µÁ½ÉÐ€ÍÑ•±±…É}Õ…É‘}ÍÉ••¸¹‘…ÉÐœì)¥µÁ½ÉÐ€œ¸¸¼¸¸½ÍÑ…Ñ”½…ÁÁ}ÁÉ½Ù¥‘•ÉÌ¹‘…ÉÐœì)¥µÁ½ÉÐ€œ¸¸¼¸¸¼¸¸½½É”½ÍÑ½É…”½ÁÉ½Ù¥‘•ÉÌ¹‘…ÉÐœì)¥µÁ½ÉÐ€œ¸¸¼¸¸½ÍÑ…Ñ”½Í•ÕÉ¥Ñå}ÁÉ½Ù¥‘•ÉÌ¹‘…ÉÐœì)¥µÁ½ÉÐ€œ¸¸¼¸¸½ÍÑ…Ñ”½…ÁÁ}±½­}½¹ÑÉ½±±•È¹‘…ÉÐœì)¥µÁ½ÉÐ€œ¸¸¼¸¸½Ý¥‘•ÑÌ½ÑÑ±}Á¥­•É}Í¡••Ð¹‘…ÉÐœì)¥µÁ½ÉÐ€œ¸¸¼¸¸¼¸¸½‘½µ…¥¸½µ½‘•±Ì½¡…Ð¹‘…ÉÐœì()±…ÍÌM•ÑÑ¥¹ÍMÉ••¸•áÑ•¹‘Ì½¹ÍÕµ•ÉMÑ…Ñ•™Õ±]¥‘•Ðì(€½¹ÍÐM•ÑÑ¥¹ÍMÉ••¸¡íÍÕÁ•È¹­•åô¤ì((€½Ù•ÉÉ¥‘”(€½¹ÍÕµ•ÉMÑ…Ñ”ñM•ÑÑ¥¹ÍMÉ••¸øÉ•…Ñ•MÑ…Ñ” ¤€ôø}M•ÑÑ¥¹ÍMÉ••¹MÑ…Ñ” ¤ì)ô()±…ÍÌ}M•ÑÑ¥¹ÍMÉ••¹MÑ…Ñ”•áÑ•¹‘Ì½¹ÍÕµ•ÉMÑ…Ñ”ñM•ÑÑ¥¹ÍMÉ••¸ø(€€€Ý¥Ñ ]¥‘•ÑÍ	¥¹‘¥¹=‰Í•ÉÙ•Èì(€¥¹Ð}‘•™…Õ±ÑQÑ°€ôQÑ±AÉ•Í•Ð¹½¹•!½ÕÈì(€MÑÉ¥¹œ}¹½Ñ¥™¥…Ñ¥½¹AÉ•Ù¥•Ý1•Ù•°€ô€¹…µ”µ½¹±äœì(€ÍÑ…Ñ¥Œ½¹ÍÐ}•‘•1¥¡Ñ¥¹¡…¹¹•°€ô(€€€€€5•Ñ¡½‘¡…¹¹•° •Œ¹ÍÑ•±±…È¹…ÁÀ½•‘•}±¥¡Ñ¥¹œœ¤ì(€‰½½°}•‘•MÕÁÁ½ÉÑ•€ô™…±Í”ì(€‰½½°}•‘•A•Éµ¥ÍÍ¥½¹É…¹Ñ•€ô™…±Í”ì(€‰½½°}•‘•¹…‰±•€ô™…±Í”ì(€‰½½°}•‘•1½…‘¥¹œ€ô™…±Í”ì(€‰½½°}•‘•A•¹‘¥¹¹…‰±”€ô™…±Í”ì((€½Ù•ÉÉ¥‘”(€Ù½¥¥¹¥ÑMÑ…Ñ” ¤ì(€€€ÍÕÁ•È¹¥¹¥ÑMÑ…Ñ” ¤ì(€€€]¥‘•ÑÍ	¥¹‘¥¹œ¹¥¹ÍÑ…¹”¹…‘‘=‰Í•ÉÙ•È¡Ñ¡¥Ì¤ì(€€€Õ¹…Ý…¥Ñ•¡}É•™É•Í¡‘•1¥¡Ñ¥¹œ ¤¤ì(€ô((€½Ù•ÉÉ¥‘”(€Ù½¥‘¥‘¡…¹•ÁÁ1¥™•å±•MÑ…Ñ”¡ÁÁ1¥™•å±•MÑ…Ñ”ÍÑ…Ñ”¤ì(€€€¥˜€¡ÍÑ…Ñ”€ôôÁÁ1¥™•å±•MÑ…Ñ”¹É•ÍÕµ•¤ì(€€€€€Õ¹…Ý…¥Ñ•¡}É•™É•Í¡‘•1¥¡Ñ¥¹œ ¤¤ì(€€€ô(€ô((€½Ù•ÉÉ¥‘”(€Ù½¥‘¥ÍÁ½Í” ¤ì(€€€]¥‘•ÑÍ	¥¹‘¥¹œ¹¥¹ÍÑ…¹”¹É•µ½Ù•=‰Í•ÉÙ•È¡Ñ¡¥Ì¤ì(€€€ÍÕÁ•È¹‘¥ÍÁ½Í” ¤ì(€ô((€ÕÑÕÉ”ñÙ½¥ø}É•™É•Í¡‘•1¥¡Ñ¥¹œ ¤…Íå¹Œì(€€€¥˜€ …A±…Ñ™½É´¹¥Í¹‘É½¥¤É•ÑÕÉ¸ì(€€€ÑÉäì(€€€€€™¥¹…°ÍÑ…Ñ”€ô…Ý…¥Ð}•‘•1¥¡Ñ¥¹¡…¹¹•°(€€€€€€€€€€¹¥¹Ù½­•5…Á5•Ñ¡½ñMÑÉ¥¹œ°‘å¹…µ¥Œø •ÑMÑ…Ñ”œ¤ì(€€€€€¥˜€ …µ½Õ¹Ñ•¤É•ÑÕÉ¸ì(€€€€€™¥¹…°ÍÕÁÁ½ÉÑ•€ôÍÑ…Ñ”ýlÍÕÁÁ½ÉÑ•t€ôôÑÉÕ”ì(€€€€€™¥¹…°É…¹Ñ•€ôÍÑ…Ñ”ýlÁ•Éµ¥ÍÍ¥½¹É…¹Ñ•t€ôôÑÉÕ”ì(€€€€€Ù…È•¹…‰±•€ôÍÑ…Ñ”ýl•¹…‰±•t€ôôÑÉÕ”ì(€€€€€¥˜€¡}•‘•A•¹‘¥¹¹…‰±”€˜˜É…¹Ñ•€˜˜ÍÕÁÁ½ÉÑ•¤ì(€€€€€€€•¹…‰±•€ô…Ý…¥Ð}•‘•1¥¡Ñ¥¹¡…¹¹•°¹¥¹Ù½­•5•Ñ¡½ñ‰½½°ø (€€€€€€€€€€€€€€Í•Ñ¹…‰±•œ°ì•¹…‰±•œèÑÉÕ•ô¤€ôôÑÉÕ”ì(€€€€€ô(€€€€€¥˜€ …µ½Õ¹Ñ•¤É•ÑÕÉ¸ì(€€€€€Í•ÑMÑ…Ñ”  ¤ì(€€€€€€€}•‘•MÕÁÁ½ÉÑ•€ôÍÕÁÁ½ÉÑ•ì(€€€€€€€}•‘•A•Éµ¥ÍÍ¥½¹É…¹Ñ•€ôÉ…¹Ñ•ì(€€€€€€€}•‘•¹…‰±•€ô•¹…‰±•€˜˜É…¹Ñ•ì(€€€€€€€}•‘•A•¹‘¥¹¹…‰±”€ô™…±Í”ì(€€€€€ô¤ì(€€€ô½¸A±…Ñ™½Éµá•ÁÑ¥½¸ì(€€€€€¥˜€¡µ½Õ¹Ñ•¤Í•ÑMÑ…Ñ”  ¤€ôø}•‘•A•¹‘¥¹¹…‰±”€ô™…±Í”¤ì(€€€ô½¸5¥ÍÍ¥¹A±Õ¥¹á•ÁÑ¥½¸ì(€€€€€¥˜€¡µ½Õ¹Ñ•¤Í•ÑMÑ…Ñ”  ¤€ôø}•‘•MÕÁÁ½ÉÑ•€ô™…±Í”¤ì(€€€ô(€ô((€ÕÑÕÉ”ñÙ½¥ø}Ñ½±•‘•1¥¡Ñ¥¹œ¡‰½½°‘•Í¥É•¤…Íå¹Œì(€€€¥˜€¡}•‘•1½…‘¥¹œñð€…}•‘•MÕÁÁ½ÉÑ•¤É•ÑÕÉ¸ì(€€€Í•ÑMÑ…Ñ”  ¤€ôø}•‘•1½…‘¥¹œ€ôÑÉÕ”¤ì(€€€ÑÉäì(€€€€€¥˜€¡‘•Í¥É•€˜˜€…}•‘•A•Éµ¥ÍÍ¥½¹É…¹Ñ•¤ì(€€€€€€€}•‘•A•¹‘¥¹¹…‰±”€ôÑÉÕ”ì(€€€€€€€™¥¹…°½Á•¹•€ô…Ý…¥Ð}•‘•1¥¡Ñ¥¹¡…¹¹•°¹¥¹Ù½­•5•Ñ¡½ñ‰½½°ø (€€€€€€€€€€½Á•¹A•Éµ¥ÍÍ¥½¹M•ÑÑ¥¹Ìœ¤ì(€€€€€€€¥˜€¡½Á•¹•€„ôÑÉÕ”¤ì(€€€€€€€€€}•‘•A•¹‘¥¹¹…‰±”€ô™…±Í”ì(€€€€€€€€€…Ý…¥Ð}É•™É•Í¡‘•1¥¡Ñ¥¹œ ¤ì(€€€€€€€ô(€€€€€€€€¼¼-••ÀÑ¡”Á•¹‘¥¹œ¡½¥”Õ¹Ñ¥°±¥™•å±”É•ÍÕµ”…™Ñ•ÈÑ¡”ÕÍ•È(€€€€€€€€¼¼É•ÑÕÉ¹Ì™É½´¹‘É½¥ÍÁ•¥…°µ…•ÍÌÍ•ÑÑ¥¹Ì¸(€€€€€ô•±Í”ì(€€€€€€€…Ý…¥Ð}•‘•1¥¡Ñ¥¹¡…¹¹•°¹¥¹Ù½­•5•Ñ¡½ñ‰½½°ø (€€€€€€€€€€Í•Ñ¹…‰±•œ°ì•¹…‰±•œè‘•Í¥É•‘ô¤ì(€€€€€€€…Ý…¥Ð}É•™É•Í¡‘•1¥¡Ñ¥¹œ ¤ì(€€€€€ô(€€€ô½¸A±…Ñ™½Éµá•ÁÑ¥½¸ì(€€€€€¥˜€¡µ½Õ¹Ñ•¤ì(€€€€€€€M…™™½±‘5•ÍÍ•¹•È¹½˜¡½¹Ñ•áÐ¤¹Í¡½ÝM¹…­	…È¡M¹…­	…È (€€€€€€€€€½¹Ñ•¹ÐèQ•áÐ¡ÍÑ•±±…ÉQ•áÐ¡½¹Ñ•áÐ°€‰¹‘É½¥½Õ±¹½Ð½Á•¸•‘”±¥¡Ñ¥¹œÍ•ÑÑ¥¹Ì¸ˆ¤¤°(€€€€€€€€¤¤ì(€€€€€ô(€€€ô™¥¹…±±äì(€€€€€¥˜€¡µ½Õ¹Ñ•¤Í•ÑMÑ…Ñ”  ¤€ôø}•‘•1½…‘¥¹œ€ô™…±Í”¤ì(€€€ô(€ô((€ÕÑÕÉ”ñÙ½¥ø}½Á•¹]¥¹‘½ÝÍAÉ¥Ù…åM•ÑÑ¥¹Ì¡MÑÉ¥¹œÍ•ÑÑ¥¹œ¤…Íå¹Œì(€€€ÑÉäì(€€€€€…Ý…¥Ð±…Õ¹¡UÉ°¡UÉ¤¹Á…ÉÍ” µÌµÍ•ÑÑ¥¹Ìè‘Í•ÑÑ¥¹œœ¤¤ì(€€€ô…Ñ €¡•ÉÉ½È¤ì(€€€€€¥˜€ …µ½Õ¹Ñ•¤É•ÑÕÉ¸ì(€€€€€M…™™½±‘5•ÍÍ•¹•È¹½˜¡½¹Ñ•áÐ¤¹Í¡½ÝM¹…­	…È (€€€€€€€M¹…­	…È¡½¹Ñ•¹ÐèQ•áÐ ½Õ±¹½Ð½Á•¸]¥¹‘½ÝÌM•ÑÑ¥¹Ìè€‘•ÉÉ½Èœ¤¤°(€€€€€€¤ì(€€€ô(€ô((€½Ù•ÉÉ¥‘”(€]¥‘•Ð‰Õ¥±¡	Õ¥±‘½¹Ñ•áÐ½¹Ñ•áÐ¤ì(€€€™¥¹…°°ÄÁ¸€ôÁÁ1½…±¥é…Ñ¥½¹Ì¹½˜¡½¹Ñ•áÐ¤ì(€€€™¥¹…°¹¥­¹…µ”€ôÉ•˜¹Ý…Ñ ¡±½…±9¥­¹…µ•AÉ½Ù¥‘•È¤€üü€ŸŠPœì(€€€™¥¹…°ÍÉ••¹Í¡½Ñ	±½­¹…‰±•€ôÉ•˜¹Ý…Ñ ¡ÍÉ••¹Í¡½Ñ	±½­¹…‰±•‘AÉ½Ù¥‘•È¤ì(€€€™¥¹…°ÍÉ••¹AÉ¥Ù…å5½‘”€ôÉ•˜¹Ý…Ñ ¡ÍÉ••¹AÉ¥Ù…å5½‘•¹…‰±•‘AÉ½Ù¥‘•È¤ì(€€€™¥¹…°‰¥½µ•ÑÉ¥1½­¹…‰±•€ôÉ•˜¹Ý…Ñ ¡‰¥½µ•ÑÉ¥1½­¹…‰±•‘AÉ½Ù¥‘•È¤ì((€€€É•ÑÕÉ¸M…™™½± (€€€€€…ÁÁ	…ÈèÁÁ	…È¡Ñ¥Ñ±”èQ•áÐ¡°ÄÁ¸¹Í•ÑÑ¥¹ÍQ¥Ñ±”¤¤°(€€€€€‰½‘äè1¥ÍÑY¥•Ü (€€€€€€€¡¥±‘É•¸èl(€€€€€€€€€1¥ÍÑQ¥±” (€€€€€€€€€€€±•…‘¥¹œè½¹ÍÐ%½¸¡%½¹Ì¹Í¡¥•±‘}½ÕÑ±¥¹•°½±½ÈèMÑ•±±…É½±½ÉÌ¹…•¹Ñ	±Õ”¤°(€€€€€€€€€€€Ñ¥Ñ±”èQ•áÐ¡ÍÑ•±±…ÉQ•áÐ¡½¹Ñ•áÐ°€‰M•ÕÉ¥Ñä•¹Ñ•Èˆ¤¤°(€€€€€€€€€€€ÍÕ‰Ñ¥Ñ±”èQ•áÐ M½É”è€‘íÉ•˜¹Ý…Ñ ¡Í•ÕÉ¥ÑåM½É•AÉ½Ù¥‘•È¥ô¼ÄÀÀœ¤°(€€€€€€€€€€€ÑÉ…¥±¥¹œè½¹ÍÐ%½¸¡%½¹Ì¹¡•ÙÉ½¹}É¥¡Ð°½±½ÈèMÑ•±±…É½±½ÉÌ¹Ñ•áÑM•½¹‘…Éä¤°(€€€€€€€€€€€½¹Q…Àè€ ¤€ôø½¹Ñ•áÐ¹ÁÕÍ  œ½Í•ÕÉ¥Ñäœ¤°(€€€€€€€€€€¤°(€€€€€€€€€½¹ÍÐ¥Ù¥‘•È¡½±½ÈèMÑ•±±…É½±½ÉÌ¹‰±•Ù…Ñ•¤°(€€€€€€€€€1¥ÍÑQ¥±” (€€€€€€€€€€€±•…‘¥¹œè½¹ÍÐ%½¸ (€€€€€€€€€€€€€%½¹Ì¹Í¡¥•±‘}µ½½¹}½ÕÑ±¥¹•°(€€€€€€€€€€€€€½±½ÈèMÑ•±±…É½±½ÉÌ¹…•¹Ñ	±Õ”°(€€€€€€€€€€€€¤°(€€€€€€€€€€€Ñ¥Ñ±”èQ•áÐ¡ÍÑ•±±…ÉQ•áÐ¡½¹Ñ•áÐ°€‰MÑ•±±…ÈM•ÕÉ¥Ñäˆ¤¤°(€€€€€€€€€€€ÍÕ‰Ñ¥Ñ±”èQ•áÐ¡ÍÑ•±±…ÉQ•áÐ¡½¹Ñ•áÐ°€‰1•…É¸¡½ÜMÑ•±±…ÈÁÉ½Ñ•ÑÌå½Ôˆ¤¤°(€€€€€€€€€€€ÑÉ…¥±¥¹œè½¹ÍÐ%½¸ (€€€€€€€€€€€€€%½¹Ì¹¡•ÙÉ½¹}É¥¡Ð°(€€€€€€€€€€€€€½±½ÈèMÑ•±±…É½±½ÉÌ¹Ñ•áÑM•½¹‘…Éä°(€€€€€€€€€€€€¤°(€€€€€€€€€€€½¹Q…Àè€ ¤ì(€€€€€€€€€€€€€9…Ù¥…Ñ½È¹½˜¡½¹Ñ•áÐ¤¹ÁÕÍ  (€€€€€€€€€€€€€€€5…Ñ•É¥…±A…•I½ÕÑ” (€€€€€€€€€€€€€€€€€‰Õ¥±‘•Èè€¡|¤€ôø½¹ÍÐMÑ•±±…ÉM•ÕÉ¥ÑåMÉ••¸ ¤°(€€€€€€€€€€€€€€€€¤°(€€€€€€€€€€€€€€¤ì(€€€€€€€€€€€ô°(€€€€€€€€€€¤°(€€€€€€€€€½¹ÍÐ¥Ù¥‘•È¡½±½ÈèMÑ•±±…É½±½ÉÌ¹‰±•Ù…Ñ•¤°((€€€€€€€€€1¥ÍÑQ¥±” (€€€€€€€€€€€±•…‘¥¹œè½¹ÍÐ%½¸¡%½¹Ì¹±…¹Õ…”°½±½ÈèMÑ•±±…É½±½ÉÌ¹…•¹Ñ	±Õ”¤°(€€€€€€€€€€€Ñ¥Ñ±”èQ•áÐ¡°ÄÁ¸¹±…¹Õ…”¤°(€€€€€€€€€€€ÍÕ‰Ñ¥Ñ±”èQ•áÐ (€€€€€€€€€€€€€€œ‘í°ÄÁ¸¹™½±±½ÝÍ•Ù¥•1…¹Õ…•ôè€‘í}±…¹Õ…•9…µ” (€€€€€€€€€€€€€€€1½…±¥é…Ñ¥½¹Ì¹±½…±•=˜¡½¹Ñ•áÐ¤¹±…¹Õ…•½‘”°(€€€€€€€€€€€€€€€°ÄÁ¸°(€€€€€€€€€€€€€€¥ôœ°(€€€€€€€€€€€€¤°(€€€€€€€€€€¤°(€€€€€€€€€}M•Ñ¥½¹!•…‘•È¡°ÄÁ¸¹…½Õ¹ÑM•Ñ¥½¸¤°(€€€€€€€€€1¥ÍÑQ¥±” (€€€€€€€€€€€±•…‘¥¹œè½¹ÍÐ%½¸¡%½¹Ì¹…±Ñ•É¹…Ñ•}•µ…¥°°½±½ÈèMÑ•±±…É½±½ÉÌ¹…•¹Ñ	±Õ”¤°(€€€€€€€€€€€Ñ¥Ñ±”èQ•áÐ¡ÍÑ•±±…ÉQ•áÐ¡½¹Ñ•áÐ°€‰9¥­¹…µ”ˆ¤¤°(€€€€€€€€€€€ÍÕ‰Ñ¥Ñ±”èQ•áÐ¡¹¥­¹…µ”¤°(€€€€€€€€€€¤°(€€€€€€€€€1¥ÍÑQ¥±” (€€€€€€€€€€€±•…‘¥¹œè½¹ÍÐ%½¸¡%½¹Ì¹…½Õ¹Ñ}¥É±•}½ÕÑ±¥¹•°½±½ÈèMÑ•±±…É½±½ÉÌ¹…•¹Ñ	±Õ”¤°(€€€€€€€€€€€Ñ¥Ñ±”èQ•áÐ¡ÍÑ•±±…ÉQ•áÐ¡½¹Ñ•áÐ°€‰5äAÉ½™¥±”ˆ¤¤°(€€€€€€€€€€€ÍÕ‰Ñ¥Ñ±”èQ•áÐ¡ÍÑ•±±…ÉQ•áÐ¡½¹Ñ•áÐ°€‰Y¥•Ü½È¡…¹”å½ÕÈÁÉ½™¥±”Á¡½Ñ¼ˆ¤¤°(€€€€€€€€€€€ÑÉ…¥±¥¹œè½¹ÍÐ%½¸¡%½¹Ì¹¡•ÙÉ½¹}É¥¡Ð°½±½ÈèMÑ•±±…É½±½ÉÌ¹Ñ•áÑM•½¹‘…Éä¤°(€€€€€€€€€€€½¹Q…Àè€ ¤ì(€€€€€€€€€€€€€¥˜€¡¹¥­¹…µ”€ôô€ŸŠPœñð¹¥­¹…µ”¹ÑÉ¥´ ¤¹¥ÍµÁÑä¤ì(€€€€€€€€€€€€€€€M…™™½±‘5•ÍÍ•¹•È¹½˜¡½¹Ñ•áÐ¤¹Í¡½ÝM¹…­	…È (€€€€€€€€€€€€€€€€€M¹…­	…È¡½¹Ñ•¹ÐèQ•áÐ e½ÕÈÁÉ½™¥±”¥Ì¹½ÐÉ•…‘äå•Ð¸œ¤¤°(€€€€€€€€€€€€€€€€¤ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€€€ô(€€€€€€€€€€€€€½¹Ñ•áÐ¹ÁÕÍ  œ½ÁÉ½™¥±”¼‘íUÉ¤¹•¹½‘•½µÁ½¹•¹Ð¡¹¥­¹…µ”¹ÑÉ¥´ ¤¥ôœ¤ì(€€€€€€€€€€€ô°(€€€€€€€€€€¤°(€€€€€€€€€1¥ÍÑQ¥±” (€€€€€€€€€€€±•…‘¥¹œè½¹ÍÐ%½¸¡%½¹Ì¹ÅÉ}½‘”°½±½ÈèMÑ•±±…É½±½ÉÌ¹…•¹Ñ	±Õ”¤°(€€€€€€€€€€€Ñ¥Ñ±”èQ•áÐ¡ÍÑ•±±…ÉQ•áÐ¡½¹Ñ•áÐ°€‰M…™•Ñä¹Õµ‰•È€¼EHˆ¤¤°(€€€€€€€€€€€½¹Q…Àè€ ¤€ôø½¹Ñ•áÐ¹ÁÕÍ  œ½Í•ÕÉ¥Ñäœ¤°(€€€€€€€€€€¤°(€€€€€€€€€1¥ÍÑQ¥±” (€€€€€€€€€€€±•…‘¥¹œè½¹ÍÐ%½¸¡%½¹Ì¹Ý…É¹¥¹}…µ‰•É}É½Õ¹‘•°½±½ÈèMÑ•±±…É½±½ÉÌ¹‘…¹•È¤°(€€€€€€€€€€€Ñ¥Ñ±”èQ•áÐ¡ÍÑ•±±…ÉQ•áÐ¡½¹Ñ•áÐ°€‰I•Í•Ð%‘•¹Ñ¥Ñäˆ¤°ÍÑå±”èQ•áÑMÑå±”¡½±½ÈèMÑ•±±…É½±½ÉÌ¹‘…¹•È¤¤°(€€€€€€€€€€€ÍÕ‰Ñ¥Ñ±”èQ•áÐ¡ÍÑ•±±…ÉQ•áÐ¡½¹Ñ•áÐ°€‰%¹Ù…±¥‘…Ñ•Ì…±°Í•ÍÍ¥½¹ÌƒŠP½¹Ñ…ÑÌµÕÍÐÉ”µÙ•É¥™äå½Ôˆ¤¤°(€€€€€€€€€€€½¹Q…Àè€ ¤€ôø}½¹™¥ÉµI•Í•Ñ%‘•¹Ñ¥Ñä¡½¹Ñ•áÐ¤°(€€€€€€€€€€¤°((€€€€€€€€€1¥ÍÑQ¥±” (€€€€€€€€€€€±•…‘¥¹œè½¹ÍÐ%½¸ (€€€€€€€€€€€€€%½¹Ì¹Í¡¥•±‘}µ½½¹}½ÕÑ±¥¹•°(€€€€€€€€€€€€€½±½ÈèMÑ•±±…É½±½ÉÌ¹…•¹ÑAÕÉÁ±”°(€€€€€€€€€€€€¤°(€€€€€€€€€€€Ñ¥Ñ±”èQ•áÐ¡ÍÑ•±±…ÉQ•áÐ¡½¹Ñ•áÐ°€‰MÑ•±±…ÈUIˆ¤¤°(€€€€€€€€€€€ÍÕ‰Ñ¥Ñ±”èQ•áÐ¡ÍÑ•±±…ÉQ•áÐ¡½¹Ñ•áÐ°€‰I•Á½ÉÐ…½Õ¹ÑÌì„µ…Ñ¡¥¹œÑ¡•™ÐÉ•Á½ÉÐ…¸É•Ù½­”…¸…½Õ¹Ð…ÕÑ½µ…Ñ¥…±±ä¸ˆ¤¤°(€€€€€€€€€€€ÑÉ…¥±¥¹œè½¹ÍÐ%½¸ (€€€€€€€€€€€€€%½¹Ì¹¡•ÙÉ½¹}É¥¡Ð°(€€€€€€€€€€€€€½±½ÈèMÑ•±±…É½±½ÉÌ¹Ñ•áÑM•½¹‘…Éä°(€€€€€€€€€€€€¤°(€€€€€€€€€€€½¹Q…Àè€ ¤ì(€€€€€€€€€€€€€9…Ù¥…Ñ½È¹½˜¡½¹Ñ•áÐ¤¹ÁÕÍ  (€€€€€€€€€€€€€€€5…Ñ•É¥…±A…•I½ÕÑ” (€€€€€€€€€€€€€€€€€‰Õ¥±‘•Èè€¡|¤€ôø½¹ÍÐMÑ•±±…ÉÕ…É‘MÉ••¸ ¤°(€€€€€€€€€€€€€€€€¤°(€€€€€€€€€€€€€€¤ì(€€€€€€€€€€€ô°(€€€€€€€€€€¤°((€€€€€€€€€}M•Ñ¥½¹!•…‘•È¡°ÄÁ¸¹ÁÉ¥Ù…åM•Ñ¥½¸¤°(€€€€€€€€€MÝ¥Ñ¡1¥ÍÑQ¥±” (€€€€€€€€€€€…Ñ¥Ù•½±½ÈèMÑ•±±…É½±½ÉÌ¹…•¹Ñ	±Õ”°(€€€€€€€€€€€Ñ¥Ñ±”èQ•áÐ¡ÍÑ•±±…ÉQ•áÐ¡½¹Ñ•áÐ°€‰	±½¬ÍÉ••¹Í¡½ÑÌˆ¤¤°(€€€€€€€€€€€ÍÕ‰Ñ¥Ñ±”èQ•áÐ¡ÍÑ•±±…ÉQ•áÐ¡½¹Ñ•áÐ°€‰¹‘É½¥è™Õ±±ä‰±½­•¸¥=Lè‘•Ñ•Ñ•€¬‘¥Í±½Í•€¡¹¼=Lµ±•Ù•°ÁÉ•Ù•¹Ñ¥½¸•ã¯5¶‰žËkºwµç\ØÚÔÙXÝ[ÛŠKˆÝÚ]Ú\Ý[JˆXÝ]™PÛÛÜŽˆÝ[\ÛÛÜœË˜XØÙ[›YKˆ]Nˆ^
-Ý[\•^
-ÛÛ^š[ÛY]šXÈÈSˆØÚÈŠJKˆ˜[YNˆš[ÛY]šXÓØÚÑ[˜X›YˆÛÚ[™ÙYˆ
-ŠH\Þ[˜ÈÂˆš[˜[ÛÛ›Û\ˆH™Y‹œ™XY
-\ØÚÐÛÛ›Û\”›ÝšY\ŠNÂ‚ˆYˆ
-ŠHÂˆš[˜[[˜X›YH]ØZ]ÛÛ›Û\‹™[˜X›Pš[ÛY]šXÓØÚÊ
-NÂ‚ˆYˆ
-[[Ý[Y
-H™]\›ŽÂ‚ˆYˆ
-[˜X›Y
-HÂˆ™Y‹œ™XY
-š[ÛY]šXÓØÚÑ[˜X›Y›ÝšY\‹››ÝYšY\ŠKœÝ]HHYNÂˆH[ÙHÂˆØØY™›ÛY\ÜÙ[™Ù\‹›ÙŠÛÛ^
-KœÚÝÔÛ˜XÚÐ˜\ŠˆÛ˜XÚÐ˜\ŠˆÛÛ[ˆ^
-Ý[\•^
-ÛÛ^š[ÛY]šXÈ]][XØ][ÛˆØ\È›Ý[˜X›YˆŠJKˆ
-Kˆ
-NÂˆBˆH[ÙHÂˆš[˜[]][XØ]YH]ØZ]ÛÛ›Û\‹˜]][XØ]J
-NÂ‚ˆYˆ
-[[Ý[Y
-H™]\›ŽÂ‚ˆYˆ
-X]][XØ]Y
-HÂˆØØY™›ÛY\ÜÙ[™Ù\‹›ÙŠÛÛ^
-KœÚÝÔÛ˜XÚÐ˜\ŠˆÛ˜XÚÐ˜\ŠˆÛÛ[ˆ^
-ˆ	Ðš[ÛY]šXÈ]][XØ][Ûˆ™\]Z\™YÈ\ØX›HHØÚË‰Ëˆ
-Kˆ
-Kˆ
-NÂˆ™]\›ŽÂˆB‚ˆ]ØZ]ÛÛ›Û\‹™\ØX›Pš[ÛY]šXÓØÚÊ
-NÂ‚ˆYˆ
-[[Ý[Y
-H™]\›ŽÂ‚ˆ™Y‹œ™XY
-š[ÛY]šXÓØÚÑ[˜X›Y›ÝšY\‹››ÝYšY\ŠKœÝ]HH˜[ÙNÂˆBˆKˆ
-K‚ˆÔÙXÝ[Û’XY\ŠL‹››ÝYšXØ][ÛœÔÙXÝ[ÛŠKˆYˆ
-]›Ü›Kš\ÕÚ[™ÝÜÊH‹‹–Âˆ\Ý[JˆXY[™ÎˆÛÛœÝXÛÛŠXÛÛœË››ÝYšXØ][Ûœ×ØXÝ]™WÛÝ][™YˆÛÛÜŽˆÝ[\ÛÛÜœË˜XØÙ[\œJKˆ]NˆÛÛœÝ^
-	ÕÚ[™ÝÜÈ›ÝYšXØ][ÛˆÙ][™ÜÉÊKˆÝX]NˆÛÛœÝ^
-	Ð[ÝÈÝ[\ˆPÐÈ›ÝYšXØ][ÛœÈ[ˆÚ[™ÝÜÉÊKˆÛ•\ˆ
+import 'dart:async';
+import 'dart:io';
+import 'package:flutter/services.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-HOˆ[˜]ØZ]Y
-ˆÛÜ[•Ú[™ÝÜÔš]˜XÞTÙ][™ÜÊ	Û›ÝYšXØ][ÛœÉÊKˆ
-Kˆ
-Kˆ\Ý[JˆXY[™ÎˆÛÛœÝXÛÛŠXÛÛœË›ZX×Û›Û™KˆÛÛÜŽˆÝ[\ÛÛÜœË˜XØÙ[\œJKˆ]NˆÛÛœÝ^
-	ÕÚ[™ÝÜÈZXÜ›ÜÛ™H\›Z\ÜÚ[Û‰ÊKˆÝX]NˆÛÛœÝ^
-	Ð[ÝÈ\ÚÝÜ\ÈÈ\ÙHHZXÜ›ÜÛ™IÊKˆÛ•\ˆ
+import '../../../core/theme/stellar_theme.dart';
+import '../../../l10n/stellar_translations.dart';
+import '../../../l10n/app_localizations.dart';
+import 'stellar_security_screen.dart';
+import 'stellar_guard_screen.dart';
+import '../../state/app_providers.dart';
+import '../../../core/storage/providers.dart';
+import '../../state/security_providers.dart';
+import '../../state/app_lock_controller.dart';
+import '../../widgets/ttl_picker_sheet.dart';
+import '../../../domain/models/chat.dart';
 
-HOˆ[˜]ØZ]Y
-ˆÛÜ[•Ú[™ÝÜÔš]˜XÞTÙ][™ÜÊ	Üš]˜XÞK[ZXÜ›ÜÛ™IÊKˆ
-Kˆ
-Kˆ\Ý[JˆXY[™ÎˆÛÛœÝXÛÛŠXÛÛœËšY[ØØ[WÛÝ][™YˆÛÛÜŽˆÝ[\ÛÛÜœË˜XØÙ[\œJKˆ]NˆÛÛœÝ^
-	ÕÚ[™ÝÜÈØ[Y\˜H\›Z\ÜÚ[Û‰ÊKˆÝX]NˆÛÛœÝ^
-	Ð[ÝÈ\ÚÝÜ\ÈÈ\ÙHHØ[Y\˜IÊKˆÛ•\ˆ
+class SettingsScreen extends ConsumerStatefulWidget {
+  const SettingsScreen({super.key});
 
-HOˆ[˜]ØZ]Y
-ˆÛÜ[•Ú[™ÝÜÔš]˜XÞTÙ][™ÜÊ	Üš]˜XÞK]ÙX˜Ø[IÊKˆ
-Kˆ
-KˆKˆYˆ
-]›Ü›Kš\Ð[™›ÚY
-BˆÝÚ]Ú\Ý[JˆXÝ]™PÛÛÜŽˆÝ[\ÛÛÜœË˜XØÙ[\œKˆÙXÛÛ™\žNˆÛÛœÝXÛÛŠXÛÛœË˜]]×Ø]Ù\ÛÛYKˆÛÛÜŽˆÝ[\ÛÛÜœË˜XØÙ[\œJKˆ]Nˆ^
-Ý[\•^
-ÛÛ^”\œHYÙHYÚ[™ÈŠJKˆÝX]Nˆ^
-WÙYÙTÝ\ÜYˆÈ	Ô™\]Z\™\È[™›ÚYÜˆ]\‰ÂˆˆWÙYÙT\›Z\ÜÚ[Û‘Ü˜[YˆÈ	ÓÜ[Û˜[ˆÜ˜[\Ü^HÝ™\ˆÝ\ˆ\ÈÈ›\Ú	Âˆ	ÝHYÙ\È›Üˆ˜XÚÙÜ›Ý[™ÛØÚÙY\ØÜ™Y[ˆY\ÜØYÙ\ÉÂˆˆ	ÕÛÈÙ[H\œH[Ù\ÎÈØÚË\ØÜ™Y[ˆ\Ü^H	Âˆ	Ù\[™ÈÛˆ[™›ÚY[™]šXÙHÙ][™ÜÉÊKˆ˜[YNˆÙYÙQ[˜X›YˆÛÚ[™ÙYˆÙYÙTÝ\ÜY	‰ˆWÙYÙSØY[™ÂˆÈÝÙÙÛQYÙSYÚ[™Èˆ[ˆ
-Kˆ\Ý[JˆXY[™ÎˆÛÛœÝXÛÛŠˆXÛÛœË˜Ø[\ZYÛ—ÛÝ][™YˆÛÛÜŽˆÝ[\ÛÛÜœË˜XØÙ[\œKˆ
-Kˆ]Nˆ^
-Ý[\•^
-ÛÛ^œ›ØYØ\ÝÈŠJKˆÝX]Nˆ^
-Ý[\•^
-ÛÛ^[››Ý[˜Ù[Y[È[™]XÚYš[\ÈŠJKˆ˜Z[[™ÎˆÛÛœÝXÛÛŠXÛÛœË˜Ú]œ›Û—ÜšYÚ
-KˆÛ•\ˆ
+  @override
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
 
-HOˆÛÛ^œ\Ú
-	ËØœ›ØYØ\ÝÉÊKˆ
-Kˆ\Ý[JˆXY[™ÎˆÛÛœÝXÛÛŠXÛÛœË››ÝYšXØ][Ûœ×ÛÝ][™YÛÛÜŽˆÝ[\ÛÛÜœË˜XØÙ[\œJKˆ]Nˆ^
-Ý[\•^
-ÛÛ^”™]šY]È]™[ŠJKˆÝX]Nˆ^
-Û›ÝYšXØ][Û”™]šY]Ó]™[X™[
-Û›ÝYšXØ][Û”™]šY]Ó]™[
-JKˆÛ•\ˆ
+class _SettingsScreenState extends ConsumerState<SettingsScreen>
+    with WidgetsBindingObserver {
+  int _defaultTtl = TtlPreset.oneHour;
+  String _notificationPreviewLevel = 'name-only';
+  static const _edgeLightingChannel =
+      MethodChannel('ecc.stellar.app/edge_lighting');
+  bool _edgeSupported = false;
+  bool _edgePermissionGranted = false;
+  bool _edgeEnabled = false;
+  bool _edgeLoading = false;
+  bool _edgePendingEnable = false;
 
-HOˆÜÚÝÔ™]šY]Ó]™[XÚÙ\ŠÛÛ^
-Kˆ
-K‚ˆÔÙXÝ[Û’XY\ŠL‹˜X›Ý]ÙXÝ[ÛŠKˆ\Ý[JˆXY[™ÎˆÛÛœÝXÛÛŠXÛÛœËœÙXÝ\š]KÛÛÜŽˆÝ[\ÛÛÜœË^ÙXÛÛ™\žJKˆ]Nˆ^
-Ý[\•^
-ÛÛ^”ÙXÝ\š]H]Y]ÚXÚÛ\ÝŠJKˆÛ•\ˆ
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_refreshEdgeLighting());
+  }
 
-HßKˆ
-KˆKˆ
-Kˆ
-NÂˆB‚ˆÝš[™ÈÛ›ÝYšXØ][Û”™]šY]Ó]™[X™[
-Ýš[™È]™[
-HÂˆÝÚ]Ú
-]™[
-HÂˆØ\ÙH	Ù[	Î‚ˆ™]\›ˆ	Ñ[™]šY]ÉÎÂˆØ\ÙH	Û˜[YK[Û›IÎ‚ˆ™]\›ˆ	ÔÙ[™\ˆ˜[YHÛ›IÎÂˆY˜][‚ˆ™]\›ˆ	ÔÚ[[
-›È™]šY]ÊIÎÂˆBˆB‚ˆ›ÚYÜÚÝÔ™]šY]Ó]™[XÚÙ\ŠZ[ÛÛ^ÛÛ^
-HÂˆÚÝÓ[Ù[›ÝÛTÚY]
-ˆÛÛ^ˆÛÛ^ˆ˜XÚÙÜ›Ý[™ÛÛÜŽˆÝ[\ÛÛÜœË˜™Ñ[]˜]YˆZ[\Žˆ
-ÚY]ÛÛ^
-HOˆØY™P\™XJˆÚ[ˆÛÛ[[ŠˆXZ[^\ÔÚ^™NˆXZ[^\ÔÚ^™K›Z[‹ˆÚ[™[ŽˆÉÙ[	Ë	Û˜[YK[Û›IË	ÜÚ[[	×Bˆ›X\
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshEdgeLighting());
+    }
+  }
 
-]™[
-HOˆ˜Y[Ó\Ý[OÝš[™ÏŠˆ˜[YNˆ]™[ˆÜ›Ý\˜[YNˆÛ›ÝYšXØ][Û”™]šY]Ó]™[ˆXÝ]™PÛÛÜŽˆÝ[\ÛÛÜœË˜XØÙ[›YKˆ]Nˆ^
-Û›ÝYšXØ][Û”™]šY]Ó]™[X™[
-]™[
-JKˆÛÚ[™ÙYˆ
-ŠHÂˆÙ]Ý]J
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
-HOˆÛ›ÝYšXØ][Û”™]šY]Ó]™[HˆJNÂˆ˜]šYØ]Ü‹œÜ
-ÚY]ÛÛ^
-NÂˆKˆ
-JBˆÓ\Ý
+  Future<void> _refreshEdgeLighting() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final state = await _edgeLightingChannel
+          .invokeMapMethod<String, dynamic>('getState');
+      if (!mounted) return;
+      final supported = state?['supported'] == true;
+      final granted = state?['permissionGranted'] == true;
+      var enabled = state?['enabled'] == true;
+      if (_edgePendingEnable && granted && supported) {
+        enabled = await _edgeLightingChannel.invokeMethod<bool>(
+              'setEnabled', {'enabled': true}) == true;
+      }
+      if (!mounted) return;
+      setState(() {
+        _edgeSupported = supported;
+        _edgePermissionGranted = granted;
+        _edgeEnabled = enabled && granted;
+        _edgePendingEnable = false;
+      });
+    } on PlatformException {
+      if (mounted) setState(() => _edgePendingEnable = false);
+    } on MissingPluginException {
+      if (mounted) setState(() => _edgeSupported = false);
+    }
+  }
 
-Kˆ
-Kˆ
-Kˆ
-NÂˆB‚ˆ]\™O›ÚYˆØÛÛ™š\›T™\Ù]Y[]JZ[ÛÛ^ÛÛ^
-H\Þ[˜ÈÂˆš[˜[ÛÛ™š\›YYH]ØZ]ÚÝÑX[ÙÏ›ÛÛŠˆÛÛ^ˆÛÛ^ˆZ[\Žˆ
-X[ÙÐÛÛ^
-HOˆ[\X[ÙÊˆ˜XÚÙÜ›Ý[™ÛÛÜŽˆÝ[\ÛÛÜœË˜™Ñ[]˜]Yˆ]Nˆ^
-Ý[\•^
-ÛÛ^”™\Ù]Y[]OÈŠJKˆÛÛ[ˆÛÛœÝ^
-ˆ	Õ\È™[[Ý™\ÈØØ[Y\ÜØYÙ\ËÙ\ÜÚ[ÛœËY[]H]KSˆÙ][™ÜË	Âˆ	Ø[™ØØ[YYXKˆ[Ý\ˆÛÛXÝÈÚ[™YYÈ™\šYžH[Ý\ˆ™]ÈY[]Kˆ	Âˆ	Õ\ÈØ[››Ý™H[™Û™K‰Ëˆ
-KˆXÝ[ÛœÎˆÂˆ^]ÛŠˆÛ”™\ÜÙYˆ
+  Future<void> _toggleEdgeLighting(bool desired) async {
+    if (_edgeLoading || !_edgeSupported) return;
+    setState(() => _edgeLoading = true);
+    try {
+      if (desired && !_edgePermissionGranted) {
+        _edgePendingEnable = true;
+        final opened = await _edgeLightingChannel.invokeMethod<bool>(
+          'openPermissionSettings');
+        if (opened != true) {
+          _edgePendingEnable = false;
+          await _refreshEdgeLighting();
+        }
+        // Keep the pending choice until lifecycle resume after the user
+        // returns from Android special-access settings.
+      } else {
+        await _edgeLightingChannel.invokeMethod<bool>(
+          'setEnabled', {'enabled': desired});
+        await _refreshEdgeLighting();
+      }
+    } on PlatformException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(stellarText(context, "Android could not open edge lighting settings.")),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _edgeLoading = false);
+    }
+  }
 
-HOˆ˜]šYØ]Ü‹œÜ
-X[ÙÐÛÛ^˜[ÙJKˆÚ[ˆ^
-Ý[\•^
-ÛÛ^Ø[˜Ù[ŠJKˆ
-Kˆ^]ÛŠˆÛ”™\ÜÙYˆ
+  Future<void> _openWindowsPrivacySettings(String setting) async {
+    try {
+      await launchUrl(Uri.parse('ms-settings:$setting'));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open Windows Settings: $error')),
+      );
+    }
+  }
 
-HOˆ˜]šYØ]Ü‹œÜ
-X[ÙÐÛÛ^YJKˆÚ[ˆÛÛœÝ^
-ˆ	Ô™\Ù]	ËˆÝ[Nˆ^Ý[JÛÛÜŽˆÝ[\ÛÛÜœË™[™Ù\ŠKˆ
-Kˆ
-KˆKˆ
-Kˆ
-NÂ‚ˆYˆ
-ÛÛ™š\›YYOHYHXÛÛ^›[Ý[Y
-H™]\›ŽÂ‚ˆžHÂˆš[˜[ˆH™Y‹œ™XY
-]X˜\ÙT›ÝšY\ŠNÂˆš[˜[Ù^TÝÜ™HH™Y‹œ™XY
-]›Ü›RÙ^TÝÜ™T›ÝšY\ŠNÂ‚ˆ]ØZ]™Y‹œ™XY
-ØØ[šXÚÛ˜[YT›ÝšY\‹››ÝYšY\ŠK˜ÛX\Š
-NÂˆ]ØZ]‹˜ÛX\[ØØ[]J
-NÂ‚ˆš[˜[Ý\ÜH]ØZ]Ù]\XØ][Û”Ý\Ü\™XÝÜžJ
-NÂˆ›Üˆ
-š[˜[˜[YH[ˆÝš[™Ï–ÉÛYYXIË	Ü›Ùš[WÜÝÜÉ×JHÂˆš[˜[\™XÝÜžHH\™XÝÜžJ	ÉÜÝ\Üœ]KÉ˜[YIÊNÂˆYˆ
-]ØZ]\™XÝÜžK™^\ÝÊ
-JHÂˆ]ØZ]\™XÝÜžK™[]J™XÝ\œÚ]™NˆYJNÂˆBˆB‚ˆ]ØZ]Ù^TÝÜ™KÚ\P[^Ù\]X˜\ÙRÙ^J
-NÂ‚ˆ™Y‹š[˜[Y]JÚ]™\ÜÚ]ÜžT›ÝšY\ŠNÂˆ™Y‹š[˜[Y]JÜ›Ý\Üž\Ô›ÝšY\ŠNÂˆ™Y‹š[˜[Y]JÙ\ÜÚ[Û“X[˜YÙ\”›ÝšY\ŠNÂˆ™Y‹š[˜[Y]JY[]RÙ^TÝÜ™T›ÝšY\ŠNÂˆ™Y‹š[˜[Y]J›Ùš[TÝÔÞ[˜ÔÙ\šXÙT›ÝšY\ŠNÂˆ™Y‹š[˜[Y]J›Ùš[TÝÔÙ\šXÙT›ÝšY\ŠNÂˆ™Y‹š[˜[Y]JYYXP]XÚY[Ù\šXÙT›ÝšY\ŠNÂˆ™Y‹œ™XY
-\Õ[›ØÚÙY›ÝšY\‹››ÝYšY\ŠKœÝ]HH˜[ÙNÂ‚ˆYˆ
-ÛÛ^›[Ý[Y
-HÛÛ^™ÛÊ	ËÛÛ˜›Ø\™[™ËÝÙ[ÛÛYIÊNÂˆHØ]Ú
-\œ›ÜŠHÂˆYˆ
-ÛÛ^›[Ý[Y
-HÂˆØØY™›ÛY\ÜÙ[™Ù\‹›ÙŠÛÛ^
-KœÚÝÔÛ˜XÚÐ˜\ŠˆÛ˜XÚÐ˜\ŠÛÛ[ˆ^
-	Ô™\Ù]˜Z[Yˆ	\œ›Ü‰ÊJKˆ
-NÂˆBˆHš[˜[HÂˆYˆ
-[Ý[Y
-HÂˆ™Y‹œ™XY
-\Õ[›ØÚÙY›ÝšY\‹››ÝYšY\ŠKœÝ]HH˜[ÙNÂˆBˆBˆBŸB‚”Ýš[™ÈÛ[™ÝXYÙS˜[YJÝš[™ÈÛÙK\ØØ[^˜][ÛœÈLŠHÂˆÝÚ]Ú
-ÛÙJHÂˆØ\ÙH	ÛZÉÎ‚ˆ™]\›ˆL‹›[™ÝXYÙSXXÙYÛšX[ŽÂˆØ\ÙH	ÜÜIÎ‚ˆ™]\›ˆL‹›[™ÝXYÙP[˜[šX[ŽÂˆØ\ÙH	ÜIÎ‚ˆ™]\›ˆL‹›[™ÝXYÙT\ÜÚX[ŽÂˆY˜][‚ˆ™]\›ˆL‹›[™ÝXYÙQ[™Û\ÚÂˆBŸB‚˜Û\ÜÈÔÙXÝ[Û’XY\ˆ^[™ÈÝ][\ÜÕÚYÙ]ÂˆÛÛœÝÔÙXÝ[Û’XY\Š\Ë]JNÂˆš[˜[Ýš[™È]NÂ‚ˆÝ™\œšYBˆÚYÙ]Z[
-Z[ÛÛ^ÛÛ^
-HÂˆ™]\›ˆY[™ÊˆY[™ÎˆÛÛœÝYÙR[œÙ]Ë™œ›ÛSŠM‹ŒM‹
-KˆÚ[ˆ^
-ˆ]KÕ\\Ø\ÙJ
-KˆÝ[NˆÛÛœÝ^Ý[J›ÛÚ^™NˆL‹ÛÛÜŽˆÝ[\ÛÛÜœË^ÙXÛÛ™\žK]\”ÜXÚ[™ÎˆKŒ
-Kˆ
-Kˆ
-NÂˆBŸB
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final nickname = ref.watch(localNicknameProvider) ?? 'â€”';
+    final screenshotBlockEnabled = ref.watch(screenshotBlockEnabledProvider);
+    final screenPrivacyMode = ref.watch(screenPrivacyModeEnabledProvider);
+    final biometricLockEnabled = ref.watch(biometricLockEnabledProvider);
+
+    return Scaffold(
+      appBar: AppBar(title: Text(l10n.settingsTitle)),
+      body: ListView(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.shield_outlined, color: StellarColors.accentBlue),
+            title: Text(stellarText(context, "Security Center")),
+            subtitle: Text('Score: ${ref.watch(securityScoreProvider)}/100'),
+            trailing: const Icon(Icons.chevron_right, color: StellarColors.textSecondary),
+            onTap: () => context.push('/security'),
+          ),
+          const Divider(color: StellarColors.bgElevated),
+          ListTile(
+            leading: const Icon(
+              Icons.shield_moon_outlined,
+              color: StellarColors.accentBlue,
+            ),
+            title: Text(stellarText(context, "Stellar Security")),
+            subtitle: Text(stellarText(context, "Learn how Stellar protects you")),
+            trailing: const Icon(
+              Icons.chevron_right,
+              color: StellarColors.textSecondary,
+            ),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const StellarSecurityScreen(),
+                ),
+              );
+            },
+          ),
+          const Divider(color: StellarColors.bgElevated),
+
+          ListTile(
+            leading: const Icon(Icons.language, color: StellarColors.accentBlue),
+            title: Text(l10n.language),
+            subtitle: Text(
+              '${l10n.followsDeviceLanguage}: ${_languageName(
+                Localizations.localeOf(context).languageCode,
+                l10n,
+              )}',
+            ),
+          ),
+          _SectionHeader(l10n.accountSection),
+          ListTile(
+            leading: const Icon(Icons.alternate_email, color: StellarColors.accentBlue),
+            title: Text(stellarText(context, "Nickname")),
+            subtitle: Text(nickname),
+          ),
+          ListTile(
+            leading: const Icon(Icons.account_circle_outlined, color: StellarColors.accentBlue),
+            title: Text(stellarText(context, "My Profile")),
+            subtitle: Text(stellarText(context, "View or change your profile photo")),
+            trailing: const Icon(Icons.chevron_right, color: StellarColors.textSecondary),
+            onTap: () {
+              if (nickname == 'â€”' || nickname.trim().isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Your profile is not ready yet.')),
+                );
+                return;
+              }
+              context.push('/profile/${Uri.encodeComponent(nickname.trim())}');
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.qr_code, color: StellarColors.accentBlue),
+            title: Text(stellarText(context, "Safety number / QR")),
+            onTap: () => context.push('/security'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.warning_amber_rounded, color: StellarColors.danger),
+            title: Text(stellarText(context, "Reset Identity"), style: TextStyle(color: StellarColors.danger)),
+            subtitle: Text(stellarText(context, "Invalidates all sessions â€” contacts must re-verify you")),
+            onTap: () => _confirmResetIdentity(context),
+          ),
+
+          ListTile(
+            leading: const Icon(
+              Icons.shield_moon_outlined,
+              color: StellarColors.accentPurple,
+            ),
+            title: Text(stellarText(context, "Stellar GUARD")),
+            subtitle: Text(stellarText(context, "Report accounts; a matching theft report can revoke an account automatically.")),
+            trailing: const Icon(
+              Icons.chevron_right,
+              color: StellarColors.textSecondary,
+            ),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const StellarGuardScreen(),
+                ),
+              );
+            },
+          ),
+
+          _SectionHeader(l10n.privacySection),
+          SwitchListTile(
+            activeColor: StellarColors.accentBlue,
+            title: Text(stellarText(context, "Block screenshots")),
+            subtitle: Text(stellarText(context, "Android: fully blocked. iOS: detected + disclosed (no OS-level prevention exists)")),
+            value: screenshotBlockEnabled,
+            onChanged: (v) => ref.read(screenshotBlockEnabledProvider.notifier).state = v,
+          ),
+          SwitchListTile(
+            activeColor: StellarColors.accentBlue,
+            title: Text(stellarText(context, "Screen privacy mode")),
+            subtitle: Text(stellarText(context, "Blur content when app is backgrounded")),
+            value: screenPrivacyMode,
+            onChanged: (v) => ref.read(screenPrivacyModeEnabledProvider.notifier).state = v,
+          ),
+          ListTile(
+            leading: const Icon(Icons.cloud_off, color: StellarColors.textSecondary),
+            title: Text(stellarText(context, "Cloud backups")),
+            subtitle: Text(stellarText(context, "Off â€” app data is excluded from device backups by design")),
+          ),
+          ListTile(
+            leading: const Icon(Icons.key_outlined, color: StellarColors.accentPurple),
+            title: Text(stellarText(context, 'Account and Story recovery')),
+            subtitle: Text(stellarText(context, 'Create or replace an encrypted recovery file')),
+            trailing: const Icon(Icons.chevron_right, color: StellarColors.textSecondary),
+            onTap: () => context.push('/settings/recovery'),
+          ),
+
+          _SectionHeader(l10n.chatsSection),
+          ListTile(
+            leading: const Icon(Icons.timer_outlined, color: StellarColors.accentPurple),
+            title: Text(stellarText(context, "Default disappearing timer")),
+            subtitle: Text(TtlPreset.label(_defaultTtl)),
+            onTap: () async {
+              final selected = await showModalBottomSheet<int>(
+                context: context,
+                backgroundColor: StellarColors.bgElevated,
+                builder: (_) => TtlPickerSheet(current: _defaultTtl, title: stellarText(context, "Default disappearing timer")),
+              );
+              if (selected != null) setState(() => _defaultTtl = selected);
+            },
+          ),
+
+          _SectionHeader(l10n.appLockSection),
+          SwitchListTile(
+            activeColor: StellarColors.accentBlue,
+            title: Text(stellarText(context, "Biometric / PIN lock")),
+            value: biometricLockEnabled,
+            onChanged: (v) async {
+              final controller = ref.read(appLockControllerProvider);
+
+              if (v) {
+                final enabled = await controller.enableBiometricLock();
+
+                if (!mounted) return;
+
+                if (enabled) {
+                  ref.read(biometricLockEnabledProvider.notifier).state = true;
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(stellarText(context, "Biometric authentication was not enabled.")),
+                    ),
+                  );
+                }
+              } else {
+                final authenticated = await controller.authenticate();
+
+                if (!mounted) return;
+
+                if (!authenticated) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Biometric authentication required to disable the lock.',
+                      ),
+                    ),
+                  );
+                  return;
+                }
+
+                await controller.disableBiometricLock();
+
+                if (!mounted) return;
+
+                ref.read(biometricLockEnabledProvider.notifier).state = false;
+              }
+            },
+          ),
+
+          _SectionHeader(l10n.notificationsSection),
+          if (Platform.isWindows) ...[
+            ListTile(
+              leading: const Icon(Icons.notifications_active_outlined,
+                  color: StellarColors.accentPurple),
+              title: const Text('Windows notification settings'),
+              subtitle: const Text('Allow Stellar ECC notifications in Windows'),
+              onTap: () => unawaited(
+                _openWindowsPrivacySettings('notifications'),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.mic_none,
+                  color: StellarColors.accentPurple),
+              title: const Text('Windows microphone permission'),
+              subtitle: const Text('Allow desktop apps to use the microphone'),
+              onTap: () => unawaited(
+                _openWindowsPrivacySettings('privacy-microphone'),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.videocam_outlined,
+                  color: StellarColors.accentPurple),
+              title: const Text('Windows camera permission'),
+              subtitle: const Text('Allow desktop apps to use the camera'),
+              onTap: () => unawaited(
+                _openWindowsPrivacySettings('privacy-webcam'),
+              ),
+            ),
+          ],
+          if (Platform.isAndroid)
+            SwitchListTile(
+              activeColor: StellarColors.accentPurple,
+              secondary: const Icon(Icons.auto_awesome,
+                  color: StellarColors.accentPurple),
+              title: Text(stellarText(context, "Purple edge lighting")),
+              subtitle: Text(!_edgeSupported
+                  ? 'Requires Android 8 or later'
+                  : !_edgePermissionGranted
+                      ? 'Optional: grant Display over other apps to flash '
+                        'the edges for background/locked-screen messages'
+                      : 'Two gentle purple pulses; lock-screen display '
+                        'depends on Android and device settings'),
+              value: _edgeEnabled,
+              onChanged: _edgeSupported && !_edgeLoading
+                  ? _toggleEdgeLighting : null,
+            ),
+          ListTile(
+            leading: const Icon(
+              Icons.campaign_outlined,
+              color: StellarColors.accentPurple,
+            ),
+            title: Text(stellarText(context, "Broadcasts")),
+            subtitle: Text(stellarText(context, "Announcements and attached files")),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/broadcasts'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.notifications_outlined, color: StellarColors.accentPurple),
+            title: Text(stellarText(context, "Preview level")),
+            subtitle: Text(_notificationPreviewLevelLabel(_notificationPreviewLevel)),
+            onTap: () => _showPreviewLevelPicker(context),
+          ),
+
+          _SectionHeader(l10n.aboutSection),
+          ListTile(
+            leading: const Icon(Icons.security, color: StellarColors.textSecondary),
+            title: Text(stellarText(context, "Security audit checklist")),
+            onTap: () {},
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _notificationPreviewLevelLabel(String level) {
+    switch (level) {
+      case 'full':
+        return 'Full preview';
+      case 'name-only':
+        return 'Sender name only';
+      default:
+        return 'Silent (no preview)';
+    }
+  }
+
+  void _showPreviewLevelPicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: StellarColors.bgElevated,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: ['full', 'name-only', 'silent']
+              .map((level) => RadioListTile<String>(
+                    value: level,
+                    groupValue: _notificationPreviewLevel,
+                    activeColor: StellarColors.accentBlue,
+                    title: Text(_notificationPreviewLevelLabel(level)),
+                    onChanged: (v) {
+                      setState(() => _notificationPreviewLevel = v!);
+                      Navigator.pop(sheetContext);
+                    },
+                  ))
+              .toList(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmResetIdentity(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: StellarColors.bgElevated,
+        title: Text(stellarText(context, "Reset Identity?")),
+        content: const Text(
+          'This removes local messages, sessions, identity data, PIN settings, '
+          'and local media. Your contacts will need to verify your new identity. '
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(stellarText(context, "Cancel")),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text(
+              'Reset',
+              style: TextStyle(color: StellarColors.danger),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      final db = ref.read(databaseProvider);
+      final keyStore = ref.read(platformKeyStoreProvider);
+
+      await ref.read(localNicknameProvider.notifier).clear();
+      await db.clearAllLocalData();
+
+      final support = await getApplicationSupportDirectory();
+      for (final name in <String>['media', 'profile_photos']) {
+        final directory = Directory('${support.path}/$name');
+        if (await directory.exists()) {
+          await directory.delete(recursive: true);
+        }
+      }
+
+      await keyStore.wipeAllExceptDatabaseKey();
+
+      ref.invalidate(chatRepositoryProvider);
+      ref.invalidate(groupCryptoProvider);
+      ref.invalidate(sessionManagerProvider);
+      ref.invalidate(identityKeyStoreProvider);
+      ref.invalidate(profilePhotoSyncServiceProvider);
+      ref.invalidate(profilePhotoServiceProvider);
+      ref.invalidate(mediaAttachmentServiceProvider);
+      ref.read(isUnlockedProvider.notifier).state = false;
+
+      if (context.mounted) context.go('/onboarding/welcome');
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Reset failed: $error')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        ref.read(isUnlockedProvider.notifier).state = false;
+      }
+    }
+  }
+}
+
+String _languageName(String code, AppLocalizations l10n) {
+  switch (code) {
+    case 'mk':
+      return l10n.languageMacedonian;
+    case 'sq':
+      return l10n.languageAlbanian;
+    case 'ru':
+      return l10n.languageRussian;
+    default:
+      return l10n.languageEnglish;
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.title);
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+      child: Text(
+        title.toUpperCase(),
+        style: const TextStyle(fontSize: 12, color: StellarColors.textSecondary, letterSpacing: 1.0),
+      ),
+    );
+  }
+}
