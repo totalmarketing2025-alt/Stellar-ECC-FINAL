@@ -168,6 +168,7 @@ class _AppLockSetupScreenState extends ConsumerState<AppLockSetupScreen> {
           ),
         ),
       ),
+      ),
     );
   }
 }

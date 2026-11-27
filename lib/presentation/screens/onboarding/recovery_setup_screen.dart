@@ -175,6 +175,7 @@ class _RecoverySetupScreenState extends ConsumerState<RecoverySetupScreen> {
           ),
         ),
       ),
+      ),
     );
   }
 }
