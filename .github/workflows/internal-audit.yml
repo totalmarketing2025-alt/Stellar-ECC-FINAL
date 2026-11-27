@@ -2,9 +2,9 @@ name: Internal Audit
 
 on:
   push:
-    branches: [main]
+    branches: [main, windows-platform-implementation]
   pull_request:
-    branches: [main]
+    branches: [main, windows-platform-implementation]
   workflow_dispatch:
 
 jobs:

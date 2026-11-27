@@ -1,6 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
+
+import '../windows/windows_call_audio_service.dart';
+import '../windows/windows_notification_service.dart';
 
 class CallPlatformAction {
   const CallPlatformAction({
@@ -39,6 +43,10 @@ class CallPlatformBridge {
       <CallPlatformAction>[];
 
   Future<void> _initialize() async {
+    if (Platform.isWindows) {
+      _initialized = true;
+      return;
+    }
     CallPlatformAction? pendingAction;
 
     try {
@@ -137,7 +145,7 @@ class CallPlatformBridge {
   }
 
   Future<bool> setCallActive(String callId) async {
-    if (callId.isEmpty) {
+    if (callId.isEmpty || Platform.isWindows) {
       return false;
     }
 
@@ -157,7 +165,7 @@ class CallPlatformBridge {
   }
 
   Future<bool> setCallEnded(String callId) async {
-    if (callId.isEmpty) {
+    if (callId.isEmpty || Platform.isWindows) {
       return false;
     }
 
@@ -178,6 +186,10 @@ class CallPlatformBridge {
 
   Future<void> startOutgoingRingback(String callId) async {
     if (callId.isEmpty) return;
+    if (Platform.isWindows) {
+      await WindowsCallAudioService.instance.startOutgoingRingback(callId);
+      return;
+    }
     try {
       await _channel.invokeMethod<void>(
         'startOutgoingRingback',
@@ -193,7 +205,9 @@ class CallPlatformBridge {
     required String remoteNickname,
     required String kind,
   }) async {
-    if (callId.isEmpty || remoteNickname.trim().isEmpty) return false;
+    if (callId.isEmpty || remoteNickname.trim().isEmpty || Platform.isWindows) {
+      return false;
+    }
     try {
       final result = await _channel.invokeMethod<bool>(
         'startOutgoingCallForeground',
@@ -211,7 +225,7 @@ class CallPlatformBridge {
   }
 
   Future<bool> stopOutgoingCallForeground(String callId) async {
-    if (callId.isEmpty) return false;
+    if (callId.isEmpty || Platform.isWindows) return false;
     try {
       final result = await _channel.invokeMethod<bool>(
         'stopOutgoingCallForeground',
@@ -226,6 +240,10 @@ class CallPlatformBridge {
 
   Future<void> stopCallRingtone(String callId) async {
     if (callId.isEmpty) return;
+    if (Platform.isWindows) {
+      await WindowsCallAudioService.instance.stop(callId);
+      return;
+    }
     try {
       await _channel.invokeMethod<void>(
         'stopCallRingtone',
@@ -234,6 +252,16 @@ class CallPlatformBridge {
     } catch (error) {
       print('CALL_STOP_RINGTONE_FAILED: $error');
     }
+  }
+
+  Future<void> startIncomingRingtone(String callId) async {
+    if (!Platform.isWindows || callId.isEmpty) return;
+    await WindowsCallAudioService.instance.startIncomingRingtone(callId);
+  }
+
+  Future<void> showIncomingCallNotification({required bool video}) async {
+    if (!Platform.isWindows) return;
+    await WindowsNotificationService.instance.showIncomingCall(video: video);
   }
 
   Future<void> dispose() async {

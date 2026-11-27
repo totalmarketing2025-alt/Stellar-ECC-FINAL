@@ -7,6 +7,7 @@ on:
       - 'block6-*'
       - 'fix/notification-call-actions-20261112'
       - 'fix/push-notification-dedup-final-20261117'
+      - 'windows-platform-implementation'
   workflow_dispatch:
 
 jobs:

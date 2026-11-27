@@ -142,7 +142,7 @@ Future<void> _initializeOptionalStartupServices(
   try {
     if (await _hasPendingNativeWipe()) return;
 
-    if (firebaseAvailable) {
+    if (firebaseAvailable && !Platform.isWindows) {
       try {
         final pushHandler = PushHandler(
           relayClient: container.read(relayClientProvider),
@@ -229,7 +229,9 @@ Future<void> main() async {
   // setup and stale temporary-file cleanup do not add their durations to the
   // encrypted database open time.
   final cleanupStoriesFuture = _cleanupStoryFiles();
-  final firebaseFuture = _initializeFirebase();
+  final firebaseFuture = Platform.isWindows
+      ? Future<bool>.value(false)
+      : _initializeFirebase();
   final databaseFuture = StellarDatabase.open();
   final database = await databaseFuture;
   final firebaseAvailable = await firebaseFuture;
@@ -386,7 +388,7 @@ Future<void> main() async {
     return;
   }
 
-  if (firebaseAvailable) {
+  if (firebaseAvailable && !Platform.isWindows) {
     FirebaseMessaging.onBackgroundMessage(
       firebaseMessagingBackgroundHandler,
     );

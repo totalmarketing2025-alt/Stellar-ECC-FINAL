@@ -45,6 +45,10 @@ class PushHandler {
   }
 
   Future<void> initialize() async {
+    // Firebase Messaging has no Windows implementation. Windows receives
+    // messages through the authenticated relay while Stellar is running.
+    if (Platform.isWindows) return;
+
     // Android notification permission is requested together with the
     // other startup permissions by MainActivity. Keep this request for iOS.
     if (!Platform.isAndroid) {
@@ -71,10 +75,12 @@ class PushHandler {
   }
 
   Future<void> registerCurrentToken() async {
+    if (Platform.isWindows) return;
     await _registerCurrentTokenWithRetry();
   }
 
   Future<void> _registerCurrentTokenWithRetry() async {
+    if (Platform.isWindows) return;
     Object? lastError;
     StackTrace? lastStack;
 
