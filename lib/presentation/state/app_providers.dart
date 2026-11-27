@@ -365,7 +365,10 @@ class LocalNicknameController extends StateNotifier<String?> {
     final value = await _keyStore.readSecret(_storageKey);
     state = value == null ? null : String.fromCharCodes(value);
     if (state != null && state!.isNotEmpty) {
-      await _relayClient.connect(peer: state!);
+      // Restoring the local identity is enough to continue to the unlock
+      // screen. A network handshake must not hold the cold-start route open.
+      // RelayClient owns its reconnect/backoff loop when the connection fails.
+      unawaited(_relayClient.connect(peer: state!).catchError((_) {}));
     }
   }
 

@@ -34,8 +34,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     await ref.read(localNicknameProvider.notifier).load();
     final nickname = ref.read(localNicknameProvider);
 
-    await Future.delayed(const Duration(milliseconds: 700));
-
     if (!mounted) return;
 
     if (nickname == null) {

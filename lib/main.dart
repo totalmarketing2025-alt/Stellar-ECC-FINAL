@@ -58,6 +58,161 @@ Future<void> _wipeLocalFilesAndKeys() async {
   await PlatformKeyStore().wipeAll();
 }
 
+Future<void> _cleanupStoryFiles() async {
+  try {
+    await cleanupStoryTemporaryFiles();
+  } on FileSystemException catch (error, stackTrace) {
+    developer.log(
+      'Could not remove a leftover Story video during startup.',
+      name: 'stellar_ecc.stories',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+}
+
+Future<bool> _initializeFirebase() async {
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    return true;
+  } catch (error, stackTrace) {
+    // Missing/placeholder Firebase configuration must not block local use.
+    developer.log(
+      'Firebase init failed — continuing without push notifications. '
+      'Run `flutterfire configure` against a real project to enable this.',
+      name: 'stellar_ecc.startup',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    return false;
+  }
+}
+
+Future<void> _synchronizeSignalBundleInBackground(
+  ProviderContainer container,
+  String nickname,
+) async {
+  try {
+    if (await _hasPendingNativeWipe()) return;
+
+    final sessionManager = container.read(sessionManagerProvider);
+    final directoryClient = container.read(directoryClientProvider);
+    await sessionManager.ensureMinimumPreKeys();
+
+    if (await _hasPendingNativeWipe()) return;
+
+    final bundle = await sessionManager.buildLocalDirectoryBundle();
+    if (await _hasPendingNativeWipe()) return;
+
+    try {
+      await directoryClient.updateBundle(
+        nickname: nickname,
+        preKeyBundle: bundle,
+      );
+    } catch (error) {
+      // No startup auto-registration. The onboarding flow alone may create a
+      // new account after identity verification.
+      developer.log(
+        'Directory bundle update skipped: $error',
+        name: 'stellar_ecc.directory',
+      );
+      return;
+    }
+
+    developer.log(
+      'Background Signal bundle synchronization completed.',
+      name: 'stellar_ecc.directory',
+    );
+  } catch (error, stackTrace) {
+    developer.log(
+      'Background Signal bundle synchronization failed.',
+      name: 'stellar_ecc.directory',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+}
+
+Future<void> _initializeOptionalStartupServices(
+  ProviderContainer container,
+  bool firebaseAvailable,
+) async {
+  try {
+    if (await _hasPendingNativeWipe()) return;
+
+    if (firebaseAvailable) {
+      try {
+        final pushHandler = PushHandler(
+          relayClient: container.read(relayClientProvider),
+          messaging: FirebaseMessaging.instance,
+          directoryClient: container.read(directoryClientProvider),
+          sessionManager: container.read(sessionManagerProvider),
+          getLocalNickname: () async {
+            final bytes = await container
+                .read(platformKeyStoreProvider)
+                .readSecret('stellar.local_nickname');
+            return bytes == null ? null : String.fromCharCodes(bytes);
+          },
+        );
+        await pushHandler.initialize();
+
+        container.read(localNicknameProvider.notifier).addListener((nickname) {
+          if (nickname != null && nickname.isNotEmpty) {
+            pushHandler.registerCurrentToken().catchError((error, stack) {
+              developer.log(
+                'Push token registration failed after nickname restore.',
+                name: 'stellar_ecc.push',
+                error: error,
+                stackTrace: stack,
+              );
+            });
+          }
+        });
+      } catch (error, stackTrace) {
+        developer.log(
+          'Push handler init failed — continuing without push notifications.',
+          name: 'stellar_ecc.startup',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+
+    if (Platform.isAndroid && !await _hasPendingNativeWipe()) {
+      try {
+        await _wantedWipeChannel.invokeMethod('requestStartupPermissions');
+      } catch (error, stackTrace) {
+        developer.log(
+          'Startup permission request failed; continuing without blocking app.',
+          name: 'stellar_ecc.startup',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+
+      try {
+        await _wantedWipeChannel.invokeMethod('requestFullScreenCallAccess');
+      } catch (error, stackTrace) {
+        developer.log(
+          'Full-screen call access request failed; continuing.',
+          name: 'stellar_ecc.startup',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+  } catch (error, stackTrace) {
+    developer.log(
+      'Optional startup services failed; app remains available.',
+      name: 'stellar_ecc.startup',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -70,48 +225,15 @@ Future<void> main() async {
     return;
   }
 
-  // Clear any decrypted Story video left by a previous force-stop or crash.
-  try {
-    await cleanupStoryTemporaryFiles();
-  } on FileSystemException catch (error, stackTrace) {
-    developer.log(
-      'Could not remove a leftover Story video during startup.',
-      name: 'stellar_ecc.stories',
-      error: error,
-      stackTrace: stackTrace,
-    );
-  }
-
-  // Push notifications: FCM (Android) / APNs bridge (iOS). Payloads are
-  // opaque wake pings only — see core/network/push_handler.dart.
-  //
-  // Wrapped in try/catch deliberately: with the placeholder
-  // google-services.json / GoogleService-Info.plist checked in (see
-  // app/firebase_options.dart's comment), Firebase.initializeApp() or the
-  // token-fetch inside PushHandler can throw against a project that
-  // doesn't really exist. That's expected until you run
-  // `flutterfire configure` for real — it should degrade to "push
-  // notifications don't work yet," not "app won't launch."
-  var firebaseAvailable = true;
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-  } catch (e, st) {
-    firebaseAvailable = false;
-    developer.log(
-      'Firebase init failed — continuing without push notifications. '
-      'Run `flutterfire configure` against a real project to enable this.',
-      name: 'stellar_ecc.startup',
-      error: e,
-      stackTrace: st,
-    );
-  }
-
-  // Open (or create) the ephemeral, TTL-bounded, encrypted-at-rest message
-  // database. Encryption key itself is wrapped via platform Keystore /
-  // Secure Enclave — see core/security/platform_key_store.dart.
-  final database = await StellarDatabase.open();
+  // These startup tasks are independent. Start them together so Firebase
+  // setup and stale temporary-file cleanup do not add their durations to the
+  // encrypted database open time.
+  final cleanupStoriesFuture = _cleanupStoryFiles();
+  final firebaseFuture = _initializeFirebase();
+  final databaseFuture = StellarDatabase.open();
+  final database = await databaseFuture;
+  final firebaseAvailable = await firebaseFuture;
+  await cleanupStoriesFuture;
 
   // Background + foreground TTL sweeper — enforces "messages disappear"
   // at the app layer, independent of the OS scheduler's exact timing.
@@ -244,43 +366,9 @@ Future<void> main() async {
           await container.read(wantedModeControllerProvider).wipeAndLock();
         }
       } else {
-      final wipePendingBeforeDirectorySync =
-          await _hasPendingNativeWipe();
-
-      if (!wipePendingBeforeDirectorySync) {
-        final sessionManager = container.read(sessionManagerProvider);
-        final directoryClient = container.read(directoryClientProvider);
-
-        await sessionManager.ensureMinimumPreKeys();
-
-        final wipePendingAfterPreKeys = await _hasPendingNativeWipe();
-
-        if (!wipePendingAfterPreKeys) {
-          final bundle = await sessionManager.buildLocalDirectoryBundle();
-
-          final wipePendingBeforeUpdate = await _hasPendingNativeWipe();
-
-          if (!wipePendingBeforeUpdate) {
-            try {
-              await directoryClient.updateBundle(
-                nickname: nickname,
-                preKeyBundle: bundle,
-              );
-            } catch (e) {
-              final text = e.toString();
-              // No startup auto-registration. The onboarding flow alone may
-              // create a new account after identity verification.
-              developer.log('Directory bundle update skipped: $text',
-                  name: 'stellar_ecc.directory');
-            }
-
-            developer.log(
-              'Startup Signal bundle synchronization completed.',
-              name: 'stellar_ecc.directory',
-            );
-          }
-        }
-      }
+        // Prekey replenishment and Directory I/O are not needed to show the
+        // local unlock screen. Run them after launch instead of delaying it.
+        unawaited(_synchronizeSignalBundleInBackground(container, nickname));
       }
     }
   } catch (e, st) {
@@ -298,76 +386,10 @@ Future<void> main() async {
     return;
   }
 
-  // Request Android runtime permissions once, after all wipe guards.
-  if (Platform.isAndroid) {
-    try {
-      await _wantedWipeChannel.invokeMethod('requestStartupPermissions');
-    } catch (e, st) {
-      developer.log(
-        'Startup permission request failed; continuing without blocking app.',
-        name: 'stellar_ecc.startup',
-        error: e,
-        stackTrace: st,
-      );
-    }
-  }
-
   if (firebaseAvailable) {
     FirebaseMessaging.onBackgroundMessage(
       firebaseMessagingBackgroundHandler,
     );
-
-    try {
-      final pushHandler = PushHandler(
-        relayClient: container.read(relayClientProvider),
-        messaging: FirebaseMessaging.instance,
-        directoryClient: container.read(directoryClientProvider),
-        sessionManager: container.read(sessionManagerProvider),
-        getLocalNickname: () async {
-          final bytes = await container
-              .read(platformKeyStoreProvider)
-              .readSecret('stellar.local_nickname');
-          return bytes == null ? null : String.fromCharCodes(bytes);
-        },
-      );
-      await pushHandler.initialize();
-
-      container.read(localNicknameProvider.notifier).addListener((nickname) {
-        if (nickname != null && nickname.isNotEmpty) {
-          pushHandler.registerCurrentToken().catchError((error, stack) {
-            developer.log(
-              'Push token registration failed after nickname restore.',
-              name: 'stellar_ecc.push',
-              error: error,
-              stackTrace: stack,
-            );
-          });
-        }
-      });
-    } catch (e, st) {
-      // Same reasoning as above — a placeholder Firebase project or no
-      // network at startup shouldn't block the app from opening.
-      developer.log(
-        'Push handler init failed — continuing without push notifications.',
-        name: 'stellar_ecc.startup',
-        error: e,
-        stackTrace: st,
-      );
-    }
-  }
-
-  // Android 14+ requires separate special access for full-screen call UI.
-  if (Platform.isAndroid) {
-    try {
-      await _wantedWipeChannel.invokeMethod('requestFullScreenCallAccess');
-    } catch (e, st) {
-      developer.log(
-        'Full-screen call access request failed; continuing.',
-        name: 'stellar_ecc.startup',
-        error: e,
-        stackTrace: st,
-      );
-    }
   }
 
   // The live Relay endpoint is configured in
@@ -382,4 +404,10 @@ Future<void> main() async {
       child: const StellarEccApp(),
     ),
   );
+
+  // Token setup and system dialogs are useful, but neither should delay the
+  // first rendered screen on Android or Windows.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(_initializeOptionalStartupServices(container, firebaseAvailable));
+  });
 }
