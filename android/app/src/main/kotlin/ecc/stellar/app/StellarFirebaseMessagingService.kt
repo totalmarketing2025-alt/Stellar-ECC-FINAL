@@ -39,16 +39,16 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
         }
 
         if (data["wake"] == "1") {
-            // Each server wake is stable across FCM retries and gets its own
-            // grouped notification entry; sync handles encrypted delivery.
-            showGenericMessageNotification(
-                data["wakeId"] ?: remoteMessage.messageId,
-            )
+            // The wake only starts authenticated sync. Flutter decrypts the
+            // queued envelope and posts one notification for an actual chat
+            // message; receipts and control envelopes stay silent.
             scheduleBackgroundMessageSync()
             return
         }
 
-        showGenericMessageNotification(remoteMessage.messageId)
+        // Older data-only wake payloads also need authenticated sync. Avoid a
+        // generic notification here because we cannot identify its message.
+        scheduleBackgroundMessageSync()
     }
 
     private fun scheduleBackgroundMessageSync() {
@@ -119,21 +119,6 @@ class StellarFirebaseMessagingService : FirebaseMessagingService() {
                 "Telecom incoming call failed for $callId",
                 error
             )
-        }
-    }
-
-    private fun showGenericMessageNotification(wakeId: String?) {
-        StellarMessageNotifications.show(
-            this,
-            wakeId ?: java.util.UUID.randomUUID().toString(),
-        )
-
-        // Optional two-pulse purple edge light. The notification above
-        // always remains available when Android disallows overlays.
-        try {
-            StellarEdgeLighting.showForMessage(applicationContext)
-        } catch (error: Throwable) {
-            Log.w("StellarEdge", "Purple edge unavailable; keeping notification", error)
         }
     }
 

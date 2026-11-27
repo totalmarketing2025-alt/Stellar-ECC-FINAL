@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -258,17 +259,23 @@ Future<void> stellarPushBackgroundMain() async {
                 rawEnvelope: bytes,
               );
 
-              await chatRepository
+              final receivedMessage = await chatRepository
                   .receiveDecryptedEnvelope(
                 decrypted: decrypted,
               );
 
-              // Call signaling is transport-only and is handled by the
-              // native FirebaseMessagingService / Telecom path.
-              // A Signal-decrypted envelope is always a normal chat
-              // message and must never be interpreted as a call signal.
-              // The native FCM service already displays the
-              // generic notification. Do not display it again here.
+              // Only a stored chat message returns a Message; receipts and
+              // other encrypted control envelopes return null. The stable
+              // envelope token makes notification retries idempotent.
+              if (receivedMessage != null && Platform.isAndroid) {
+                final notificationKey = envelope.deliveryToken
+                    .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+                    .join();
+                await backgroundChannel.invokeMethod<bool>(
+                  'showMessageNotification',
+                  notificationKey,
+                );
+              }
 
               developer.log(
                 'Background envelope application processing completed.',

@@ -16,19 +16,31 @@ void main() {
     'StellarMessageNotifications.kt',
   ).readAsStringSync();
 
-  test('distinct FCM wakes keep separate grouped notifications', () {
-    expect(service, contains('data["wakeId"]'));
-    expect(service, contains('StellarMessageNotifications.show('));
-    expect(helper, contains('manager.notify(notificationTag(wakeId)'));
-    expect(helper, contains('.setGroup(GROUP_KEY)'));
-    expect(helper, contains('.setGroupSummary(true)'));
-    expect(helper, contains('POST_NOTIFICATIONS'));
+  final backgroundHandler = File(
+    'lib/core/network/push_background_handler.dart',
+  ).readAsStringSync();
+
+  test('FCM wakes sync first and do not post generic duplicate alerts', () {
     expect(service, contains('scheduleBackgroundMessageSync()'));
+    expect(service, isNot(contains('StellarMessageNotifications.show(')));
+    expect(service, isNot(contains('showGenericMessageNotification')));
+    expect(helper, contains('manager.notify(notificationTag(messageKey), 0'));
+    expect(helper.split('.notify(').length - 1, 1);
+    expect(helper, isNot(contains('.setGroupSummary(true)')));
+    expect(helper, contains('POST_NOTIFICATIONS'));
   });
 
-  test('headless notifications use the same deduplicating notification helper', () {
+  test('only decrypted chat messages post one idempotent local alert', () {
+    expect(backgroundHandler, contains('receivedMessage != null'));
+    expect(backgroundHandler, contains('Platform.isAndroid'));
+    expect(backgroundHandler, contains("'showMessageNotification'"));
+    expect(backgroundHandler, contains('envelope.deliveryToken'));
+    expect(
+      runner,
+      contains('StellarMessageNotifications.show(context, messageKey)'),
+    );
     expect(runner, contains('StellarMessageNotifications.show('));
-    expect(runner, isNot(contains('MESSAGE_ID_BASE')));
+    expect(runner, contains('call.arguments as? String'));
   });
 
   test('call push stays on separate call notification path', () {

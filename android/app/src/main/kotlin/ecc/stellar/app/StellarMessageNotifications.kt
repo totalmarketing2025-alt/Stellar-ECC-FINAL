@@ -11,16 +11,12 @@ import android.graphics.Color
 import android.os.Build
 import android.util.Log
 
-/** Posts private, grouped message alerts without replacing earlier messages. */
+/** Posts one private notification for a newly received message. */
 object StellarMessageNotifications {
 
     private const val CHANNEL_ID = "stellar_messages"
-    private const val GROUP_KEY = "ecc.stellar.app.MESSAGE_NOTIFICATIONS"
-    private const val CHILD_NOTIFICATION_ID = 0
-    private const val SUMMARY_NOTIFICATION_ID = 1001
-    private const val SUMMARY_TAG = "stellar.message.summary"
 
-    fun show(context: Context, wakeId: String) {
+    fun show(context: Context, messageKey: String) {
         val appContext = context.applicationContext
         val manager = appContext.getSystemService(Context.NOTIFICATION_SERVICE)
             as NotificationManager
@@ -58,23 +54,12 @@ object StellarMessageNotifications {
         }
 
         val notification = baseBuilder(appContext, pending)
-            .setGroup(GROUP_KEY)
-            .setGroupAlertBehavior(Notification.GROUP_ALERT_CHILDREN)
             .setOnlyAlertOnce(true)
             .build()
 
-        // A unique server wake ID makes retries idempotent while keeping
-        // notifications for distinct messages visible at the same time.
-        manager.notify(notificationTag(wakeId), CHILD_NOTIFICATION_ID, notification)
-
-        val summary = baseBuilder(appContext, pending)
-            .setContentText(appContext.getString(R.string.notification_new_messages))
-            .setGroup(GROUP_KEY)
-            .setGroupSummary(true)
-            .setGroupAlertBehavior(Notification.GROUP_ALERT_CHILDREN)
-            .setOnlyAlertOnce(true)
-            .build()
-        manager.notify(SUMMARY_TAG, SUMMARY_NOTIFICATION_ID, summary)
+        // Use the envelope delivery token as the key: FCM/work retries for
+        // this message update the same notification instead of adding copies.
+        manager.notify(notificationTag(messageKey), 0, notification)
     }
 
     private fun baseBuilder(
@@ -99,8 +84,8 @@ object StellarMessageNotifications {
         return builder
     }
 
-    private fun notificationTag(wakeId: String): String {
-        val safeId = wakeId.filter { it.isLetterOrDigit() || it == '-' || it == '_' }
+    private fun notificationTag(messageKey: String): String {
+        val safeId = messageKey.filter { it.isLetterOrDigit() || it == '-' || it == '_' }
             .take(80)
             .ifEmpty { "unknown" }
         return "stellar.message.$safeId"

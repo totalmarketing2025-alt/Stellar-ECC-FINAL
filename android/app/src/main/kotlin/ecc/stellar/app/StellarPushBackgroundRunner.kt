@@ -19,12 +19,9 @@ object StellarPushBackgroundRunner {
 
     private val engineLock = Any()
 
-    private fun showMessageNotification(context: Context) {
+    private fun showMessageNotification(context: Context, messageKey: String) {
         try {
-            StellarMessageNotifications.show(
-                context,
-                java.util.UUID.randomUUID().toString(),
-            )
+            StellarMessageNotifications.show(context, messageKey)
             Log.d(
                 "StellarFCM",
                 "Background local message notification shown"
@@ -77,8 +74,17 @@ object StellarPushBackgroundRunner {
 
                     channel.setMethodCallHandler { call, result ->
                         if (call.method == "showMessageNotification") {
-                            showMessageNotification(context)
-                            result.success(true)
+                            val messageKey = call.arguments as? String
+                            if (messageKey.isNullOrBlank()) {
+                                result.error(
+                                    "INVALID_MESSAGE_KEY",
+                                    "Missing message key",
+                                    null,
+                                )
+                            } else {
+                                showMessageNotification(context, messageKey)
+                                result.success(true)
+                            }
                         } else if (call.method == "hasPendingLocalWipe") {
                             result.success(
                                 WantedModeWipeState.hasPending(context)
